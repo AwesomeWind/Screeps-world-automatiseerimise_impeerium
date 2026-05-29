@@ -1,0 +1,11 @@
+module.exports = {
+    HARVEST: 'HARVEST',
+    TRANSFER: 'TRANSFER',
+    WITHDRAW: 'WITHDRAW',
+    PICKUP: 'PICKUP',
+    BUILD: 'BUILD',
+    UPGRADE: 'UPGRADE',
+    ATTACK: 'ATTACK',
+    RESERVE: 'RESERVE',
+    MOVE_TO: 'MOVE_TO'
+};
