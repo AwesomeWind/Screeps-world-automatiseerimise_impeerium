@@ -39,11 +39,16 @@ const MemoryConfig = {
     },
 
     baseCenter(room) {
-        const configured = this.room(room.name).baseCenter;
+        const roomMemory = this.room(room.name);
+        const configured = roomMemory.baseCenter;
         if (configured) return new RoomPosition(configured.x, configured.y, room.name);
-        if (room.storage) return room.storage.pos;
-        if (room.find(FIND_MY_SPAWNS).length > 0) return room.find(FIND_MY_SPAWNS)[0].pos;
-        return room.controller ? room.controller.pos : null;
+
+        const spawns = room.find(FIND_MY_SPAWNS);
+        const center = spawns.length > 0 ? spawns[0].pos : (room.storage ? room.storage.pos : (room.controller ? room.controller.pos : null));
+        if (!center) return null;
+
+        roomMemory.baseCenter = { x: center.x, y: center.y, roomName: room.name };
+        return new RoomPosition(center.x, center.y, room.name);
     }
 };
 

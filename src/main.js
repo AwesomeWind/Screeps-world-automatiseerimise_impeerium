@@ -14,12 +14,13 @@ import RemoteMiningService from './services/RemoteMiningService.js';
 import MinerStrategyService from './strategies/MinerStrategyService.js';
 import BuilderStrategyService from './strategies/BuilderStrategyService.js';
 import HaulerStrategyService from './strategies/HaulerStrategyService.js';
+import UpgraderStrategyService from './strategies/UpgraderStrategyService.js';
 import DefenderStrategyService from './strategies/DefenderStrategyService.js';
 
 import CityPlannerService from './planning/CityPlannerService.js';
 import RoadPlannerService from './planning/RoadPlannerService.js';
 
-const SERVICE_VERSION = 3;
+const SERVICE_VERSION = 4;
 
 function createServices() {
     EventBus.clearSubscribers();
@@ -31,6 +32,7 @@ function createServices() {
         new MinerStrategyService('MinerStrategy'),
         new BuilderStrategyService('BuilderStrategy'),
         new HaulerStrategyService('HaulerStrategy'),
+        new UpgraderStrategyService('UpgraderStrategy'),
         new DefenderStrategyService('DefenderStrategy'),
         new TowerDefenseService('TowerDefense'),
         new CityPlannerService('CityPlanner'),
