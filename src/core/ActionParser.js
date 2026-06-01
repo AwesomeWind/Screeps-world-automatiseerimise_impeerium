@@ -1,4 +1,4 @@
-const TaskTypes = require('core/TaskTypes');
+import TaskTypes from './TaskTypes.js';
 
 function clearTask(creep) {
     creep.memory.task = null;
@@ -36,7 +36,7 @@ const ActionParser = {
         switch (task.type) {
             case TaskTypes.HARVEST:
                 result = creep.harvest(target);
-                if (result === ERR_NOT_ENOUGH_RESOURCES) clearTask(creep);
+                if (result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_FULL || result === OK) clearTask(creep);
                 break;
             case TaskTypes.TRANSFER:
                 result = creep.transfer(target, task.resourceType || RESOURCE_ENERGY, task.amount);
@@ -86,4 +86,4 @@ const ActionParser = {
     }
 };
 
-module.exports = ActionParser;
+export default ActionParser;

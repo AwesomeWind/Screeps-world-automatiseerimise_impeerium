@@ -72,4 +72,4 @@ if (!global.EventBusInstance) {
     global.EventBusInstance = new EventBus();
 }
 
-module.exports = global.EventBusInstance;
+export default global.EventBusInstance;

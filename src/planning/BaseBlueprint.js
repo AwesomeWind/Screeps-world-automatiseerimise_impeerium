@@ -32,7 +32,9 @@ function parseBlueprint(layout, centerX, centerY) {
     return blueprint;
 }
 
-module.exports = {
+const parsedCoreBlueprint = parseBlueprint(CoreLayout, 3, 3);
+
+export {
     CoreLayout,
-    parsedCoreBlueprint: parseBlueprint(CoreLayout, 3, 3)
+    parsedCoreBlueprint
 };

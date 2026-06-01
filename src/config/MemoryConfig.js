@@ -47,4 +47,4 @@ const MemoryConfig = {
     }
 };
 
-module.exports = MemoryConfig;
+export default MemoryConfig;

@@ -1,6 +1,6 @@
-const BaseService = require('core/BaseService');
-const EventBus = require('core/EventBus');
-const MemoryConfig = require('config/MemoryConfig');
+import BaseService from '../core/BaseService.js';
+import EventBus from '../core/EventBus.js';
+import MemoryConfig from '../config/MemoryConfig.js';
 
 class LabService extends BaseService {
     analyze() {
@@ -99,4 +99,4 @@ class LabService extends BaseService {
     }
 }
 
-module.exports = LabService;
+export default LabService;

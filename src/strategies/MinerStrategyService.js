@@ -1,6 +1,6 @@
-const BaseService = require('core/BaseService');
-const EventBus = require('core/EventBus');
-const TaskTypes = require('core/TaskTypes');
+import BaseService from '../core/BaseService.js';
+import EventBus from '../core/EventBus.js';
+import TaskTypes from '../core/TaskTypes.js';
 
 class MinerStrategyService extends BaseService {
     init() {
@@ -48,6 +48,19 @@ class MinerStrategyService extends BaseService {
             this.assignRoomMove(creep);
             return;
         }
+
+        if (creep.store.getFreeCapacity && creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+            const target = this.findEnergyTarget(creep.room);
+            if (target) {
+                creep.memory.task = {
+                    type: TaskTypes.TRANSFER,
+                    targetId: target.id,
+                    resourceType: RESOURCE_ENERGY
+                };
+            }
+            return;
+        }
+
         const sourceId = creep.memory.sourceId || this.pickSource(creep);
         if (!sourceId) return;
         creep.memory.sourceId = sourceId;
@@ -79,6 +92,20 @@ class MinerStrategyService extends BaseService {
         if (!cache || cache.sources.length === 0) return null;
         return cache.sources[creep.name.length % cache.sources.length];
     }
+
+    findEnergyTarget(room) {
+        const targets = room.find(FIND_MY_STRUCTURES, {
+            filter: (structure) => {
+                return (structure.structureType === STRUCTURE_SPAWN ||
+                    structure.structureType === STRUCTURE_EXTENSION ||
+                    structure.structureType === STRUCTURE_TOWER) &&
+                    structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
+            }
+        });
+        if (targets.length > 0) return targets[0];
+        if (room.storage && room.storage.store.getFreeCapacity(RESOURCE_ENERGY) > 0) return room.storage;
+        return null;
+    }
 }
 
-module.exports = MinerStrategyService;
+export default MinerStrategyService;

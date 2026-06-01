@@ -1,6 +1,6 @@
-const BaseService = require('core/BaseService');
-const EventBus = require('core/EventBus');
-const TaskTypes = require('core/TaskTypes');
+import BaseService from '../core/BaseService.js';
+import EventBus from '../core/EventBus.js';
+import TaskTypes from '../core/TaskTypes.js';
 
 class BuilderStrategyService extends BaseService {
     analyze() {
@@ -61,4 +61,4 @@ class BuilderStrategyService extends BaseService {
     }
 }
 
-module.exports = BuilderStrategyService;
+export default BuilderStrategyService;

@@ -1,5 +1,5 @@
-const BaseService = require('core/BaseService');
-const EventBus = require('core/EventBus');
+import BaseService from '../core/BaseService.js';
+import EventBus from '../core/EventBus.js';
 
 class SpawnService extends BaseService {
     constructor(serviceName) {
@@ -60,4 +60,4 @@ class SpawnService extends BaseService {
     }
 }
 
-module.exports = SpawnService;
+export default SpawnService;

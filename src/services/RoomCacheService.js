@@ -1,5 +1,5 @@
-const BaseService = require('core/BaseService');
-const MemoryConfig = require('config/MemoryConfig');
+import BaseService from '../core/BaseService.js';
+import MemoryConfig from '../config/MemoryConfig.js';
 
 class RoomCacheService extends BaseService {
     constructor(serviceName) {
@@ -48,4 +48,4 @@ class RoomCacheService extends BaseService {
     }
 }
 
-module.exports = RoomCacheService;
+export default RoomCacheService;

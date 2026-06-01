@@ -1,6 +1,6 @@
-const BaseService = require('core/BaseService');
-const MemoryConfig = require('config/MemoryConfig');
-const { parsedCoreBlueprint } = require('planning/BaseBlueprint');
+import BaseService from '../core/BaseService.js';
+import MemoryConfig from '../config/MemoryConfig.js';
+import { parsedCoreBlueprint } from './BaseBlueprint.js';
 
 class CityPlannerService extends BaseService {
     analyze() {
@@ -46,4 +46,4 @@ class CityPlannerService extends BaseService {
     }
 }
 
-module.exports = CityPlannerService;
+export default CityPlannerService;

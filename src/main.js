@@ -1,25 +1,25 @@
-const EventBus = require('core/EventBus');
-const MemoryConfig = require('config/MemoryConfig');
-const ActionParser = require('core/ActionParser');
+import EventBus from './core/EventBus.js';
+import MemoryConfig from './config/MemoryConfig.js';
+import ActionParser from './core/ActionParser.js';
 
-const RoomCacheService = require('services/RoomCacheService');
-const SpawnService = require('services/SpawnService');
-const LogisticsService = require('services/LogisticsService');
-const SecurityService = require('services/SecurityService');
-const TowerDefenseService = require('services/TowerDefenseService');
-const LabService = require('services/LabService');
-const MarketService = require('services/MarketService');
-const RemoteMiningService = require('services/RemoteMiningService');
+import RoomCacheService from './services/RoomCacheService.js';
+import SpawnService from './services/SpawnService.js';
+import LogisticsService from './services/LogisticsService.js';
+import SecurityService from './services/SecurityService.js';
+import TowerDefenseService from './services/TowerDefenseService.js';
+import LabService from './services/LabService.js';
+import MarketService from './services/MarketService.js';
+import RemoteMiningService from './services/RemoteMiningService.js';
 
-const MinerStrategyService = require('strategies/MinerStrategyService');
-const BuilderStrategyService = require('strategies/BuilderStrategyService');
-const HaulerStrategyService = require('strategies/HaulerStrategyService');
-const DefenderStrategyService = require('strategies/DefenderStrategyService');
+import MinerStrategyService from './strategies/MinerStrategyService.js';
+import BuilderStrategyService from './strategies/BuilderStrategyService.js';
+import HaulerStrategyService from './strategies/HaulerStrategyService.js';
+import DefenderStrategyService from './strategies/DefenderStrategyService.js';
 
-const CityPlannerService = require('planning/CityPlannerService');
-const RoadPlannerService = require('planning/RoadPlannerService');
+import CityPlannerService from './planning/CityPlannerService.js';
+import RoadPlannerService from './planning/RoadPlannerService.js';
 
-const SERVICE_VERSION = 1;
+const SERVICE_VERSION = 3;
 
 function createServices() {
     EventBus.clearSubscribers();
@@ -61,7 +61,7 @@ function mountMemoryProxy() {
     global.lastMemoryTick = Game.time;
 }
 
-module.exports.loop = function () {
+export function loop() {
     mountMemoryProxy();
     MemoryConfig.ensureDefaults();
 
@@ -77,4 +77,4 @@ module.exports.loop = function () {
     for (const service of services) service.run();
     for (const name in Game.creeps) ActionParser.run(Game.creeps[name]);
     for (const service of services) service.cleanup();
-};
+}

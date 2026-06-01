@@ -1,5 +1,5 @@
-const BaseService = require('core/BaseService');
-const EventBus = require('core/EventBus');
+import BaseService from '../core/BaseService.js';
+import EventBus from '../core/EventBus.js';
 
 class SecurityService extends BaseService {
     constructor(serviceName) {
@@ -45,4 +45,4 @@ class SecurityService extends BaseService {
     }
 }
 
-module.exports = SecurityService;
+export default SecurityService;

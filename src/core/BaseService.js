@@ -16,4 +16,4 @@ class BaseService {
     cleanup() {}
 }
 
-module.exports = BaseService;
+export default BaseService;

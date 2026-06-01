@@ -1,5 +1,5 @@
-const BaseService = require('core/BaseService');
-const TaskTypes = require('core/TaskTypes');
+import BaseService from '../core/BaseService.js';
+import TaskTypes from '../core/TaskTypes.js';
 
 class DefenderStrategyService extends BaseService {
     analyze() {
@@ -25,4 +25,4 @@ class DefenderStrategyService extends BaseService {
     }
 }
 
-module.exports = DefenderStrategyService;
+export default DefenderStrategyService;

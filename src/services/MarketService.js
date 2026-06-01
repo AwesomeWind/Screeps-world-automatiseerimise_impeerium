@@ -1,5 +1,5 @@
-const BaseService = require('core/BaseService');
-const MemoryConfig = require('config/MemoryConfig');
+import BaseService from '../core/BaseService.js';
+import MemoryConfig from '../config/MemoryConfig.js';
 
 class MarketService extends BaseService {
     analyze() {
@@ -37,4 +37,4 @@ class MarketService extends BaseService {
     }
 }
 
-module.exports = MarketService;
+export default MarketService;

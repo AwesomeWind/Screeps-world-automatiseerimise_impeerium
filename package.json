@@ -1,0 +1,38 @@
+{
+  "name": "automatiseerimise_impeerium",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/main.js",
+  "directories": {
+    "test": "src/tests"
+  },
+  "scripts": {
+    "build": "rollup -c",
+    "watch": "rollup -cw",
+    "push": "rollup -c --environment DEST:main",
+    "push:watch": "rollup -cw --environment DEST:main",
+    "local": "rollup -c --environment DEST:local",
+    "local:watch": "rollup -cw --environment DEST:local",
+    "test": "node src/tests/smoke.cjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AwesomeWind/Screeps-world-automatiseerimise_impeerium.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/AwesomeWind/Screeps-world-automatiseerimise_impeerium/issues"
+  },
+  "type": "module",
+  "homepage": "https://github.com/AwesomeWind/Screeps-world-automatiseerimise_impeerium#readme",
+  "devDependencies": {
+    "@types/lodash": "^3.10.1",
+    "@types/screeps": "^3.4.0",
+    "rollup": "^4.60.4",
+    "rollup-plugin-clear": "^2.0.7",
+    "rollup-plugin-copy": "^3.5.0",
+    "rollup-plugin-screeps": "^1.0.1"
+  }
+}

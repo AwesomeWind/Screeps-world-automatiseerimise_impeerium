@@ -1,4 +1,4 @@
-module.exports = {
+export default {
     HARVEST: 'HARVEST',
     TRANSFER: 'TRANSFER',
     WITHDRAW: 'WITHDRAW',

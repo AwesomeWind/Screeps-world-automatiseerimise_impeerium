@@ -1,6 +1,6 @@
-const BaseService = require('core/BaseService');
-const EventBus = require('core/EventBus');
-const TaskTypes = require('core/TaskTypes');
+import BaseService from '../core/BaseService.js';
+import EventBus from '../core/EventBus.js';
+import TaskTypes from '../core/TaskTypes.js';
 
 class LogisticsService extends BaseService {
     constructor(serviceName) {
@@ -75,4 +75,4 @@ class LogisticsService extends BaseService {
     }
 }
 
-module.exports = LogisticsService;
+export default LogisticsService;

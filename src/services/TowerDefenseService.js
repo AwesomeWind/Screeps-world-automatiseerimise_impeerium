@@ -1,4 +1,4 @@
-const BaseService = require('core/BaseService');
+import BaseService from '../core/BaseService.js';
 
 class TowerDefenseService extends BaseService {
     run() {
@@ -46,4 +46,4 @@ class TowerDefenseService extends BaseService {
     }
 }
 
-module.exports = TowerDefenseService;
+export default TowerDefenseService;
