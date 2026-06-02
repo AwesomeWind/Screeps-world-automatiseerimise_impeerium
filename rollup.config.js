@@ -36,6 +36,19 @@ const pluginDeploy = config && config.copyPath
     })
     : screeps({ config, dryRun: !config });
 
+function serviceVersionPlugin() {
+    const serviceVersion = Date.now().toString();
+    return {
+        name: 'service-version',
+        transform(code) {
+            return {
+                code: code.replaceAll('__SERVICE_VERSION__', serviceVersion),
+                map: null
+            };
+        }
+    };
+}
+
 export default {
     input: 'src/main.js',
     output: {
@@ -44,6 +57,7 @@ export default {
         sourcemap: true
     },
     plugins: [
+        serviceVersionPlugin(),
         clear({ targets: ['dist'] }),
         pluginDeploy
     ]

@@ -33,6 +33,8 @@ class MinerStrategyService extends BaseService {
     ensureMiners(roomName) {
         const cache = global.RoomCache && global.RoomCache[roomName];
         if (!cache) return;
+        if (this.shouldWaitForBootstrapHauler(roomName)) return;
+
         const sourceId = this.findUndercoveredSource(roomName, cache.sources);
         if (!sourceId) return;
         const room = Game.rooms[roomName];
@@ -44,6 +46,14 @@ class MinerStrategyService extends BaseService {
             body: bodySpec.body,
             memory: { role: 'miner', homeRoom: roomName, sourceId }
         }, 3);
+    }
+
+    shouldWaitForBootstrapHauler(roomName) {
+        const room = Game.rooms[roomName];
+        if (!room || room.storage) return false;
+        if ((room.energyCapacityAvailable || 0) > 300) return false;
+        if (this.countRole(roomName, 'miner') === 0) return false;
+        return this.countEnergySupportCreeps(roomName) === 0;
     }
 
     findUndercoveredSource(roomName, sourceIds) {
@@ -77,6 +87,16 @@ class MinerStrategyService extends BaseService {
             if (creep.memory.sourceId !== sourceId) continue;
             count++;
         }
+        if (typeof Memory !== 'undefined' && Memory.creeps) {
+            for (const name in Memory.creeps) {
+                if (Game.creeps[name]) continue;
+                const memory = Memory.creeps[name];
+                if (memory.role !== 'miner') continue;
+                if (memory.homeRoom !== roomName) continue;
+                if (memory.sourceId !== sourceId) continue;
+                count++;
+            }
+        }
         return count;
     }
 
@@ -93,9 +113,13 @@ class MinerStrategyService extends BaseService {
         const source = Game.getObjectById(sourceId);
         if (!source) return;
 
+        if (creep.memory.miningPos && this.isPositionDangerous(creep.room, creep.memory.miningPos)) {
+            delete creep.memory.miningPos;
+        }
         if (!creep.memory.miningPos) {
             creep.memory.miningPos = this.pickMiningPos(creep.room, source, creep);
         }
+        if (!creep.memory.miningPos || this.isPositionDangerous(creep.room, creep.memory.miningPos)) return;
         if (creep.memory.miningPos && creep.pos && !creep.pos.inRangeTo(source.pos, 1)) {
             creep.memory.task = {
                 type: TaskTypes.MOVE_TO,
@@ -154,17 +178,52 @@ class MinerStrategyService extends BaseService {
             if (creep.memory.sourceId !== sourceId) continue;
             workParts += this.countBodyParts(creep, WORK);
         }
+        if (typeof Memory !== 'undefined' && Memory.creeps) {
+            for (const name in Memory.creeps) {
+                if (Game.creeps[name]) continue;
+                const memory = Memory.creeps[name];
+                if (memory.role !== 'miner') continue;
+                if (memory.homeRoom !== roomName) continue;
+                if (memory.sourceId !== sourceId) continue;
+                workParts += this.countBodyParts({ body: memory.body }, WORK);
+            }
+        }
         return workParts;
     }
 
     countBodyParts(creep, partType) {
         if (!creep.body) return 1;
-        return creep.body.filter((part) => part.type === partType).length;
+        const count = creep.body.filter((part) => {
+            return part === partType || part.type === partType;
+        }).length;
+        return count || 1;
+    }
+
+    countRole(roomName, role) {
+        let count = 0;
+        for (const name in Game.creeps) {
+            const creep = Game.creeps[name];
+            if (creep.memory.role === role && creep.memory.homeRoom === roomName) count++;
+        }
+        if (typeof Memory !== 'undefined' && Memory.creeps) {
+            for (const name in Memory.creeps) {
+                if (Game.creeps[name]) continue;
+                const memory = Memory.creeps[name];
+                if (memory.role === role && memory.homeRoom === roomName) count++;
+            }
+        }
+        return count;
+    }
+
+    countEnergySupportCreeps(roomName) {
+        return this.countRole(roomName, 'hauler') +
+            this.countRole(roomName, 'upgrader') +
+            this.countRole(roomName, 'builder');
     }
 
     pickMiningPos(room, source, currentCreep) {
         const planned = this.getPlannedMiningPos(room.name, source.id);
-        if (planned) return planned;
+        if (planned && !this.isPositionDangerous(room, planned)) return planned;
 
         const positions = this.getOpenMiningPositions(room, source);
         const occupied = this.getAssignedMiningPosKeys(room.name, source.id, currentCreep);
@@ -210,10 +269,33 @@ class MinerStrategyService extends BaseService {
                 if (x <= 0 || x >= 49 || y <= 0 || y >= 49) continue;
                 if (terrain && terrain.get(x, y) === TERRAIN_MASK_WALL) continue;
                 if (blockers[`${x},${y}`]) continue;
-                positions.push({ x, y, roomName: room.name });
+                const pos = { x, y, roomName: room.name };
+                if (this.isPositionDangerous(room, pos)) continue;
+                positions.push(pos);
             }
         }
         return positions;
+    }
+
+    isPositionDangerous(room, pos) {
+        if (!room || !room.find || !pos) return false;
+        const hostiles = room.find(FIND_HOSTILE_CREEPS);
+        for (const hostile of hostiles) {
+            const range = this.getRange(hostile.pos, pos);
+            if (this.getActiveBodyparts(hostile, ATTACK) > 0 && range <= 1) return true;
+            if (this.getActiveBodyparts(hostile, RANGED_ATTACK) > 0 && range <= 3) return true;
+        }
+        return false;
+    }
+
+    getRange(fromPos, toPos) {
+        if (!fromPos || !toPos) return Infinity;
+        if (fromPos.getRangeTo) return fromPos.getRangeTo(toPos);
+        return Math.max(Math.abs(fromPos.x - toPos.x), Math.abs(fromPos.y - toPos.y));
+    }
+
+    getActiveBodyparts(creep, partType) {
+        return creep.getActiveBodyparts ? creep.getActiveBodyparts(partType) : 0;
     }
 
     getPositionBlockers(room) {

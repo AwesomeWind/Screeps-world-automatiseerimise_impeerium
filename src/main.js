@@ -6,6 +6,9 @@ import RoomCacheService from './services/RoomCacheService.js';
 import SpawnService from './services/SpawnService.js';
 import LogisticsService from './services/LogisticsService.js';
 import SecurityService from './services/SecurityService.js';
+import WarIntelService from './services/WarIntelService.js';
+import WarStrategyService from './services/WarStrategyService.js';
+import CombatPlannerService from './services/CombatPlannerService.js';
 import TowerDefenseService from './services/TowerDefenseService.js';
 import LabService from './services/LabService.js';
 import MarketService from './services/MarketService.js';
@@ -20,12 +23,15 @@ import DefenderStrategyService from './strategies/DefenderStrategyService.js';
 import CityPlannerService from './planning/CityPlannerService.js';
 import RoadPlannerService from './planning/RoadPlannerService.js';
 
-const SERVICE_VERSION = 4;
+const SERVICE_VERSION = '__SERVICE_VERSION__';
 
 function createServices() {
     EventBus.clearSubscribers();
     return [
         new RoomCacheService('RoomCache'),
+        new WarIntelService('WarIntel'),
+        new WarStrategyService('WarStrategy'),
+        new CombatPlannerService('CombatPlanner'),
         new SecurityService('Security'),
         new SpawnService('Spawn'),
         new LogisticsService('Logistics'),
@@ -51,20 +57,12 @@ function getServices() {
     return global.EmpireServices;
 }
 
-function mountMemoryProxy() {
-    if (global.LastMemory && global.lastMemoryTick === Game.time - 1) {
-        delete global.Memory;
-        global.Memory = global.LastMemory;
-        RawMemory._parsed = global.LastMemory;
-    } else {
-        Memory;
-        global.LastMemory = RawMemory._parsed;
-    }
-    global.lastMemoryTick = Game.time;
+function prepareMemory() {
+    Memory;
 }
 
 export function loop() {
-    mountMemoryProxy();
+    prepareMemory();
     MemoryConfig.ensureDefaults();
 
     const services = getServices();

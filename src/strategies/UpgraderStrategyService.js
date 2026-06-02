@@ -25,12 +25,35 @@ class UpgraderStrategyService extends BaseService {
         if (upgraders.length >= desired) return;
 
         const bodySpec = BodyBuilder.build('upgrader', room, { phase: room.storage ? 'stable' : 'early' });
-        EventBus.publish('REQ_SPAWN', 35, {
+        const priority = this.getSpawnPriority(room);
+        EventBus.publish('REQ_SPAWN', priority, {
             roomName: room.name,
             role: 'upgrader',
             body: bodySpec.body,
             memory: { role: 'upgrader', homeRoom: room.name }
         }, 3);
+    }
+
+    getSpawnPriority(room) {
+        if (this.countRole(room.name, 'upgrader') > 0) return 35;
+        if (this.countRole(room.name, 'miner') > 0 && this.countRole(room.name, 'hauler') > 0) return 55;
+        return 35;
+    }
+
+    countRole(roomName, role) {
+        let count = 0;
+        for (const name in Game.creeps) {
+            const creep = Game.creeps[name];
+            if (creep.memory.role === role && creep.memory.homeRoom === roomName) count++;
+        }
+        if (typeof Memory !== 'undefined' && Memory.creeps) {
+            for (const name in Memory.creeps) {
+                if (Game.creeps[name]) continue;
+                const memory = Memory.creeps[name];
+                if (memory.role === role && memory.homeRoom === roomName) count++;
+            }
+        }
+        return count;
     }
 
     assignUpgraderTask(creep) {

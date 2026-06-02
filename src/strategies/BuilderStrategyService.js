@@ -1,6 +1,7 @@
 import BaseService from '../core/BaseService.js';
 import EventBus from '../core/EventBus.js';
 import TaskTypes from '../core/TaskTypes.js';
+import BodyBuilder from '../core/BodyBuilder.js';
 
 class BuilderStrategyService extends BaseService {
     analyze() {
@@ -20,15 +21,43 @@ class BuilderStrategyService extends BaseService {
 
     ensureBuilders(room) {
         const builders = _.filter(Game.creeps, (creep) => creep.memory.role === 'builder' && creep.memory.homeRoom === room.name);
-        const desired = room.find(FIND_CONSTRUCTION_SITES).length > 0 ? 2 : 1;
+        const desired = room.find(FIND_CONSTRUCTION_SITES).length > 0 ? 2 : 0;
         if (builders.length >= desired) return;
 
-        EventBus.publish('REQ_SPAWN', 30, {
+        const bodySpec = BodyBuilder.build('builder', room, { phase: room.storage ? 'stable' : 'early' });
+        EventBus.publish('REQ_SPAWN', this.getSpawnPriority(room), {
             roomName: room.name,
             role: 'builder',
-            body: [WORK, CARRY, CARRY, MOVE, MOVE],
+            body: bodySpec.body,
             memory: { role: 'builder', homeRoom: room.name }
         }, 3);
+    }
+
+    getSpawnPriority(room) {
+        if (this.countRole(room.name, 'builder') > 0) return 30;
+        if (room.find(FIND_CONSTRUCTION_SITES).length === 0) return 30;
+        if (this.countRole(room.name, 'miner') > 0 &&
+            this.countRole(room.name, 'hauler') > 0 &&
+            this.countRole(room.name, 'upgrader') > 0) {
+            return 54;
+        }
+        return 30;
+    }
+
+    countRole(roomName, role) {
+        let count = 0;
+        for (const name in Game.creeps) {
+            const creep = Game.creeps[name];
+            if (creep.memory.role === role && creep.memory.homeRoom === roomName) count++;
+        }
+        if (typeof Memory !== 'undefined' && Memory.creeps) {
+            for (const name in Memory.creeps) {
+                if (Game.creeps[name]) continue;
+                const memory = Memory.creeps[name];
+                if (memory.role === role && memory.homeRoom === roomName) count++;
+            }
+        }
+        return count;
     }
 
     assignBuilderTask(creep) {
@@ -54,6 +83,14 @@ class BuilderStrategyService extends BaseService {
         if (room.storage && room.storage.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
             return { id: room.storage.id, withdraw: true };
         }
+        const containers = room.find(FIND_STRUCTURES, {
+            filter: (structure) => {
+                return structure.structureType === STRUCTURE_CONTAINER &&
+                    structure.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
+            }
+        }).sort((a, b) => b.store.getUsedCapacity(RESOURCE_ENERGY) - a.store.getUsedCapacity(RESOURCE_ENERGY));
+        if (containers.length > 0) return { id: containers[0].id, withdraw: true };
+
         const dropped = room.find(FIND_DROPPED_RESOURCES, {
             filter: (resource) => resource.resourceType === RESOURCE_ENERGY && resource.amount > 50
         });
