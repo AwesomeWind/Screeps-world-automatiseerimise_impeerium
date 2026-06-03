@@ -1,7 +1,5 @@
 import BaseService from '../core/BaseService.js';
-import EventBus from '../core/EventBus.js';
 import TaskTypes from '../core/TaskTypes.js';
-import BodyBuilder from '../core/BodyBuilder.js';
 
 class MinerStrategyService extends BaseService {
     init() {
@@ -31,21 +29,7 @@ class MinerStrategyService extends BaseService {
     }
 
     ensureMiners(roomName) {
-        const cache = global.RoomCache && global.RoomCache[roomName];
-        if (!cache) return;
-        if (this.shouldWaitForBootstrapHauler(roomName)) return;
-
-        const sourceId = this.findUndercoveredSource(roomName, cache.sources);
-        if (!sourceId) return;
-        const room = Game.rooms[roomName];
-        const bodySpec = BodyBuilder.build('miner', room, { phase: room.storage ? 'stable' : 'early' });
-
-        EventBus.publish('REQ_SPAWN', 50, {
-            roomName,
-            role: 'miner',
-            body: bodySpec.body,
-            memory: { role: 'miner', homeRoom: roomName, sourceId }
-        }, 3);
+        return roomName;
     }
 
     shouldWaitForBootstrapHauler(roomName) {
@@ -113,14 +97,14 @@ class MinerStrategyService extends BaseService {
         const source = Game.getObjectById(sourceId);
         if (!source) return;
 
-        if (creep.memory.miningPos && this.isPositionDangerous(creep.room, creep.memory.miningPos)) {
+        if (creep.memory.miningPos && !this.isValidMiningPos(creep.room, source, creep.memory.miningPos, creep)) {
             delete creep.memory.miningPos;
         }
         if (!creep.memory.miningPos) {
             creep.memory.miningPos = this.pickMiningPos(creep.room, source, creep);
         }
-        if (!creep.memory.miningPos || this.isPositionDangerous(creep.room, creep.memory.miningPos)) return;
-        if (creep.memory.miningPos && creep.pos && !creep.pos.inRangeTo(source.pos, 1)) {
+        if (!creep.memory.miningPos) return;
+        if (creep.memory.miningPos && creep.pos && !this.isAtPosition(creep, creep.memory.miningPos)) {
             creep.memory.task = {
                 type: TaskTypes.MOVE_TO,
                 pos: creep.memory.miningPos,
@@ -222,15 +206,45 @@ class MinerStrategyService extends BaseService {
     }
 
     pickMiningPos(room, source, currentCreep) {
-        const planned = this.getPlannedMiningPos(room.name, source.id);
-        if (planned && !this.isPositionDangerous(room, planned)) return planned;
-
         const positions = this.getOpenMiningPositions(room, source);
         const occupied = this.getAssignedMiningPosKeys(room.name, source.id, currentCreep);
+        const planned = this.getPlannedMiningPos(room.name, source.id);
+        if (planned &&
+            this.isPositionInList(planned, positions) &&
+            !this.isPositionDangerous(room, planned) &&
+            !occupied[`${planned.x},${planned.y}`]) {
+            return planned;
+        }
         for (const pos of positions) {
             if (!occupied[`${pos.x},${pos.y}`]) return pos;
         }
-        return positions[0] || { x: source.pos.x, y: source.pos.y, roomName: source.pos.roomName };
+        return null;
+    }
+
+    isValidMiningPos(room, source, pos, currentCreep) {
+        if (!pos || this.isPositionDangerous(room, pos)) return false;
+        if (!source.pos || source.pos.x === undefined || source.pos.y === undefined) return true;
+        if (!this.isPositionInList(pos, this.getOpenMiningPositions(room, source))) return false;
+        const occupied = this.getAssignedMiningPosKeys(room.name, source.id, currentCreep);
+        return !occupied[`${pos.x},${pos.y}`];
+    }
+
+    isPositionInList(pos, positions) {
+        return positions.some((candidate) => {
+            return candidate.x === pos.x &&
+                candidate.y === pos.y &&
+                candidate.roomName === pos.roomName;
+        });
+    }
+
+    isAtPosition(creep, pos) {
+        if (!creep.pos || !pos) return false;
+        if (creep.pos.x !== undefined && creep.pos.y !== undefined) {
+            return creep.pos.x === pos.x &&
+                creep.pos.y === pos.y &&
+                creep.pos.roomName === pos.roomName;
+        }
+        return creep.pos.inRangeTo && creep.pos.inRangeTo(pos.x, pos.y, 0);
     }
 
     getPlannedMiningPos(roomName, sourceId) {
@@ -302,6 +316,7 @@ class MinerStrategyService extends BaseService {
         const blockers = {};
         const structures = room.find ? room.find(FIND_STRUCTURES) : [];
         for (const structure of structures) {
+            if (!structure.pos) continue;
             if (structure.structureType === STRUCTURE_ROAD ||
                 structure.structureType === STRUCTURE_CONTAINER ||
                 structure.structureType === STRUCTURE_RAMPART) {

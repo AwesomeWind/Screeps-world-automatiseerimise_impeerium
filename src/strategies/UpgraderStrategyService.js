@@ -1,7 +1,5 @@
 import BaseService from '../core/BaseService.js';
-import EventBus from '../core/EventBus.js';
 import TaskTypes from '../core/TaskTypes.js';
-import BodyBuilder from '../core/BodyBuilder.js';
 
 class UpgraderStrategyService extends BaseService {
     analyze() {
@@ -20,18 +18,7 @@ class UpgraderStrategyService extends BaseService {
     }
 
     ensureUpgraders(room) {
-        const upgraders = _.filter(Game.creeps, (creep) => creep.memory.role === 'upgrader' && creep.memory.homeRoom === room.name);
-        const desired = room.storage ? 2 : 1;
-        if (upgraders.length >= desired) return;
-
-        const bodySpec = BodyBuilder.build('upgrader', room, { phase: room.storage ? 'stable' : 'early' });
-        const priority = this.getSpawnPriority(room);
-        EventBus.publish('REQ_SPAWN', priority, {
-            roomName: room.name,
-            role: 'upgrader',
-            body: bodySpec.body,
-            memory: { role: 'upgrader', homeRoom: room.name }
-        }, 3);
+        return room;
     }
 
     getSpawnPriority(room) {

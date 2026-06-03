@@ -19,6 +19,41 @@ function moveToTarget(creep, target, task, range) {
     });
 }
 
+function samePos(a, b) {
+    return a && b && a.x === b.x && a.y === b.y && a.roomName === b.roomName;
+}
+
+function currentPos(creep) {
+    return {
+        x: creep.pos.x,
+        y: creep.pos.y,
+        roomName: creep.pos.roomName
+    };
+}
+
+function updateMoveProgress(creep, task) {
+    const now = typeof Game !== 'undefined' && Game.time !== undefined ? Game.time : 0;
+    const pos = currentPos(creep);
+    const stuckLimit = task.stuckLimit === undefined ? 5 : task.stuckLimit;
+    const maxTicks = task.maxTicks === undefined ? 50 : task.maxTicks;
+
+    if (task.startedAt === undefined) task.startedAt = now;
+    if (!task.lastPos) {
+        task.lastPos = pos;
+        task.stuckTicks = 0;
+        return true;
+    }
+
+    if (samePos(task.lastPos, pos)) task.stuckTicks = (task.stuckTicks || 0) + 1;
+    else {
+        task.lastPos = pos;
+        task.stuckTicks = 0;
+    }
+
+    if ((task.stuckTicks || 0) >= stuckLimit) return false;
+    return now - task.startedAt <= maxTicks;
+}
+
 const ActionParser = {
     run(creep) {
         const task = creep.memory.task;
@@ -70,6 +105,7 @@ const ActionParser = {
             case TaskTypes.MOVE_TO:
                 range = task.range === undefined ? 1 : task.range;
                 if (creep.pos.inRangeTo(target.pos, range)) clearTask(creep);
+                else if (!updateMoveProgress(creep, task)) clearTask(creep);
                 else result = ERR_NOT_IN_RANGE;
                 break;
             default:

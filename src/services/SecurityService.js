@@ -1,5 +1,4 @@
 import BaseService from '../core/BaseService.js';
-import EventBus from '../core/EventBus.js';
 
 class SecurityService extends BaseService {
     constructor(serviceName) {
@@ -22,6 +21,7 @@ class SecurityService extends BaseService {
             const hostiles = room.find(FIND_HOSTILE_CREEPS);
             if (hostiles.length === 0) {
                 global.Security[roomName] = { defcon: 5, primaryTargetId: null };
+                this.clearDemands(roomName);
                 continue;
             }
 
@@ -47,12 +47,9 @@ class SecurityService extends BaseService {
             };
 
             if (defcon === 1 && posture === 'defend' && this.countDefenders(roomName) === 0) {
-                EventBus.publish('REQ_SPAWN', 999, {
-                    roomName,
-                    role: 'defender',
-                    body: defenderBody,
-                    memory: { role: 'defender', targetRoom: roomName }
-                }, 1);
+                this.addDefenderDemand(roomName, 85, 'hostile_attack');
+            } else {
+                this.clearDemands(roomName);
             }
         }
     }
@@ -68,12 +65,31 @@ class SecurityService extends BaseService {
         };
 
         if (defcon === 1 && strategy.spawnDefender && this.countDefenders(roomName) === 0) {
-            EventBus.publish('REQ_SPAWN', 999, {
-                roomName,
-                role: 'defender',
-                body: this.getDefenderBody(room.energyCapacityAvailable),
-                memory: { role: 'defender', targetRoom: roomName }
-            }, 1);
+            this.addDefenderDemand(roomName, 85, `war_${strategy.posture}`);
+        } else {
+            this.clearDemands(roomName);
+        }
+    }
+
+    addDefenderDemand(roomName, priority, reason) {
+        if (!global.SpawnDemands) global.SpawnDemands = {};
+        global.SpawnDemands[roomName] = [{
+            owner: 'war',
+            roomName,
+            role: 'defender',
+            quotaKey: `defender:${roomName}:local`,
+            priority,
+            minCount: 1,
+            maxCount: 1,
+            bodyProfile: 'melee_defender',
+            memory: { role: 'defender', homeRoom: roomName, targetRoom: roomName },
+            reason
+        }];
+    }
+
+    clearDemands(roomName) {
+        if (global.SpawnDemands && global.SpawnDemands[roomName]) {
+            delete global.SpawnDemands[roomName];
         }
     }
 

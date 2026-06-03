@@ -19,7 +19,8 @@ function phaseFor(room, context) {
 
 function buildMiner(phase, capacity) {
     if (phase === 'bootstrap') return [WORK, MOVE];
-    if (phase === 'stable' && capacity >= 550) return [WORK, WORK, WORK, WORK, WORK, MOVE];
+    if (capacity >= 550) return [WORK, WORK, WORK, WORK, WORK, MOVE];
+    if (capacity < 250) return [WORK, MOVE];
     return [WORK, WORK, MOVE];
 }
 
@@ -35,13 +36,31 @@ function buildHauler(phase, capacity) {
     if (phase === 'stable' && capacity >= 500) return carryMovePairs(5);
     if (capacity >= 400) return carryMovePairs(4);
     if (capacity >= 300) return carryMovePairs(3);
+    if (capacity < 200) return carryMovePairs(1);
     return carryMovePairs(2);
 }
 
 function buildUpgrader(phase, capacity) {
     if (phase === 'bootstrap') return [WORK, CARRY, MOVE];
-    if (phase === 'stable' && capacity >= 400) return [WORK, WORK, CARRY, CARRY, MOVE, MOVE];
-    return [WORK, CARRY, CARRY, MOVE, MOVE];
+    if (capacity >= 550) return [WORK, WORK, CARRY, CARRY, MOVE, MOVE];
+    if (capacity >= 400) return [WORK, WORK, CARRY, MOVE, MOVE];
+    if (capacity >= 300) return [WORK, CARRY, CARRY, MOVE, MOVE];
+    return [WORK, CARRY, MOVE];
+}
+
+function buildBuilder(phase, capacity) {
+    if (phase === 'bootstrap') return [WORK, CARRY, MOVE];
+    if (capacity >= 550) return [WORK, WORK, CARRY, CARRY, MOVE, MOVE];
+    if (capacity >= 400) return [WORK, CARRY, CARRY, MOVE, MOVE];
+    if (capacity >= 300) return [WORK, CARRY, CARRY, MOVE, MOVE];
+    return [WORK, CARRY, MOVE];
+}
+
+function buildMeleeDefender(capacity) {
+    if (capacity >= 800) return [TOUGH, TOUGH, ATTACK, ATTACK, ATTACK, MOVE, MOVE, MOVE];
+    if (capacity >= 550) return [TOUGH, TOUGH, ATTACK, ATTACK, MOVE, MOVE];
+    if (capacity >= 300) return [TOUGH, TOUGH, ATTACK, MOVE, MOVE];
+    return [TOUGH, ATTACK, MOVE];
 }
 
 const BodyBuilder = {
@@ -50,9 +69,12 @@ const BodyBuilder = {
         const capacity = context.energyCapacity || room.energyCapacityAvailable || room.energyAvailable || 0;
         let body;
 
-        if (role === 'miner') body = buildMiner(phase, capacity);
+        if (context.bodyProfile === 'melee_defender') body = buildMeleeDefender(capacity);
+        else if (role === 'miner') body = buildMiner(phase, capacity);
         else if (role === 'hauler') body = buildHauler(phase, capacity);
         else if (role === 'upgrader') body = buildUpgrader(phase, capacity);
+        else if (role === 'builder') body = buildBuilder(phase, capacity);
+        else if (role === 'defender') body = buildMeleeDefender(capacity);
         else body = [WORK, CARRY, MOVE];
 
         return {

@@ -30,6 +30,7 @@ const expectedFiles = [
     'src/core/ActionParser.js',
     'src/core/BodyBuilder.js',
     'src/services/RoomCacheService.js',
+    'src/services/SpawnBureauService.js',
     'src/services/SpawnService.js',
     'src/services/LogisticsService.js',
     'src/services/SecurityService.js',
@@ -70,7 +71,10 @@ assertNotContains(main, 'RawMemory._parsed = global.LastMemory', 'main should no
 assertContains(main, 'WarIntelService', 'main should include war intel service');
 assertContains(main, 'WarStrategyService', 'main should include war strategy service');
 assertContains(main, 'CombatPlannerService', 'main should include combat planner service');
+assertContains(main, 'SpawnBureauService', 'main should include spawn bureau service');
 assert.ok(main.indexOf("new WarIntelService('WarIntel')") < main.indexOf("new SecurityService('Security')"), 'war intel should run before security bridge');
+assert.ok(main.indexOf("new SecurityService('Security')") < main.indexOf("new SpawnBureauService('SpawnBureau')"), 'security bridge should run before spawn bureau');
+assert.ok(main.indexOf("new SpawnBureauService('SpawnBureau')") < main.indexOf("new SpawnService('Spawn')"), 'spawn bureau should publish before spawn service executes');
 
 const rollupConfig = read('rollup.config.js');
 assertContains(rollupConfig, 'function serviceVersionPlugin()', 'rollup should define service version injection plugin');
@@ -142,6 +146,7 @@ async function runBehaviorChecks() {
     const { default: WarIntelService } = await import('../services/WarIntelService.js');
     const { default: WarStrategyService } = await import('../services/WarStrategyService.js');
     const { default: CombatPlannerService } = await import('../services/CombatPlannerService.js');
+    const { default: SpawnBureauService } = await import('../services/SpawnBureauService.js');
     const { default: SpawnService } = await import('../services/SpawnService.js');
     const { default: MemoryConfig } = await import('../config/MemoryConfig.js');
     const { default: CityPlannerService } = await import('../planning/CityPlannerService.js');
@@ -181,6 +186,20 @@ async function runBehaviorChecks() {
         energyCapacityAvailable: 550
     }, { phase: 'early' });
     assert.ok(upgraderBody.body.includes(WORK) && upgraderBody.body.includes(CARRY), 'upgrader body should include work and carry parts');
+    const builder300Body = BodyBuilder.build('builder', {
+        energyAvailable: 300,
+        energyCapacityAvailable: 300
+    });
+    const builder550Body = BodyBuilder.build('builder', {
+        energyAvailable: 550,
+        energyCapacityAvailable: 550
+    });
+    assert.ok(builder550Body.body.length > builder300Body.body.length, 'builder body should scale when RCL2 energy capacity increases');
+    const defender550Body = BodyBuilder.build('defender', {
+        energyAvailable: 550,
+        energyCapacityAvailable: 550
+    }, { bodyProfile: 'melee_defender' });
+    assert.ok(defender550Body.body.includes(ATTACK) && defender550Body.body.includes(TOUGH), 'defender body profile should include combat parts');
 
     global.Game = {
         time: 1,
@@ -208,6 +227,23 @@ async function runBehaviorChecks() {
     };
     ActionParser.run(exactMoveCreep);
     assert.strictEqual(moveRange, 0, 'MOVE_TO should preserve explicit range 0 for planned positions');
+
+    const stuckMoveCreep = {
+        memory: { task: { type: 'MOVE_TO', pos: { x: 10, y: 10, roomName: 'W1N1' }, range: 0, stuckLimit: 2 } },
+        pos: {
+            x: 5,
+            y: 5,
+            roomName: 'W1N1',
+            inRangeTo: () => false
+        },
+        moveTo: () => OK
+    };
+    ActionParser.run(stuckMoveCreep);
+    Game.time++;
+    ActionParser.run(stuckMoveCreep);
+    Game.time++;
+    ActionParser.run(stuckMoveCreep);
+    assert.strictEqual(stuckMoveCreep.memory.task, null, 'MOVE_TO should clear when creep stays stuck for too many ticks');
 
     const noPathMoveCreep = {
         memory: { task: { type: 'MOVE_TO', pos: { x: 10, y: 10, roomName: 'W1N1' }, range: 0 } },
@@ -283,8 +319,10 @@ async function runBehaviorChecks() {
     Game.rooms = {
         W1N1: {
             name: 'W1N1',
+            controller: { my: true },
             energyAvailable: 550,
-            energyCapacityAvailable: 550
+            energyCapacityAvailable: 550,
+            find: () => []
         }
     };
     Game.creeps = {
@@ -292,8 +330,13 @@ async function runBehaviorChecks() {
         MinerB: { memory: { role: 'miner', homeRoom: 'W1N1', sourceId: 'source1' }, body: [{ type: WORK }, { type: WORK }] }
     };
     service.ensureMiners('W1N1');
-    assert.ok(EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.length === 1, 'miner spawning should cover uncovered sources, not just total miner count');
-    assert.ok(!EventBus.topics.REQ_SPAWN[0].data.body.includes(CARRY), 'stationary miner spawn body should not include carry parts');
+    assert.ok(!EventBus.topics.REQ_SPAWN, 'miner strategy should not publish spawn requests after spawn bureau owns spawning');
+    const spawnBureau = new SpawnBureauService('SpawnBureau');
+    spawnBureau.analyze();
+    const uncoveredMinerRequest = EventBus.topics.REQ_SPAWN &&
+        EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'miner' && event.data.memory.sourceId === 'source2');
+    assert.ok(uncoveredMinerRequest, 'spawn bureau should cover uncovered sources, not just total miner count');
+    assert.ok(!uncoveredMinerRequest.data.body.includes(CARRY), 'stationary miner spawn body should not include carry parts');
 
     EventBus.topics = {};
     Game.map = {
@@ -314,8 +357,9 @@ async function runBehaviorChecks() {
             body: [{ type: WORK }, { type: WORK }]
         }
     };
-    service.ensureMiners('W1N1');
-    assert.ok(!EventBus.topics.REQ_SPAWN, 'miner spawning should not exceed source open mining positions');
+    spawnBureau.analyze();
+    assert.ok(!EventBus.topics.REQ_SPAWN ||
+        !EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'miner'), 'miner spawning should not exceed source open mining positions');
 
     EventBus.topics = {};
     Game.map = {
@@ -339,11 +383,13 @@ async function runBehaviorChecks() {
         }
     };
     global.Memory = { creeps: {}, rooms: {}, empire: {} };
-    service.ensureMiners('W1N1');
-    assert.ok(!EventBus.topics.REQ_SPAWN, 'bootstrap room should not request a second pure miner before an energy hauler exists');
+    spawnBureau.analyze();
+    assert.ok(!EventBus.topics.REQ_SPAWN ||
+        !EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'miner'), 'bootstrap room should not request a second pure miner before an energy hauler exists');
 
     EventBus.topics = {};
     Game.creeps = {};
+    global.RoomCache = { W1N1: { sources: ['source1'] } };
     Memory.creeps = {
         MinerSpawning: {
             role: 'miner',
@@ -351,8 +397,42 @@ async function runBehaviorChecks() {
             sourceId: 'source1'
         }
     };
-    service.ensureMiners('W1N1');
-    assert.ok(!EventBus.topics.REQ_SPAWN, 'miner spawning should count miner memory created while a creep is still spawning');
+    spawnBureau.analyze();
+    assert.ok(!EventBus.topics.REQ_SPAWN ||
+        !EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'miner'), 'miner spawning should count miner memory created while a creep is still spawning');
+
+    EventBus.topics = {};
+    Game.map = {
+        getRoomTerrain: () => ({
+            get: (x, y) => ((x === 9 && y === 10) || (x === 10 && y === 11) ? 0 : TERRAIN_MASK_WALL)
+        })
+    };
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true },
+        storage: null,
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        find: () => []
+    };
+    Game.getObjectById = (id) => id === 'source1' ? { id, pos: { x: 10, y: 10, roomName: 'W1N1' } } : null;
+    global.RoomCache = { W1N1: { sources: ['source1'] } };
+    Game.creeps = {
+        MinerLeft: {
+            room: { name: 'W1N1' },
+            memory: { role: 'miner', sourceId: 'source1' },
+            body: [{ type: WORK }, { type: WORK }]
+        },
+        MinerBottom: {
+            room: { name: 'W1N1' },
+            memory: { role: 'miner', sourceId: 'source1' },
+            body: [{ type: WORK }, { type: WORK }]
+        }
+    };
+    Memory.creeps = {};
+    spawnBureau.analyze();
+    assert.ok(!EventBus.topics.REQ_SPAWN ||
+        !EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'miner'), 'spawn bureau should count live miners without homeRoom against source mining slots');
 
     Game.map = {
         getRoomTerrain: () => ({
@@ -404,6 +484,57 @@ async function runBehaviorChecks() {
     assert.notDeepStrictEqual(safeMiningPos, { x: 9, y: 9, roomName: 'W1N1' }, 'miner should not use planned mining positions inside hostile ranged attack range');
     assert.ok(!service.isPositionDangerous(dangerousMiningRoom, safeMiningPos), 'miner should choose a safe mining position when one exists');
 
+    Game.map = {
+        getRoomTerrain: () => ({
+            get: (x, y) => ((x === 9 && y === 10) || (x === 10 && y === 11) ? 0 : TERRAIN_MASK_WALL)
+        })
+    };
+    global.Memory = {
+        rooms: {
+            W1N1: {
+                cityPlan: {
+                    sources: {
+                        source1: {
+                            primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' }
+                        }
+                    }
+                }
+            }
+        },
+        creeps: {},
+        empire: {}
+    };
+    const twoSlotRoom = {
+        name: 'W1N1',
+        find: (type) => type === FIND_STRUCTURES || type === FIND_HOSTILE_CREEPS ? [] : []
+    };
+    const twoSlotSource = { id: 'source1', pos: { x: 10, y: 10, roomName: 'W1N1' } };
+    const plannedOccupant = {
+        name: 'MinerOnPlanned',
+        room: twoSlotRoom,
+        memory: {
+            role: 'miner',
+            homeRoom: 'W1N1',
+            sourceId: 'source1',
+            miningPos: { x: 9, y: 10, roomName: 'W1N1' }
+        }
+    };
+    const secondMiner = {
+        name: 'MinerSecond',
+        room: twoSlotRoom,
+        memory: { role: 'miner', homeRoom: 'W1N1', sourceId: 'source1' },
+        pos: {
+            x: 8,
+            y: 10,
+            roomName: 'W1N1',
+            inRangeTo: () => false
+        }
+    };
+    Game.creeps = { MinerOnPlanned: plannedOccupant, MinerSecond: secondMiner };
+    Game.getObjectById = (id) => id === 'source1' ? twoSlotSource : null;
+    service.assignMiningTask(secondMiner);
+    assert.deepStrictEqual(secondMiner.memory.miningPos, { x: 10, y: 11, roomName: 'W1N1' }, 'miner should choose an unoccupied valid mining position when planned position is occupied');
+
     const droppedEnergy = {
         id: 'drop1',
         resourceType: RESOURCE_ENERGY,
@@ -435,6 +566,50 @@ async function runBehaviorChecks() {
         targetId: 'drop1'
     }, 'empty hauler should pick up source-adjacent dropped energy');
 
+    const fullSpawn = {
+        id: 'fullSpawn',
+        structureType: STRUCTURE_SPAWN,
+        store: {
+            getFreeCapacity: () => 0
+        }
+    };
+    const fullExtension = {
+        id: 'fullExtension',
+        structureType: STRUCTURE_EXTENSION,
+        store: {
+            getFreeCapacity: () => 0
+        }
+    };
+    const haulerDepositContainer = {
+        id: 'depositContainer',
+        structureType: STRUCTURE_CONTAINER,
+        store: {
+            getFreeCapacity: () => 100
+        }
+    };
+    const loadedHaulerWithFullEconomy = {
+        room: {
+            name: 'W1N1',
+            find: (type, opts = {}) => {
+                let results = [];
+                if (type === FIND_MY_STRUCTURES) results = [fullSpawn, fullExtension];
+                if (type === FIND_STRUCTURES) results = [fullSpawn, fullExtension, haulerDepositContainer];
+                if (opts.filter) return results.filter(opts.filter);
+                return results;
+            }
+        },
+        memory: { role: 'hauler', homeRoom: 'W1N1' },
+        store: {
+            getUsedCapacity: () => 100
+        }
+    };
+    haulerService.assignFallbackTask(loadedHaulerWithFullEconomy);
+    assert.deepStrictEqual(loadedHaulerWithFullEconomy.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'depositContainer',
+        resourceType: RESOURCE_ENERGY
+    }, 'loaded hauler should deposit into containers when spawn, extensions, towers, and storage are full');
+
     EventBus.topics = {};
     Game.rooms.W1N1 = {
         name: 'W1N1',
@@ -444,8 +619,11 @@ async function runBehaviorChecks() {
     };
     Game.creeps = {};
     haulerService.ensureHaulers(Game.rooms.W1N1);
-    assert.ok(EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.length === 1, 'hauler strategy should request haulers when under capacity');
-    assert.ok(EventBus.topics.REQ_SPAWN[0].data.body.length > 6, 'hauler spawn body should scale beyond the old fixed body when energy allows');
+    assert.ok(!EventBus.topics.REQ_SPAWN, 'hauler strategy should not publish spawn requests after spawn bureau owns spawning');
+    spawnBureau.analyze();
+    assert.ok(EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'hauler'), 'spawn bureau should request haulers when under capacity');
+    const haulerRequest = EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'hauler');
+    assert.ok(haulerRequest.data.body.length > 6, 'hauler spawn body should scale beyond the old fixed body when energy allows');
 
     const controller = { id: 'controller1', pos: { x: 25, y: 25, roomName: 'W1N1' } };
     const upgraderRoom = {
@@ -464,7 +642,13 @@ async function runBehaviorChecks() {
     Game.creeps = {};
     const upgraderService = new UpgraderStrategyService('UpgraderStrategy');
     upgraderService.ensureUpgraders(upgraderRoom);
-    assert.ok(EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN[0].data.role === 'upgrader', 'upgrader strategy should request upgrader creeps');
+    assert.ok(!EventBus.topics.REQ_SPAWN, 'upgrader strategy should not publish spawn requests after spawn bureau owns spawning');
+    Game.creeps = {
+        MinerCore: { memory: { role: 'miner', homeRoom: 'W1N1' } },
+        HaulerCore: { memory: { role: 'hauler', homeRoom: 'W1N1' } }
+    };
+    spawnBureau.analyze();
+    assert.ok(EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'upgrader'), 'spawn bureau should request upgrader creeps');
 
     EventBus.topics = {};
     Game.rooms.W1N1 = {
@@ -479,8 +663,9 @@ async function runBehaviorChecks() {
         MinerCore: { memory: { role: 'miner', homeRoom: 'W1N1' } },
         HaulerCore: { memory: { role: 'hauler', homeRoom: 'W1N1' } }
     };
-    upgraderService.ensureUpgraders(Game.rooms.W1N1);
-    assert.ok(EventBus.topics.REQ_SPAWN[0].priority > 50, 'first upgrader should outrank continued miner expansion once mining logistics exist');
+    spawnBureau.analyze();
+    const firstUpgraderRequest = EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'upgrader');
+    assert.ok(firstUpgraderRequest.priority > 50, 'first upgrader should outrank continued miner expansion once mining logistics exist');
 
     const emptyUpgrader = {
         room: upgraderRoom,
@@ -531,7 +716,10 @@ async function runBehaviorChecks() {
         UpgraderCore: { memory: { role: 'upgrader', homeRoom: 'W1N1' } }
     };
     builderService.ensureBuilders(Game.rooms.W1N1);
-    assert.ok(EventBus.topics.REQ_SPAWN[0].priority > 50, 'first builder should outrank continued miner expansion when construction sites exist and core economy is online');
+    assert.ok(!EventBus.topics.REQ_SPAWN, 'builder strategy should not publish spawn requests after spawn bureau owns spawning');
+    spawnBureau.analyze();
+    const firstBuilderRequest = EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'builder');
+    assert.ok(firstBuilderRequest.priority > 50, 'first builder should outrank continued miner expansion when construction sites exist and core economy is online');
 
     const containerEnergy = {
         id: 'container1',
@@ -663,7 +851,7 @@ async function runBehaviorChecks() {
     };
     const securityService = new SecurityService('Security');
     securityService.analyze();
-    assert.ok(!EventBus.topics.REQ_SPAWN, 'security service should not request more defenders while one is already spawning');
+    assert.ok(!global.SpawnDemands || !global.SpawnDemands.W1N1, 'security service should not demand more defenders while one is already spawning');
 
     EventBus.topics = {};
     global.Security = {};
@@ -683,7 +871,7 @@ async function runBehaviorChecks() {
     };
     securityService.analyze();
     assert.strictEqual(global.Security.W1N1.posture, 'develop', 'room should develop instead of feeding weak defenders into overwhelming ranged threats');
-    assert.ok(!EventBus.topics.REQ_SPAWN, 'security service should not spawn weak defenders against overwhelming ranged threats');
+    assert.ok(!global.SpawnDemands || !global.SpawnDemands.W1N1, 'security service should not demand weak defenders against overwhelming ranged threats');
 
     EventBus.topics = {};
     global.Security = {};
@@ -701,7 +889,10 @@ async function runBehaviorChecks() {
     };
     securityService.analyze();
     assert.strictEqual(global.Security.W1N1.posture, 'defend', 'room should defend when current defender body can contest the threat');
-    assert.ok(EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN[0].data.role === 'defender', 'security service should spawn defenders only when they can contest the threat');
+    assert.ok(global.SpawnDemands.W1N1 && global.SpawnDemands.W1N1[0].role === 'defender', 'security service should express defender demand only when it can contest the threat');
+    EventBus.topics = {};
+    spawnBureau.analyze();
+    assert.ok(EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'defender'), 'spawn bureau should publish defender requests from war demand');
 
     const warHealer = {
         id: 'warHealer',

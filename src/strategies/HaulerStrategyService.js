@@ -1,7 +1,5 @@
 import BaseService from '../core/BaseService.js';
-import EventBus from '../core/EventBus.js';
 import TaskTypes from '../core/TaskTypes.js';
-import BodyBuilder from '../core/BodyBuilder.js';
 
 class HaulerStrategyService extends BaseService {
     analyze() {
@@ -20,17 +18,7 @@ class HaulerStrategyService extends BaseService {
     }
 
     ensureHaulers(room) {
-        const haulers = _.filter(Game.creeps, (creep) => creep.memory.role === 'hauler' && creep.memory.homeRoom === room.name);
-        const desired = room.storage ? 3 : 2;
-        if (haulers.length >= desired) return;
-        const bodySpec = BodyBuilder.build('hauler', room, { phase: room.storage ? 'stable' : 'early' });
-
-        EventBus.publish('REQ_SPAWN', 40, {
-            roomName: room.name,
-            role: 'hauler',
-            body: bodySpec.body,
-            memory: { role: 'hauler', homeRoom: room.name }
-        }, 3);
+        return room;
     }
 
     assignFallbackTask(creep) {
@@ -59,7 +47,9 @@ class HaulerStrategyService extends BaseService {
             return;
         }
 
-        const target = defcon <= 2 ? this.findDefenseEnergyTarget(creep.room) : this.findEconomyEnergyTarget(creep.room);
+        const target = defcon <= 2 ?
+            (this.findDefenseEnergyTarget(creep.room) || this.findEconomyEnergyTarget(creep.room)) :
+            this.findEconomyEnergyTarget(creep.room);
         if (target) {
             creep.memory.task = {
                 type: TaskTypes.TRANSFER,
@@ -114,7 +104,21 @@ class HaulerStrategyService extends BaseService {
         });
         if (targets.length > 0) return targets[0];
         if (room.storage && room.storage.store.getFreeCapacity(RESOURCE_ENERGY) > 0) return room.storage;
-        return null;
+        return this.findContainerEnergyTarget(room);
+    }
+
+    findContainerEnergyTarget(room) {
+        const containers = room.find(FIND_STRUCTURES, {
+            filter: (structure) => {
+                return structure.structureType === STRUCTURE_CONTAINER &&
+                    structure.store &&
+                    structure.store.getFreeCapacity &&
+                    structure.store.getFreeCapacity(RESOURCE_ENERGY) > 0;
+            }
+        }).sort((a, b) => {
+            return b.store.getFreeCapacity(RESOURCE_ENERGY) - a.store.getFreeCapacity(RESOURCE_ENERGY);
+        });
+        return containers[0] || null;
     }
 }
 

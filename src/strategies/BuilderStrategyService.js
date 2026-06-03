@@ -1,7 +1,5 @@
 import BaseService from '../core/BaseService.js';
-import EventBus from '../core/EventBus.js';
 import TaskTypes from '../core/TaskTypes.js';
-import BodyBuilder from '../core/BodyBuilder.js';
 
 class BuilderStrategyService extends BaseService {
     analyze() {
@@ -20,17 +18,7 @@ class BuilderStrategyService extends BaseService {
     }
 
     ensureBuilders(room) {
-        const builders = _.filter(Game.creeps, (creep) => creep.memory.role === 'builder' && creep.memory.homeRoom === room.name);
-        const desired = room.find(FIND_CONSTRUCTION_SITES).length > 0 ? 2 : 0;
-        if (builders.length >= desired) return;
-
-        const bodySpec = BodyBuilder.build('builder', room, { phase: room.storage ? 'stable' : 'early' });
-        EventBus.publish('REQ_SPAWN', this.getSpawnPriority(room), {
-            roomName: room.name,
-            role: 'builder',
-            body: bodySpec.body,
-            memory: { role: 'builder', homeRoom: room.name }
-        }, 3);
+        return room;
     }
 
     getSpawnPriority(room) {
