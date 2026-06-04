@@ -17,65 +17,299 @@ function phaseFor(room, context) {
     return 'bootstrap';
 }
 
-function buildMiner(phase, capacity) {
-    if (phase === 'bootstrap') return [WORK, MOVE];
-    if (capacity >= 550) return [WORK, WORK, WORK, WORK, WORK, MOVE];
-    if (capacity < 250) return [WORK, MOVE];
-    return [WORK, WORK, MOVE];
+function countType(body, partType) {
+    return body.filter((part) => part === partType).length;
 }
 
-function carryMovePairs(pairs) {
-    const body = [];
-    for (let i = 0; i < pairs; i++) body.push(CARRY);
-    for (let i = 0; i < pairs; i++) body.push(MOVE);
-    return body;
+function canApplyStep(body, step, spec, remaining, applications) {
+    const parts = step.parts || [];
+    const stepCost = bodyCost(parts);
+    if (stepCost > remaining) return false;
+    if (body.length + parts.length > (spec.maxParts || 50)) return false;
+    if (step.maxApplications !== undefined && applications >= step.maxApplications) return false;
+    if (step.when && !step.when(body, remaining)) return false;
+
+    if (step.typeLimits) {
+        for (const partType in step.typeLimits) {
+            const nextCount = countType(body, partType) + countType(parts, partType);
+            if (nextCount > step.typeLimits[partType]) return false;
+        }
+    }
+
+    return true;
 }
 
-function buildHauler(phase, capacity) {
-    if (phase === 'bootstrap') return carryMovePairs(1);
-    if (phase === 'stable' && capacity >= 500) return carryMovePairs(5);
-    if (capacity >= 400) return carryMovePairs(4);
-    if (capacity >= 300) return carryMovePairs(3);
-    if (capacity < 200) return carryMovePairs(1);
-    return carryMovePairs(2);
+function sortBody(body) {
+    const order = {
+        [TOUGH]: 1,
+        [WORK]: 2,
+        [CARRY]: 3,
+        [ATTACK]: 4,
+        [RANGED_ATTACK]: 5,
+        [HEAL]: 6,
+        [CLAIM]: 7,
+        [MOVE]: 8
+    };
+    return body.slice().sort((a, b) => (order[a] || 99) - (order[b] || 99));
 }
 
-function buildUpgrader(phase, capacity) {
-    if (phase === 'bootstrap') return [WORK, CARRY, MOVE];
-    if (capacity >= 550) return [WORK, WORK, CARRY, CARRY, MOVE, MOVE];
-    if (capacity >= 400) return [WORK, WORK, CARRY, MOVE, MOVE];
-    if (capacity >= 300) return [WORK, CARRY, CARRY, MOVE, MOVE];
-    return [WORK, CARRY, MOVE];
+function buildFromSpec(spec, capacity) {
+    const body = (spec.base || []).slice();
+    let remaining = capacity - bodyCost(body);
+    if (remaining < 0) return [];
+
+    const steps = spec.steps || [];
+    const applications = new Array(steps.length).fill(0);
+
+    let progressed = true;
+    while (progressed) {
+        progressed = false;
+        for (let i = 0; i < steps.length; i++) {
+            const step = steps[i];
+            if (!canApplyStep(body, step, spec, remaining, applications[i])) continue;
+            body.push(...step.parts);
+            remaining -= bodyCost(step.parts);
+            applications[i]++;
+            progressed = true;
+            break;
+        }
+    }
+
+    return spec.sort === false ? body : sortBody(body);
 }
 
-function buildBuilder(phase, capacity) {
-    if (phase === 'bootstrap') return [WORK, CARRY, MOVE];
-    if (capacity >= 550) return [WORK, WORK, CARRY, CARRY, MOVE, MOVE];
-    if (capacity >= 400) return [WORK, CARRY, CARRY, MOVE, MOVE];
-    if (capacity >= 300) return [WORK, CARRY, CARRY, MOVE, MOVE];
-    return [WORK, CARRY, MOVE];
+function haulerPairsFor(phase, capacity) {
+    if (phase === 'stable' && capacity >= 500) return 5;
+    if (capacity >= 400) return 4;
+    if (capacity >= 300) return 3;
+    if (capacity < 200) return 1;
+    return 2;
 }
 
-function buildMeleeDefender(capacity) {
-    if (capacity >= 800) return [TOUGH, TOUGH, ATTACK, ATTACK, ATTACK, MOVE, MOVE, MOVE];
-    if (capacity >= 550) return [TOUGH, TOUGH, ATTACK, ATTACK, MOVE, MOVE];
-    if (capacity >= 300) return [TOUGH, TOUGH, ATTACK, MOVE, MOVE];
-    return [TOUGH, ATTACK, MOVE];
+function upgraderSpec(context, capacity) {
+    const phase = context.phase;
+    if (phase === 'bootstrap') {
+        return { base: [WORK, CARRY, MOVE] };
+    }
+    if (context.bodyProfile === 'stationary_upgrader') {
+        return {
+            base: [WORK, CARRY, MOVE],
+            steps: [
+                { parts: [WORK], typeLimits: { [WORK]: 3 } },
+                { parts: [MOVE], typeLimits: { [MOVE]: capacity >= 400 ? 2 : 1 } },
+                { parts: [WORK], typeLimits: { [WORK]: 5 } },
+                { parts: [CARRY], typeLimits: { [CARRY]: 2 } }
+            ]
+        };
+    }
+    return {
+        base: [WORK, CARRY, MOVE],
+        steps: [
+            { parts: [CARRY, MOVE], maxApplications: 1 },
+            { parts: [WORK], typeLimits: { [WORK]: 3 } },
+            { parts: [CARRY], typeLimits: { [CARRY]: 2 } }
+        ]
+    };
+}
+
+function builderSpec(context) {
+    const phase = context.phase;
+    if (phase === 'bootstrap') {
+        return { base: [WORK, CARRY, MOVE] };
+    }
+    if (context.bodyProfile === 'supplied_builder') {
+        return {
+            base: [WORK, CARRY, MOVE],
+            steps: [
+                { parts: [WORK], typeLimits: { [WORK]: 4 } },
+                { parts: [MOVE], typeLimits: { [MOVE]: 2 } },
+                { parts: [WORK], typeLimits: { [WORK]: 6 } },
+                { parts: [CARRY], typeLimits: { [CARRY]: 2 } }
+            ]
+        };
+    }
+    return {
+        base: [WORK, CARRY, MOVE],
+        steps: [
+            { parts: [CARRY, MOVE], maxApplications: 1 },
+            { parts: [WORK], typeLimits: { [WORK]: 2 } },
+            { parts: [WORK], typeLimits: { [WORK]: 3 } }
+        ]
+    };
+}
+
+function repairerSpec(context) {
+    const phase = context.phase;
+    if (phase === 'bootstrap') {
+        return { base: [WORK, CARRY, MOVE] };
+    }
+    return {
+        base: [WORK, CARRY, MOVE],
+        steps: [
+            { parts: [WORK], typeLimits: { [WORK]: 3 } },
+            { parts: [CARRY, MOVE], maxApplications: 1 },
+            { parts: [WORK], typeLimits: { [WORK]: 5 } },
+            { parts: [MOVE], typeLimits: { [MOVE]: 3 } }
+        ]
+    };
+}
+
+function remoteMinerSpec(context) {
+    if (context.bodyProfile === 'remote_travel_miner') {
+        return {
+            base: [WORK, CARRY, MOVE],
+            steps: [
+                { parts: [MOVE], typeLimits: { [MOVE]: 3 } },
+                { parts: [WORK], typeLimits: { [WORK]: 3 } },
+                { parts: [MOVE], typeLimits: { [MOVE]: 4 } },
+                { parts: [WORK], typeLimits: { [WORK]: 4 } }
+            ]
+        };
+    }
+    return {
+        base: [WORK, CARRY, MOVE],
+        steps: [
+            { parts: [WORK], typeLimits: { [WORK]: 3 } },
+            { parts: [MOVE], typeLimits: { [MOVE]: 2 } },
+            { parts: [WORK], typeLimits: { [WORK]: 5 } }
+        ]
+    };
+}
+
+function meleeDefenderSpec(capacity) {
+    if (capacity >= 800) {
+        return {
+            base: [TOUGH, ATTACK, MOVE],
+            steps: [
+                { parts: [TOUGH, MOVE], maxApplications: 1 },
+                { parts: [ATTACK, MOVE], maxApplications: 1 },
+                { parts: [ATTACK], typeLimits: { [ATTACK]: 3 } }
+            ]
+        };
+    }
+    if (capacity >= 550) {
+        return {
+            base: [TOUGH, ATTACK, MOVE],
+            steps: [
+                { parts: [TOUGH, MOVE], maxApplications: 1 },
+                { parts: [ATTACK], typeLimits: { [ATTACK]: 2 } }
+            ]
+        };
+    }
+    if (capacity >= 300) {
+        return {
+            base: [TOUGH, ATTACK, MOVE],
+            steps: [
+                { parts: [TOUGH, MOVE], maxApplications: 1 }
+            ]
+        };
+    }
+    return { base: [TOUGH, ATTACK, MOVE] };
+}
+
+function rangedDefenderSpec(capacity) {
+    if (capacity >= 800) {
+        return {
+            base: [RANGED_ATTACK, MOVE],
+            steps: [
+                { parts: [RANGED_ATTACK, MOVE], typeLimits: { [RANGED_ATTACK]: 3 } },
+                { parts: [TOUGH, MOVE], maxApplications: 2 },
+                { parts: [RANGED_ATTACK], typeLimits: { [RANGED_ATTACK]: 4 } }
+            ]
+        };
+    }
+    if (capacity >= 550) {
+        return {
+            base: [RANGED_ATTACK, MOVE],
+            steps: [
+                { parts: [RANGED_ATTACK, MOVE], maxApplications: 1 },
+                { parts: [TOUGH, MOVE], maxApplications: 1 }
+            ]
+        };
+    }
+    return {
+        base: [RANGED_ATTACK, MOVE],
+        steps: [
+            { parts: [MOVE], typeLimits: { [MOVE]: 2 } }
+        ]
+    };
+}
+
+function resolveSpec(role, room, context, capacity) {
+    const phase = phaseFor(room, context);
+    const profile = context.bodyProfile || role;
+    const bodyContext = Object.assign({}, context, { phase, capacity });
+
+    if (profile === 'miner') {
+        if (phase === 'bootstrap') return { base: [WORK, MOVE] };
+        return {
+            base: [WORK, MOVE],
+            steps: [
+                { parts: [WORK], typeLimits: { [WORK]: 5 } }
+            ]
+        };
+    }
+
+    if (profile === 'emergency_hauler') {
+        return {
+            base: [CARRY, MOVE],
+            steps: [
+                { parts: [CARRY, MOVE], maxApplications: 1 }
+            ]
+        };
+    }
+
+    if (profile === 'hauler') {
+        const pairs = haulerPairsFor(phase, capacity);
+        return {
+            base: [CARRY, MOVE],
+            steps: [
+                { parts: [CARRY, MOVE], maxApplications: Math.max(0, pairs - 1) }
+            ]
+        };
+    }
+
+    if (profile === 'upgrader' || profile === 'stationary_upgrader') {
+        return upgraderSpec(bodyContext, capacity);
+    }
+
+    if (profile === 'builder' || profile === 'mobile_builder' || profile === 'supplied_builder') {
+        return builderSpec(bodyContext);
+    }
+
+    if (profile === 'repairer' || role === 'repairer') {
+        return repairerSpec(bodyContext);
+    }
+
+    if (profile === 'ranged_defender') {
+        return rangedDefenderSpec(capacity);
+    }
+
+    if (profile === 'melee_defender' || role === 'defender') {
+        return meleeDefenderSpec(capacity);
+    }
+
+    if (profile === 'scout') return { base: [MOVE] };
+
+    if (profile === 'reserver') {
+        return {
+            base: [CLAIM, MOVE],
+            steps: [
+                { parts: [CLAIM, MOVE], maxApplications: capacity >= 1300 ? 1 : 0 }
+            ]
+        };
+    }
+
+    if (profile === 'remote_miner' || profile === 'remote_travel_miner') return remoteMinerSpec(bodyContext);
+
+    return { base: [WORK, CARRY, MOVE] };
 }
 
 const BodyBuilder = {
     build(role, room, context = {}) {
-        const phase = phaseFor(room, context);
         const capacity = context.energyCapacity || room.energyCapacityAvailable || room.energyAvailable || 0;
-        let body;
-
-        if (context.bodyProfile === 'melee_defender') body = buildMeleeDefender(capacity);
-        else if (role === 'miner') body = buildMiner(phase, capacity);
-        else if (role === 'hauler') body = buildHauler(phase, capacity);
-        else if (role === 'upgrader') body = buildUpgrader(phase, capacity);
-        else if (role === 'builder') body = buildBuilder(phase, capacity);
-        else if (role === 'defender') body = buildMeleeDefender(capacity);
-        else body = [WORK, CARRY, MOVE];
+        const spec = resolveSpec(role, room, context, capacity);
+        const body = buildFromSpec(spec, capacity);
 
         return {
             body,

@@ -21,7 +21,6 @@ class CityPlannerService extends BaseService {
             }
 
             this.placeByType(room, center, STRUCTURE_EXTENSION);
-            this.placeByType(room, center, STRUCTURE_TOWER);
             if (room.controller.level >= 4) this.placeByType(room, center, STRUCTURE_STORAGE);
             this.placePlannedContainers(room, roomMemory.cityPlan);
         }
@@ -75,17 +74,14 @@ class CityPlannerService extends BaseService {
         const structures = [];
         const priorities = {};
         priorities[STRUCTURE_EXTENSION] = 30;
-        priorities[STRUCTURE_TOWER] = 40;
         priorities[STRUCTURE_STORAGE] = 50;
 
-        for (const structureType of [STRUCTURE_EXTENSION, STRUCTURE_TOWER, STRUCTURE_STORAGE]) {
+        for (const structureType of [STRUCTURE_EXTENSION, STRUCTURE_STORAGE]) {
             const offsets = parsedCoreBlueprint[structureType] || [];
             for (const offset of offsets) {
-                structures.push({
-                    type: structureType,
-                    pos: { x: center.x + offset.dx, y: center.y + offset.dy, roomName: room.name },
-                    priority: priorities[structureType]
-                });
+                const pos = { x: center.x + offset.dx, y: center.y + offset.dy, roomName: room.name };
+                if (this.isReservedByDefense(room.name, pos)) continue;
+                structures.push({ type: structureType, pos, priority: priorities[structureType] });
             }
         }
         return structures;
@@ -178,12 +174,22 @@ class CityPlannerService extends BaseService {
             const x = center.x + offset.dx;
             const y = center.y + offset.dy;
             if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+            if (this.isReservedByDefense(room.name, { x, y, roomName: room.name })) continue;
             const result = new RoomPosition(x, y, room.name).createConstructionSite(structureType);
             if (result === OK) {
                 remaining--;
                 if (global.RoomCache && global.RoomCache[room.name]) global.RoomCache[room.name].isDirty = true;
             }
         }
+    }
+
+    isReservedByDefense(roomName, pos) {
+        if (typeof Memory === 'undefined' || !Memory.rooms || !Memory.rooms[roomName]) return false;
+        const defense = Memory.rooms[roomName].cityPlan && Memory.rooms[roomName].cityPlan.defense;
+        if (!defense || !defense.reservedPositions) return false;
+        return defense.reservedPositions.some((entry) => {
+            return entry.x === pos.x && entry.y === pos.y && entry.roomName === pos.roomName;
+        });
     }
 }
 

@@ -18,6 +18,8 @@ const MemoryConfig = {
             if (!roomMemory.serviceFlags) {
                 roomMemory.serviceFlags = {
                     planning: true,
+                    defensePlanning: true,
+                    maintenancePlanning: true,
                     roads: true,
                     lab: true,
                     market: true,

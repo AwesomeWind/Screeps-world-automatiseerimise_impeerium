@@ -35,7 +35,7 @@ class DefenderStrategyService extends BaseService {
 
             const targetId = this.findTargetId(creep, roomName);
             if (targetId) {
-                creep.memory.task = { type: TaskTypes.ATTACK, targetId };
+                this.assignAttackTask(creep, targetId);
             }
         }
     }
@@ -53,11 +53,18 @@ class DefenderStrategyService extends BaseService {
         }
 
         if ((plan.posture === 'defend' || plan.posture === 'attack') && plan.primaryTargetId) {
-            creep.memory.task = { type: TaskTypes.ATTACK, targetId: plan.primaryTargetId };
+            this.assignAttackTask(creep, plan.primaryTargetId);
             return true;
         }
 
         return false;
+    }
+
+    assignAttackTask(creep, targetId) {
+        creep.memory.task = {
+            type: this.hasBodyPart(creep, RANGED_ATTACK) ? TaskTypes.RANGED_ATTACK : TaskTypes.ATTACK,
+            targetId
+        };
     }
 
     findTargetId(creep, roomName) {
@@ -93,6 +100,12 @@ class DefenderStrategyService extends BaseService {
 
     getActiveBodyparts(creep, partType) {
         return creep.getActiveBodyparts ? creep.getActiveBodyparts(partType) : 0;
+    }
+
+    hasBodyPart(creep, partType) {
+        if (creep.getActiveBodyparts) return creep.getActiveBodyparts(partType) > 0;
+        if (!creep.body) return false;
+        return creep.body.some((part) => (part.type || part) === partType);
     }
 
     getPosture(roomName) {

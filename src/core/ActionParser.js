@@ -89,6 +89,10 @@ const ActionParser = {
                 result = creep.build(target);
                 if (result === OK || result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET) clearTask(creep);
                 break;
+            case TaskTypes.REPAIR:
+                result = creep.repair(target);
+                if (result === OK || result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET) clearTask(creep);
+                break;
             case TaskTypes.UPGRADE:
                 range = 3;
                 result = creep.upgradeController(target);
@@ -97,6 +101,11 @@ const ActionParser = {
             case TaskTypes.ATTACK:
                 result = creep.attack(target);
                 if (result === ERR_INVALID_TARGET) clearTask(creep);
+                break;
+            case TaskTypes.RANGED_ATTACK:
+                range = 3;
+                result = creep.rangedAttack(target);
+                if (result === OK || result === ERR_INVALID_TARGET) clearTask(creep);
                 break;
             case TaskTypes.RESERVE:
                 result = creep.reserveController(target);

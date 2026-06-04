@@ -17,11 +17,14 @@ import RemoteMiningService from './services/RemoteMiningService.js';
 
 import MinerStrategyService from './strategies/MinerStrategyService.js';
 import BuilderStrategyService from './strategies/BuilderStrategyService.js';
+import RepairerStrategyService from './strategies/RepairerStrategyService.js';
 import HaulerStrategyService from './strategies/HaulerStrategyService.js';
 import UpgraderStrategyService from './strategies/UpgraderStrategyService.js';
 import DefenderStrategyService from './strategies/DefenderStrategyService.js';
 
 import CityPlannerService from './planning/CityPlannerService.js';
+import DefensePlannerService from './planning/DefensePlannerService.js';
+import MaintenancePlannerService from './planning/MaintenancePlannerService.js';
 import RoadPlannerService from './planning/RoadPlannerService.js';
 
 const SERVICE_VERSION = '__SERVICE_VERSION__';
@@ -39,11 +42,14 @@ function createServices() {
         new ResourceMarketService('ResourceMarket'),
         new MinerStrategyService('MinerStrategy'),
         new BuilderStrategyService('BuilderStrategy'),
+        new RepairerStrategyService('RepairerStrategy'),
         new HaulerStrategyService('HaulerStrategy'),
         new UpgraderStrategyService('UpgraderStrategy'),
         new DefenderStrategyService('DefenderStrategy'),
         new TowerDefenseService('TowerDefense'),
         new CityPlannerService('CityPlanner'),
+        new DefensePlannerService('DefensePlanner'),
+        new MaintenancePlannerService('MaintenancePlanner'),
         new RoadPlannerService('RoadPlanner'),
         new LabService('Lab'),
         new MarketService('Market'),

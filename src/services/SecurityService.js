@@ -1,4 +1,5 @@
 import BaseService from '../core/BaseService.js';
+import BodyBuilder from '../core/BodyBuilder.js';
 
 class SecurityService extends BaseService {
     constructor(serviceName) {
@@ -33,8 +34,9 @@ class SecurityService extends BaseService {
 
             const isPlayerThreat = armed.owner && armed.owner.username !== 'Invader';
             const defcon = isPlayerThreat ? 1 : 3;
-            const defenderBody = this.getDefenderBody(room.energyCapacityAvailable);
             const threat = this.assessThreat(hostiles);
+            const defenderProfile = this.defenderBodyProfile(threat, room);
+            const defenderBody = this.getDefenderBody(room.energyCapacityAvailable, defenderProfile);
             const defense = this.assessDefense(room, defenderBody);
             const canContest = this.canContestThreat(threat, defense);
             const posture = canContest ? 'defend' : 'develop';
@@ -47,7 +49,7 @@ class SecurityService extends BaseService {
             };
 
             if (defcon === 1 && posture === 'defend' && this.countDefenders(roomName) === 0) {
-                this.addDefenderDemand(roomName, 85, 'hostile_attack');
+                this.addDefenderDemand(roomName, 85, 'hostile_attack', defenderProfile);
             } else {
                 this.clearDemands(roomName);
             }
@@ -71,7 +73,7 @@ class SecurityService extends BaseService {
         }
     }
 
-    addDefenderDemand(roomName, priority, reason) {
+    addDefenderDemand(roomName, priority, reason, bodyProfile = 'melee_defender') {
         if (!global.SpawnDemands) global.SpawnDemands = {};
         global.SpawnDemands[roomName] = [{
             owner: 'war',
@@ -81,7 +83,7 @@ class SecurityService extends BaseService {
             priority,
             minCount: 1,
             maxCount: 1,
-            bodyProfile: 'melee_defender',
+            bodyProfile,
             memory: { role: 'defender', homeRoom: roomName, targetRoom: roomName },
             reason
         }];
@@ -113,10 +115,19 @@ class SecurityService extends BaseService {
         return count;
     }
 
-    getDefenderBody(energyCapacity) {
-        if (energyCapacity >= 800) return [TOUGH, TOUGH, ATTACK, ATTACK, ATTACK, MOVE, MOVE, MOVE];
-        if (energyCapacity >= 550) return [TOUGH, TOUGH, ATTACK, ATTACK, MOVE, MOVE];
-        return [TOUGH, ATTACK, MOVE];
+    getDefenderBody(energyCapacity, bodyProfile = 'melee_defender') {
+        return BodyBuilder.build('defender', {
+            energyAvailable: energyCapacity,
+            energyCapacityAvailable: energyCapacity
+        }, {
+            bodyProfile,
+            energyCapacity
+        }).body;
+    }
+
+    defenderBodyProfile(threat, room) {
+        if (threat.ranged > 0 && (room.energyCapacityAvailable || 0) >= 550) return 'ranged_defender';
+        return 'melee_defender';
     }
 
     assessThreat(hostiles) {

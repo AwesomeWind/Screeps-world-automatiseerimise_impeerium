@@ -3,6 +3,170 @@ import EventBus from '../core/EventBus.js';
 import TaskTypes from '../core/TaskTypes.js';
 
 const DEFAULT_PRIORITY = 50;
+const WAIT_SUPPLY = 'WAIT_SUPPLY';
+
+function availableSupplyAmount(market, supply) {
+    if (!market) return supply.amount || 0;
+    if (market.reservations && market.reservations.supply && market.reservations.supply[supply.id]) return 0;
+    return supply.amount || 0;
+}
+
+function reserveSupplyAmount(market, supply, amount) {
+    if (!market) return;
+    if (!market.reservations) market.reservations = {};
+    if (!market.reservations.supply) market.reservations.supply = {};
+    market.reservations.supply[supply.id] = amount || supply.amount || 1;
+}
+
+function energySuppliesForRoom(room, market) {
+    if (market && market.supplies) {
+        return market.supplies.filter((supply) => {
+            return supply.resourceType === RESOURCE_ENERGY &&
+                supply.kind !== 'carried' &&
+                availableSupplyAmount(market, supply) > 0;
+        });
+    }
+
+    const supplies = [];
+    if (room.storage && room.storage.store && room.storage.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
+        supplies.push({
+            id: `storage:${room.storage.id}`,
+            kind: 'withdraw',
+            targetId: room.storage.id,
+            resourceType: RESOURCE_ENERGY,
+            amount: room.storage.store.getUsedCapacity(RESOURCE_ENERGY),
+            priority: 45
+        });
+    }
+
+    const structures = room.find ? room.find(FIND_STRUCTURES) : [];
+    for (const structure of structures) {
+        if (structure.structureType !== STRUCTURE_CONTAINER) continue;
+        if (!structure.store || structure.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) continue;
+        supplies.push({
+            id: `container:${structure.id}`,
+            kind: 'withdraw',
+            targetId: structure.id,
+            resourceType: RESOURCE_ENERGY,
+            amount: structure.store.getUsedCapacity(RESOURCE_ENERGY),
+            priority: 40
+        });
+    }
+
+    const dropped = room.find ? room.find(FIND_DROPPED_RESOURCES, {
+        filter: (resource) => resource.resourceType === RESOURCE_ENERGY && resource.amount > 0
+    }) : [];
+    for (const resource of dropped) {
+        supplies.push({
+            id: `dropped:${resource.id}`,
+            kind: 'dropped',
+            targetId: resource.id,
+            resourceType: RESOURCE_ENERGY,
+            amount: resource.amount,
+            priority: 60
+        });
+    }
+
+    return supplies;
+}
+
+function supplyScore(creep, supply, market) {
+    const target = Game.getObjectById(supply.targetId);
+    const distance = target && target.pos && creep.pos && creep.pos.getRangeTo ? creep.pos.getRangeTo(target.pos) : 25;
+    const amount = availableSupplyAmount(market, supply);
+    const kindBonus = supply.kind === 'dropped' ? 1000 : 0;
+    return kindBonus + amount + (supply.priority || 0) * 10 - distance * 5;
+}
+
+function pickupTaskFor(creep, supply, market) {
+    const free = creep.store.getFreeCapacity ? creep.store.getFreeCapacity(supply.resourceType) : supply.amount;
+    const available = availableSupplyAmount(market, supply);
+    const amount = Math.min(free || available, available);
+    reserveSupplyAmount(market, supply, amount);
+
+    if (supply.kind === 'dropped') {
+        return {
+            type: TaskTypes.PICKUP,
+            targetId: supply.targetId
+        };
+    }
+
+    return {
+        type: TaskTypes.WITHDRAW,
+        targetId: supply.targetId,
+        resourceType: supply.resourceType
+    };
+}
+
+export function planMobileWorkerEnergyTask(creep, options = {}) {
+    const room = creep.room;
+    if (!room) return null;
+
+    const roomName = creep.memory.homeRoom || room.name;
+    const market = global.ResourceMarket && global.ResourceMarket[roomName];
+    const supplies = energySuppliesForRoom(room, market);
+
+    let best = null;
+    let bestScore = -Infinity;
+    for (const supply of supplies) {
+        const score = supplyScore(creep, supply, market);
+        if (score > bestScore) {
+            best = supply;
+            bestScore = score;
+        }
+    }
+
+    if (best) return pickupTaskFor(creep, best, market);
+
+    if (market && market.supplyMode === 'hauler_supply') {
+        return {
+            type: WAIT_SUPPLY,
+            priority: options.priority || 60,
+            purpose: options.purpose || 'worker_energy',
+            supplyTargetId: options.supplyTargetId || creep.id || creep.name
+        };
+    }
+
+    return null;
+}
+
+export function planStationaryWorkerEnergyTask(creep, options = {}) {
+    const room = creep.room;
+    if (!room) return null;
+
+    const roomName = creep.memory.homeRoom || room.name;
+    const market = global.ResourceMarket && global.ResourceMarket[roomName];
+    const stationaryBuffer = options.stationaryBufferTarget || null;
+    if (!stationaryBuffer) return planMobileWorkerEnergyTask(creep, options);
+
+    const bufferEnergy = stationaryBuffer.store && stationaryBuffer.store.getUsedCapacity ?
+        stationaryBuffer.store.getUsedCapacity(RESOURCE_ENERGY) : 0;
+    if (bufferEnergy > 0) {
+        return {
+            type: TaskTypes.WITHDRAW,
+            targetId: stationaryBuffer.id,
+            resourceType: RESOURCE_ENERGY
+        };
+    }
+
+    if (market && market.supplyMode === 'hauler_supply') {
+        return {
+            type: WAIT_SUPPLY,
+            priority: options.priority || 60,
+            purpose: options.purpose || 'worker_energy',
+            supplyTargetId: stationaryBuffer.id
+        };
+    }
+
+    return planMobileWorkerEnergyTask(creep, options);
+}
+
+export function planWorkerEnergyTask(creep, options = {}) {
+    if (options.stationaryBufferTarget) {
+        return planStationaryWorkerEnergyTask(creep, options);
+    }
+    return planMobileWorkerEnergyTask(creep, options);
+}
 
 class ResourceMarketService extends BaseService {
     constructor(serviceName) {
@@ -439,3 +603,4 @@ class ResourceMarketService extends BaseService {
 }
 
 export default ResourceMarketService;
+export { WAIT_SUPPLY };

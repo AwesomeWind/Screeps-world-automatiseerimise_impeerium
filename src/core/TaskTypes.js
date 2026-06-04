@@ -4,8 +4,10 @@ export default {
     WITHDRAW: 'WITHDRAW',
     PICKUP: 'PICKUP',
     BUILD: 'BUILD',
+    REPAIR: 'REPAIR',
     UPGRADE: 'UPGRADE',
     ATTACK: 'ATTACK',
+    RANGED_ATTACK: 'RANGED_ATTACK',
     RESERVE: 'RESERVE',
     MOVE_TO: 'MOVE_TO'
 };

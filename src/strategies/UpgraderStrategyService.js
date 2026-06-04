@@ -1,6 +1,7 @@
 import BaseService from '../core/BaseService.js';
 import TaskTypes from '../core/TaskTypes.js';
 import EventBus from '../core/EventBus.js';
+import { planWorkerEnergyTask, WAIT_SUPPLY } from '../services/ResourceMarketService.js';
 
 class UpgraderStrategyService extends BaseService {
     analyze() {
@@ -46,21 +47,20 @@ class UpgraderStrategyService extends BaseService {
 
     assignUpgraderTask(creep) {
         if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
-            if (this.shouldWaitForHaulerSupply(creep)) {
-                this.requestEnergySupply(creep, 55, 'upgrader_work');
+            const controllerContainer = this.findControllerContainer(creep.room);
+            const energyTask = planWorkerEnergyTask(creep, {
+                priority: 55,
+                purpose: 'upgrader_work',
+                stationaryBufferTarget: controllerContainer,
+                supplyTargetId: (controllerContainer && controllerContainer.id) || creep.id || creep.name
+            });
+            if (!energyTask) return;
+            if (energyTask.type === WAIT_SUPPLY) {
+                const supplyTarget = (controllerContainer && energyTask.supplyTargetId === controllerContainer.id) ? controllerContainer : creep;
+                this.requestEnergySupply(supplyTarget, energyTask.priority || 55, energyTask.purpose || 'upgrader_work', creep.memory.homeRoom || creep.room.name);
                 return;
             }
-            const energySource = this.findEnergySource(creep.room);
-            if (energySource) {
-                creep.memory.task = energySource.withdraw ? {
-                    type: TaskTypes.WITHDRAW,
-                    targetId: energySource.id,
-                    resourceType: RESOURCE_ENERGY
-                } : {
-                    type: TaskTypes.PICKUP,
-                    targetId: energySource.id
-                };
-            }
+            creep.memory.task = energyTask;
             return;
         }
 
@@ -88,38 +88,49 @@ class UpgraderStrategyService extends BaseService {
         return plan ? plan.primaryUpgradePos : null;
     }
 
-    findEnergySource(room) {
-        if (room.storage && room.storage.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
-            return { id: room.storage.id, withdraw: true };
+    getPlannedControllerContainerPos(roomName) {
+        if (typeof Memory === 'undefined') return null;
+        const plan = Memory.rooms &&
+            Memory.rooms[roomName] &&
+            Memory.rooms[roomName].cityPlan &&
+            Memory.rooms[roomName].cityPlan.controller;
+        return plan ? plan.containerPos : null;
+    }
+
+    findControllerContainer(room) {
+        if (!room || !room.find) return null;
+        const containers = room.find(FIND_STRUCTURES, {
+            filter: (structure) => structure.structureType === STRUCTURE_CONTAINER
+        });
+        if (containers.length === 0) return null;
+
+        const plannedPos = this.getPlannedControllerContainerPos(room.name);
+        if (plannedPos) {
+            const plannedContainer = containers.find((structure) => {
+                return structure.pos &&
+                    structure.pos.x === plannedPos.x &&
+                    structure.pos.y === plannedPos.y &&
+                    structure.pos.roomName === plannedPos.roomName;
+            });
+            if (plannedContainer) return plannedContainer;
         }
 
-        const containers = room.find(FIND_STRUCTURES, {
-            filter: (structure) => {
-                return structure.structureType === STRUCTURE_CONTAINER &&
-                    structure.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
-            }
-        }).sort((a, b) => b.store.getUsedCapacity(RESOURCE_ENERGY) - a.store.getUsedCapacity(RESOURCE_ENERGY));
-        if (containers.length > 0) return { id: containers[0].id, withdraw: true };
-
-        const dropped = room.find(FIND_DROPPED_RESOURCES, {
-            filter: (resource) => resource.resourceType === RESOURCE_ENERGY && resource.amount > 50
-        }).sort((a, b) => b.amount - a.amount);
-        return dropped[0] || null;
+        if (!room.controller || !room.controller.pos) return containers[0];
+        const sorted = containers.slice().sort((a, b) => {
+            const rangeA = a.pos && a.pos.getRangeTo ? a.pos.getRangeTo(room.controller.pos) : 99;
+            const rangeB = b.pos && b.pos.getRangeTo ? b.pos.getRangeTo(room.controller.pos) : 99;
+            return rangeA - rangeB;
+        });
+        return sorted[0] || null;
     }
 
-    shouldWaitForHaulerSupply(creep) {
-        const roomName = creep.memory.homeRoom || creep.room.name;
-        const market = global.ResourceMarket && global.ResourceMarket[roomName];
-        return market && market.supplyMode === 'hauler_supply';
-    }
-
-    requestEnergySupply(creep, priority, purpose) {
+    requestEnergySupply(target, priority, purpose, roomName) {
         EventBus.publish('REQ_RESOURCE', priority, {
-            roomName: creep.memory.homeRoom || creep.room.name,
+            roomName: roomName || (target.memory && target.memory.homeRoom) || (target.room && target.room.name),
             action: 'demand',
             resourceType: RESOURCE_ENERGY,
-            amount: creep.store.getFreeCapacity ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : undefined,
-            targetId: creep.id || creep.name,
+            amount: target.store && target.store.getFreeCapacity ? target.store.getFreeCapacity(RESOURCE_ENERGY) : undefined,
+            targetId: target.id || target.name,
             priority,
             purpose
         }, 2);

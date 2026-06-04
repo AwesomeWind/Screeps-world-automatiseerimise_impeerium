@@ -38,6 +38,7 @@ class SpawnBureauService extends BaseService {
         this.addHaulerIntent(room, state);
         this.addUpgraderIntent(room, state);
         this.addBuilderIntent(room, state);
+        this.addRepairerIntent(room, state);
     }
 
     addMinerIntents(room, state) {
@@ -75,7 +76,7 @@ class SpawnBureauService extends BaseService {
             role: 'hauler',
             quotaKey: `hauler:${room.name}:core`,
             priority: current === 0 ? 90 : 45,
-            bodyProfile: 'hauler',
+            bodyProfile: current === 0 ? 'emergency_hauler' : 'hauler',
             memory: { role: 'hauler', homeRoom: room.name },
             reason: current === 0 ? 'emergency_energy_logistics' : 'hauler_capacity'
         });
@@ -91,7 +92,7 @@ class SpawnBureauService extends BaseService {
             role: 'upgrader',
             quotaKey: `upgrader:${room.name}:controller`,
             priority: current === 0 ? 60 : 35,
-            bodyProfile: 'upgrader',
+            bodyProfile: this.upgraderBodyProfile(room),
             memory: { role: 'upgrader', homeRoom: room.name },
             reason: 'controller_progress'
         });
@@ -113,9 +114,48 @@ class SpawnBureauService extends BaseService {
             role: 'builder',
             quotaKey: `builder:${room.name}:construction`,
             priority: current === 0 ? 55 : 30,
-            bodyProfile: 'builder',
+            bodyProfile: this.builderBodyProfile(room),
             memory: { role: 'builder', homeRoom: room.name },
             reason: 'construction'
+        });
+    }
+
+    addRepairerIntent(room, state) {
+        const maintenanceDemand = this.maintenanceDemand(room);
+        if (maintenanceDemand.totalTargets <= 0) return;
+        if (this.countRole(room.name, 'miner', state) === 0 ||
+            this.countRole(room.name, 'hauler', state) === 0 ||
+            this.countRole(room.name, 'upgrader', state) === 0) {
+            return;
+        }
+
+        const maintenanceWorkers = this.countRole(room.name, 'builder', state) + this.countRole(room.name, 'repairer', state);
+        if (maintenanceWorkers === 0) {
+            this.addIntent(room, state, {
+                role: 'repairer',
+                quotaKey: `repairer:${room.name}:maintenance`,
+                priority: maintenanceDemand.urgentTargets > 0 ? 58 : 44,
+                bodyProfile: 'repairer',
+                memory: { role: 'repairer', homeRoom: room.name },
+                reason: 'maintenance_coverage'
+            });
+            return;
+        }
+
+        const backlog = maintenanceDemand.backlog;
+        if (backlog <= 0) return;
+
+        const desired = Math.min(2, Math.ceil(backlog / 3));
+        const current = this.countRole(room.name, 'repairer', state);
+        if (current >= desired) return;
+
+        this.addIntent(room, state, {
+            role: 'repairer',
+            quotaKey: `repairer:${room.name}:maintenance`,
+            priority: backlog >= 3 ? 52 : 42,
+            bodyProfile: 'repairer',
+            memory: { role: 'repairer', homeRoom: room.name },
+            reason: 'maintenance_backlog'
         });
     }
 
@@ -163,6 +203,85 @@ class SpawnBureauService extends BaseService {
             memory: Object.assign({ quotaKey: intent.quotaKey }, intent.memory),
             reason: intent.reason
         });
+    }
+
+    upgraderBodyProfile(room) {
+        if (this.hasPlannedControllerContainer(room.name) || this.hasControllerContainer(room)) {
+            return 'stationary_upgrader';
+        }
+        return 'upgrader';
+    }
+
+    hasPlannedControllerContainer(roomName) {
+        return typeof Memory !== 'undefined' &&
+            Memory.rooms &&
+            Memory.rooms[roomName] &&
+            Memory.rooms[roomName].cityPlan &&
+            Memory.rooms[roomName].cityPlan.controller &&
+            Memory.rooms[roomName].cityPlan.controller.containerPos;
+    }
+
+    hasControllerContainer(room) {
+        if (!room || !room.controller || !room.controller.pos || !room.find) return false;
+        const containers = room.find(FIND_STRUCTURES, {
+            filter: (structure) => structure.structureType === STRUCTURE_CONTAINER
+        });
+        for (const container of containers) {
+            if (!container.pos) continue;
+            const range = container.pos.getRangeTo ?
+                container.pos.getRangeTo(room.controller.pos) :
+                Math.max(Math.abs(container.pos.x - room.controller.pos.x), Math.abs(container.pos.y - room.controller.pos.y));
+            if (range <= 3) return true;
+        }
+        return false;
+    }
+
+    builderBodyProfile(room) {
+        if (room.storage) return 'supplied_builder';
+        return 'mobile_builder';
+    }
+
+    maintenanceDemand(room) {
+        const plan = typeof Memory !== 'undefined' &&
+            Memory.rooms &&
+            Memory.rooms[room.name] &&
+            Memory.rooms[room.name].maintenancePlan;
+        if (!plan || !plan.targets) {
+            return {
+                totalTargets: 0,
+                urgentTargets: 0,
+                backlog: 0
+            };
+        }
+
+        const quotas = plan.quotas || {};
+        const allowed = {
+            urgent: quotas.urgent === undefined ? 0 : quotas.urgent,
+            routine: quotas.routine === undefined ? 0 : quotas.routine,
+            longTerm: quotas.longTerm === undefined ? 0 : quotas.longTerm
+        };
+        const counts = { urgent: 0, routine: 0, longTerm: 0 };
+        let totalTargets = 0;
+
+        for (const target of plan.targets) {
+            if (target.executor !== 'builder') continue;
+            const urgency = this.urgencyFor(target);
+            counts[urgency]++;
+            totalTargets++;
+        }
+
+        return {
+            totalTargets,
+            urgentTargets: counts.urgent,
+            backlog: Math.max(0, counts.urgent - allowed.urgent) +
+                Math.max(0, counts.routine - allowed.routine) +
+                Math.max(0, counts.longTerm - allowed.longTerm)
+        };
+    }
+
+    urgencyFor(target) {
+        if (target.urgency === 'urgent' || target.urgency === 'longTerm') return target.urgency;
+        return 'routine';
     }
 
     shouldWaitForBootstrapHauler(room) {
@@ -272,6 +391,7 @@ class SpawnBureauService extends BaseService {
         if (memory.role === 'hauler') return `hauler:${roomName}:core`;
         if (memory.role === 'upgrader') return `upgrader:${roomName}:controller`;
         if (memory.role === 'builder') return `builder:${roomName}:construction`;
+        if (memory.role === 'repairer') return `repairer:${roomName}:maintenance`;
         if (memory.role === 'defender') return `defender:${roomName}:local`;
         return null;
     }

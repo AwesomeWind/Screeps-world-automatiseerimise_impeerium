@@ -1,6 +1,7 @@
 import BaseService from '../core/BaseService.js';
 import TaskTypes from '../core/TaskTypes.js';
 import EventBus from '../core/EventBus.js';
+import { planWorkerEnergyTask, WAIT_SUPPLY } from '../services/ResourceMarketService.js';
 
 class BuilderStrategyService extends BaseService {
     analyze() {
@@ -51,49 +52,30 @@ class BuilderStrategyService extends BaseService {
 
     assignBuilderTask(creep) {
         if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
-            if (this.shouldWaitForHaulerSupply(creep)) {
-                this.requestEnergySupply(creep, 60, 'builder_work');
-                return;
-            }
-            const energySource = this.findEnergySource(creep.room);
-            if (energySource) {
-                creep.memory.task = {
-                    type: energySource.withdraw ? TaskTypes.WITHDRAW : TaskTypes.PICKUP,
-                    targetId: energySource.id,
-                    resourceType: RESOURCE_ENERGY
-                };
-            }
+            this.assignEnergyTask(creep, 'builder_work');
             return;
         }
 
         const cache = global.RoomCache && global.RoomCache[creep.room.name];
         const siteId = cache && cache.constructionSites[0];
         if (siteId) creep.memory.task = { type: TaskTypes.BUILD, targetId: siteId };
-        else if (creep.room.controller) creep.memory.task = { type: TaskTypes.UPGRADE, targetId: creep.room.controller.id };
-    }
-
-    findEnergySource(room) {
-        if (room.storage && room.storage.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
-            return { id: room.storage.id, withdraw: true };
+        else {
+            const repairTargetId = this.findMaintenanceTarget(creep.room, false);
+            if (repairTargetId) creep.memory.task = { type: TaskTypes.REPAIR, targetId: repairTargetId };
+            else if (creep.room.controller) creep.memory.task = { type: TaskTypes.UPGRADE, targetId: creep.room.controller.id };
         }
-        const containers = room.find(FIND_STRUCTURES, {
-            filter: (structure) => {
-                return structure.structureType === STRUCTURE_CONTAINER &&
-                    structure.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
-            }
-        }).sort((a, b) => b.store.getUsedCapacity(RESOURCE_ENERGY) - a.store.getUsedCapacity(RESOURCE_ENERGY));
-        if (containers.length > 0) return { id: containers[0].id, withdraw: true };
-
-        const dropped = room.find(FIND_DROPPED_RESOURCES, {
-            filter: (resource) => resource.resourceType === RESOURCE_ENERGY && resource.amount > 50
-        });
-        return dropped[0] || null;
     }
 
-    shouldWaitForHaulerSupply(creep) {
-        const roomName = creep.memory.homeRoom || creep.room.name;
-        const market = global.ResourceMarket && global.ResourceMarket[roomName];
-        return market && market.supplyMode === 'hauler_supply';
+    assignEnergyTask(creep, purpose) {
+        const energyTask = planWorkerEnergyTask(creep, { purpose, priority: 60 });
+        if (!energyTask) return;
+
+        if (energyTask.type === WAIT_SUPPLY) {
+            this.requestEnergySupply(creep, energyTask.priority || 60, energyTask.purpose || purpose);
+            return;
+        }
+
+        creep.memory.task = energyTask;
     }
 
     requestEnergySupply(creep, priority, purpose) {
@@ -106,6 +88,39 @@ class BuilderStrategyService extends BaseService {
             priority,
             purpose
         }, 2);
+    }
+
+    findMaintenanceTarget(room, ignoreQuotas = false) {
+        const maintenance = Memory.rooms &&
+            Memory.rooms[room.name] &&
+            Memory.rooms[room.name].maintenancePlan &&
+            Memory.rooms[room.name].maintenancePlan.targets;
+        if (!maintenance) return null;
+
+        const firstRepairable = maintenance.find((entry) => this.canRepair(entry));
+        if (ignoreQuotas) return firstRepairable ? firstRepairable.id : null;
+
+        const quotas = Memory.rooms[room.name].maintenancePlan.quotas;
+        if (!quotas) return firstRepairable ? firstRepairable.id : null;
+
+        const used = { urgent: 0, routine: 0, longTerm: 0 };
+        for (const target of maintenance) {
+            if (!this.canRepair(target)) continue;
+            const urgency = this.urgencyFor(target);
+            used[urgency]++;
+            const quota = quotas[urgency];
+            if (quota === undefined || used[urgency] <= quota) return target.id;
+        }
+        return firstRepairable ? firstRepairable.id : null;
+    }
+
+    canRepair(target) {
+        return target.executor === 'builder' || target.executor === 'repairer';
+    }
+
+    urgencyFor(target) {
+        if (target.urgency === 'urgent' || target.urgency === 'longTerm') return target.urgency;
+        return 'routine';
     }
 }
 

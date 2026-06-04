@@ -44,11 +44,14 @@ const expectedFiles = [
     'src/services/RemoteMiningService.js',
     'src/strategies/MinerStrategyService.js',
     'src/strategies/BuilderStrategyService.js',
+    'src/strategies/RepairerStrategyService.js',
     'src/strategies/HaulerStrategyService.js',
     'src/strategies/UpgraderStrategyService.js',
     'src/strategies/DefenderStrategyService.js',
     'src/planning/BaseBlueprint.js',
     'src/planning/CityPlannerService.js',
+    'src/planning/DefensePlannerService.js',
+    'src/planning/MaintenancePlannerService.js',
     'src/planning/RoadPlannerService.js',
     'src/config/MemoryConfig.js'
 ];
@@ -58,9 +61,16 @@ for (const file of expectedFiles) {
 }
 
 const actionParser = read('src/core/ActionParser.js');
-for (const taskType of ['HARVEST', 'TRANSFER', 'WITHDRAW', 'PICKUP', 'BUILD', 'UPGRADE', 'ATTACK', 'RESERVE', 'MOVE_TO']) {
+for (const taskType of ['HARVEST', 'TRANSFER', 'WITHDRAW', 'PICKUP', 'BUILD', 'REPAIR', 'UPGRADE', 'ATTACK', 'RANGED_ATTACK', 'RESERVE', 'MOVE_TO']) {
     assertContains(actionParser, `case TaskTypes.${taskType}`, `ActionParser ${taskType}`);
 }
+assertContains(read('src/services/ResourceMarketService.js'), 'planWorkerEnergyTask', 'resource market should expose worker energy planning');
+assertContains(read('src/services/ResourceMarketService.js'), 'planMobileWorkerEnergyTask', 'resource market should split mobile worker energy planning');
+assertContains(read('src/services/ResourceMarketService.js'), 'planStationaryWorkerEnergyTask', 'resource market should split stationary worker energy planning');
+assertContains(read('src/strategies/BuilderStrategyService.js'), 'planWorkerEnergyTask', 'builder strategy should consume resource market energy planning');
+assertNotContains(read('src/strategies/BuilderStrategyService.js'), 'assignRepairerTask', 'builder strategy should not own repairer task assignment');
+assertContains(read('src/strategies/UpgraderStrategyService.js'), 'planWorkerEnergyTask', 'upgrader strategy should consume resource market energy planning');
+assertContains(read('src/strategies/RepairerStrategyService.js'), 'planWorkerEnergyTask', 'repairer strategy should consume resource market energy planning');
 
 const main = read('src/main.js');
 for (const phase of ['init();', 'analyze();', 'EventBus.dispatch();', 'run();', 'cleanup();']) {
@@ -74,10 +84,14 @@ assertContains(main, 'WarStrategyService', 'main should include war strategy ser
 assertContains(main, 'CombatPlannerService', 'main should include combat planner service');
 assertContains(main, 'SpawnBureauService', 'main should include spawn bureau service');
 assertContains(main, 'ResourceMarketService', 'main should include resource market service');
+assertContains(main, 'DefensePlannerService', 'main should include defense planner service');
+assertContains(main, 'MaintenancePlannerService', 'main should include maintenance planner service');
+assertContains(main, 'RepairerStrategyService', 'main should include repairer strategy service');
 assertNotContains(main, "new LogisticsService('Logistics')", 'main should not run old logistics dispatcher');
 assert.ok(main.indexOf("new WarIntelService('WarIntel')") < main.indexOf("new SecurityService('Security')"), 'war intel should run before security bridge');
 assert.ok(main.indexOf("new SecurityService('Security')") < main.indexOf("new SpawnBureauService('SpawnBureau')"), 'security bridge should run before spawn bureau');
 assert.ok(main.indexOf("new SpawnBureauService('SpawnBureau')") < main.indexOf("new SpawnService('Spawn')"), 'spawn bureau should publish before spawn service executes');
+assert.ok(main.indexOf("new CityPlannerService('CityPlanner')") < main.indexOf("new DefensePlannerService('DefensePlanner')"), 'city planner should populate the city plan before defense planner reads it');
 
 const rollupConfig = read('rollup.config.js');
 assertContains(rollupConfig, 'function serviceVersionPlugin()', 'rollup should define service version injection plugin');
@@ -108,7 +122,8 @@ async function runBehaviorChecks() {
     global.WORK = 'work';
     global.CARRY = 'carry';
     global.MOVE = 'move';
-    global.BODYPART_COST = { work: 100, carry: 50, move: 50, attack: 80, ranged_attack: 150, heal: 250, tough: 10 };
+    global.CLAIM = 'claim';
+    global.BODYPART_COST = { work: 100, carry: 50, move: 50, attack: 80, ranged_attack: 150, heal: 250, tough: 10, claim: 600 };
     global._ = {
         filter: (collection, predicate) => Object.values(collection).filter(predicate)
     };
@@ -119,6 +134,7 @@ async function runBehaviorChecks() {
     global.FIND_CONSTRUCTION_SITES = 5;
     global.FIND_MY_SPAWNS = 6;
     global.FIND_HOSTILE_CREEPS = 7;
+    global.FIND_MY_CREEPS = 8;
     global.STRUCTURE_SPAWN = 'spawn';
     global.STRUCTURE_EXTENSION = 'extension';
     global.STRUCTURE_TOWER = 'tower';
@@ -149,6 +165,7 @@ async function runBehaviorChecks() {
     const { default: HaulerStrategyService } = await import('../strategies/HaulerStrategyService.js');
     const { default: UpgraderStrategyService } = await import('../strategies/UpgraderStrategyService.js');
     const { default: BuilderStrategyService } = await import('../strategies/BuilderStrategyService.js');
+    const { default: RepairerStrategyService } = await import('../strategies/RepairerStrategyService.js');
     const { default: DefenderStrategyService } = await import('../strategies/DefenderStrategyService.js');
     const { default: SecurityService } = await import('../services/SecurityService.js');
     const { default: WarIntelService } = await import('../services/WarIntelService.js');
@@ -158,8 +175,12 @@ async function runBehaviorChecks() {
     const { default: SpawnService } = await import('../services/SpawnService.js');
     const { default: ResourceMarketService } = await import('../services/ResourceMarketService.js');
     const { default: LabService } = await import('../services/LabService.js');
+    const { default: RemoteMiningService } = await import('../services/RemoteMiningService.js');
+    const { default: TowerDefenseService } = await import('../services/TowerDefenseService.js');
     const { default: MemoryConfig } = await import('../config/MemoryConfig.js');
     const { default: CityPlannerService } = await import('../planning/CityPlannerService.js');
+    const { default: DefensePlannerService } = await import('../planning/DefensePlannerService.js');
+    const { default: MaintenancePlannerService } = await import('../planning/MaintenancePlannerService.js');
     const { default: RoadPlannerService } = await import('../planning/RoadPlannerService.js');
 
     assertContains(main, 'UpgraderStrategyService', 'main services');
@@ -191,11 +212,26 @@ async function runBehaviorChecks() {
         energyCapacityAvailable: 500
     }, { phase: 'stable' });
     assert.ok(largeHaulerBody.capacity.carryParts > 2, 'hauler body should scale carry capacity with available energy');
+    const emergencyHaulerBody = BodyBuilder.build('hauler', {
+        energyAvailable: 500,
+        energyCapacityAvailable: 500
+    }, { bodyProfile: 'emergency_hauler' });
+    assert.ok(emergencyHaulerBody.body.length < largeHaulerBody.body.length, 'emergency hauler body should be smaller than standard logistics body');
     const upgraderBody = BodyBuilder.build('upgrader', {
         energyAvailable: 550,
         energyCapacityAvailable: 550
     }, { phase: 'early' });
     assert.ok(upgraderBody.body.includes(WORK) && upgraderBody.body.includes(CARRY), 'upgrader body should include work and carry parts');
+    const stationaryUpgraderBody = BodyBuilder.build('upgrader', {
+        energyAvailable: 300,
+        energyCapacityAvailable: 300
+    }, { bodyProfile: 'stationary_upgrader' });
+    const mobileUpgraderBody = BodyBuilder.build('upgrader', {
+        energyAvailable: 300,
+        energyCapacityAvailable: 300
+    }, { bodyProfile: 'upgrader' });
+    assert.ok(stationaryUpgraderBody.capacity.workParts > mobileUpgraderBody.capacity.workParts, 'stationary upgrader body should bias work parts over the mobile profile');
+    assert.ok(stationaryUpgraderBody.capacity.carryParts <= mobileUpgraderBody.capacity.carryParts, 'stationary upgrader body should not spend more on carry than the mobile profile');
     const builder300Body = BodyBuilder.build('builder', {
         energyAvailable: 300,
         energyCapacityAvailable: 300
@@ -205,11 +241,50 @@ async function runBehaviorChecks() {
         energyCapacityAvailable: 550
     });
     assert.ok(builder550Body.body.length > builder300Body.body.length, 'builder body should scale when RCL2 energy capacity increases');
+    const mobileBuilderBody = BodyBuilder.build('builder', {
+        energyAvailable: 550,
+        energyCapacityAvailable: 550
+    }, { bodyProfile: 'mobile_builder' });
+    const suppliedBuilderBody = BodyBuilder.build('builder', {
+        energyAvailable: 550,
+        energyCapacityAvailable: 550
+    }, { bodyProfile: 'supplied_builder' });
+    assert.ok(suppliedBuilderBody.capacity.workParts > mobileBuilderBody.capacity.workParts, 'supplied builder should bias work parts when logistics can feed it');
+    assert.ok(mobileBuilderBody.capacity.carryParts >= suppliedBuilderBody.capacity.carryParts, 'mobile builder should keep more carry capacity for self-supply');
+    const repairerBody = BodyBuilder.build('repairer', {
+        energyAvailable: 550,
+        energyCapacityAvailable: 550
+    }, { bodyProfile: 'repairer' });
+    assert.ok(repairerBody.capacity.workParts >= 2 && repairerBody.capacity.carryParts >= 1, 'repairer profile should support sustained repair work');
     const defender550Body = BodyBuilder.build('defender', {
         energyAvailable: 550,
         energyCapacityAvailable: 550
     }, { bodyProfile: 'melee_defender' });
     assert.ok(defender550Body.body.includes(ATTACK) && defender550Body.body.includes(TOUGH), 'defender body profile should include combat parts');
+    const rangedDefenderBody = BodyBuilder.build('defender', {
+        energyAvailable: 550,
+        energyCapacityAvailable: 550
+    }, { bodyProfile: 'ranged_defender' });
+    assert.ok(rangedDefenderBody.body.includes(RANGED_ATTACK) && rangedDefenderBody.body.includes(MOVE), 'ranged defender profile should include ranged attack and movement');
+    const reserver650Body = BodyBuilder.build('reserver', {
+        energyAvailable: 650,
+        energyCapacityAvailable: 650
+    }, { bodyProfile: 'reserver' });
+    assert.deepStrictEqual(reserver650Body.body, [CLAIM, MOVE], 'reserver should degrade to a single claim pair when room capacity is limited');
+    const reserver1300Body = BodyBuilder.build('reserver', {
+        energyAvailable: 1300,
+        energyCapacityAvailable: 1300
+    }, { bodyProfile: 'reserver' });
+    assert.deepStrictEqual(reserver1300Body.body, [CLAIM, CLAIM, MOVE, MOVE], 'reserver should scale up when room capacity supports a full reserve body');
+    const standardRemoteMinerBody = BodyBuilder.build('remoteMiner', {
+        energyAvailable: 650,
+        energyCapacityAvailable: 650
+    }, { bodyProfile: 'remote_miner' });
+    const travelRemoteMinerBody = BodyBuilder.build('remoteMiner', {
+        energyAvailable: 650,
+        energyCapacityAvailable: 650
+    }, { bodyProfile: 'remote_travel_miner' });
+    assert.ok(travelRemoteMinerBody.capacity.moveParts > standardRemoteMinerBody.capacity.moveParts, 'long-distance remote miner should trade some work for movement');
 
     global.Game = {
         time: 1,
@@ -237,6 +312,34 @@ async function runBehaviorChecks() {
     };
     ActionParser.run(exactMoveCreep);
     assert.strictEqual(moveRange, 0, 'MOVE_TO should preserve explicit range 0 for planned positions');
+
+    let rangedTargetId = null;
+    const rangedAttackCreep = {
+        memory: { task: { type: 'RANGED_ATTACK', targetId: 'hostileRangedTarget' } },
+        rangedAttack: (target) => {
+            rangedTargetId = target.id;
+            return OK;
+        },
+        pos: {}
+    };
+    Game.getObjectById = (id) => ({ id, pos: {} });
+    ActionParser.run(rangedAttackCreep);
+    assert.strictEqual(rangedTargetId, 'hostileRangedTarget', 'RANGED_ATTACK should execute creep.rangedAttack');
+    assert.strictEqual(rangedAttackCreep.memory.task, null, 'RANGED_ATTACK should clear after successful attack');
+
+    let repairedTargetId = null;
+    const repairCreep = {
+        memory: { task: { type: 'REPAIR', targetId: 'rampartRepairTarget' } },
+        repair: (target) => {
+            repairedTargetId = target.id;
+            return OK;
+        },
+        pos: {}
+    };
+    Game.getObjectById = (id) => ({ id, pos: {} });
+    ActionParser.run(repairCreep);
+    assert.strictEqual(repairedTargetId, 'rampartRepairTarget', 'REPAIR should execute creep.repair');
+    assert.strictEqual(repairCreep.memory.task, null, 'REPAIR should clear after successful repair');
 
     const stuckMoveCreep = {
         memory: { task: { type: 'MOVE_TO', pos: { x: 10, y: 10, roomName: 'W1N1' }, range: 0, stuckLimit: 2 } },
@@ -633,7 +736,7 @@ async function runBehaviorChecks() {
     spawnBureau.analyze();
     assert.ok(EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'hauler'), 'spawn bureau should request haulers when under capacity');
     const haulerRequest = EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'hauler');
-    assert.ok(haulerRequest.data.body.length > 6, 'hauler spawn body should scale beyond the old fixed body when energy allows');
+    assert.ok(haulerRequest.data.body.length <= 4, 'first hauler spawn body should stay compact for faster logistics recovery');
 
     const controller = { id: 'controller1', pos: { x: 25, y: 25, roomName: 'W1N1' } };
     const upgraderRoom = {
@@ -700,6 +803,62 @@ async function runBehaviorChecks() {
         targetId: 'controller1'
     }, 'loaded upgrader should upgrade controller');
 
+    const controllerContainer = {
+        id: 'controllerContainer1',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 24, y: 25, roomName: 'W1N1' },
+        store: { getUsedCapacity: () => 150 }
+    };
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' },
+                containerPos: { x: 24, y: 25, roomName: 'W1N1' }
+            }
+        }
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'controller1') return controller;
+        if (id === 'controllerContainer1') return controllerContainer;
+        return null;
+    };
+    global.ResourceMarket = { W1N1: { supplyMode: 'hauler_supply' } };
+    const stationedUpgrader = {
+        id: 'upgrader1',
+        name: 'Upgrader1',
+        room: {
+            name: 'W1N1',
+            controller,
+            storage: { id: 'storage1', store: { getUsedCapacity: () => 1000 } },
+            find: (type) => type === FIND_STRUCTURES ? [controllerContainer] : []
+        },
+        pos: { inRangeTo: (x, y, range) => x === 24 && y === 25 && range === 0 },
+        memory: { role: 'upgrader', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 0, getFreeCapacity: () => 50 }
+    };
+    EventBus.topics = {};
+    upgraderService.assignUpgraderTask(stationedUpgrader);
+    assert.deepStrictEqual(stationedUpgrader.memory.task, {
+        type: 'WITHDRAW',
+        targetId: 'controllerContainer1',
+        resourceType: RESOURCE_ENERGY
+    }, 'upgrader should withdraw from controller container before waiting for hauler supply');
+
+    controllerContainer.store.getUsedCapacity = () => 0;
+    const waitingUpgrader = {
+        id: 'upgrader2',
+        name: 'Upgrader2',
+        room: stationedUpgrader.room,
+        pos: stationedUpgrader.pos,
+        memory: { role: 'upgrader', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 0, getFreeCapacity: () => 50 }
+    };
+    EventBus.topics = {};
+    upgraderService.assignUpgraderTask(waitingUpgrader);
+    assert.strictEqual(waitingUpgrader.memory.task, undefined, 'upgrader should wait when controller container is empty in hauler supply mode');
+    assert.ok(EventBus.topics.REQ_RESOURCE && EventBus.topics.REQ_RESOURCE.some((event) => event.data.targetId === 'controllerContainer1'), 'upgrader should request hauler refill for controller container');
+    global.ResourceMarket = {};
+
     const builderService = new BuilderStrategyService('BuilderStrategy');
     const buildSite = { id: 'site1' };
     global.RoomCache.W1N1 = { constructionSites: ['site1'] };
@@ -730,6 +889,84 @@ async function runBehaviorChecks() {
     spawnBureau.analyze();
     const firstBuilderRequest = EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'builder');
     assert.ok(firstBuilderRequest.priority > 50, 'first builder should outrank continued miner expansion when construction sites exist and core economy is online');
+    assert.strictEqual(firstBuilderRequest.data.memory.bodyProfile, undefined, 'spawn memory should not leak body profile details');
+    assert.ok(firstBuilderRequest.data.body.filter((part) => part === CARRY).length >= firstBuilderRequest.data.body.filter((part) => part === WORK).length, 'mobile builder should preserve carry capacity before storage logistics exist');
+
+    EventBus.topics = {};
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller,
+        storage: { id: 'storage1', store: { getUsedCapacity: () => 2000 } },
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        find: (type) => type === FIND_CONSTRUCTION_SITES ? [buildSite] : []
+    };
+    Game.creeps = {
+        MinerCore: { memory: { role: 'miner', homeRoom: 'W1N1' } },
+        HaulerCore: { memory: { role: 'hauler', homeRoom: 'W1N1' } },
+        UpgraderCore: { memory: { role: 'upgrader', homeRoom: 'W1N1' } }
+    };
+    spawnBureau.analyze();
+    const suppliedBuilderRequest = EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'builder');
+    assert.ok(
+        suppliedBuilderRequest.data.body.filter((part) => part === WORK).length >
+        suppliedBuilderRequest.data.body.filter((part) => part === CARRY).length,
+        'storage-backed builder should use a supplied work-heavy body'
+    );
+
+    EventBus.topics = {};
+    Memory.rooms.W1N1.maintenancePlan = {
+        quotas: { urgent: 1, routine: 1, longTerm: 0 },
+        targets: [
+            { id: 'urgentContainer', executor: 'builder', urgency: 'urgent', priority: 95 },
+            { id: 'routineRoad1', executor: 'builder', urgency: 'routine', priority: 60 },
+            { id: 'routineRoad2', executor: 'builder', urgency: 'routine', priority: 59 },
+            { id: 'routineRoad3', executor: 'builder', urgency: 'routine', priority: 58 }
+        ]
+    };
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller,
+        storage: { id: 'storage1', store: { getUsedCapacity: () => 20000 } },
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        find: (type) => type === FIND_CONSTRUCTION_SITES ? [] : []
+    };
+    Game.creeps = {
+        MinerCore: { memory: { role: 'miner', homeRoom: 'W1N1' } },
+        HaulerCore: { memory: { role: 'hauler', homeRoom: 'W1N1' } },
+        UpgraderCore: { memory: { role: 'upgrader', homeRoom: 'W1N1' } },
+        BuilderCore: { memory: { role: 'builder', homeRoom: 'W1N1' } }
+    };
+    spawnBureau.analyze();
+    const repairerRequest = EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'repairer');
+    assert.ok(repairerRequest, 'spawn bureau should request a repairer when maintenance backlog exceeds routine quota');
+    assert.strictEqual(repairerRequest.data.memory.role, 'repairer', 'repairer spawn request should persist repairer role memory');
+
+    EventBus.topics = {};
+    Memory.rooms.W1N1.maintenancePlan = {
+        quotas: { urgent: 3, routine: 5, longTerm: 6 },
+        targets: [
+            { id: 'roadMaintenance1', executor: 'builder', urgency: 'urgent', structureType: STRUCTURE_ROAD, priority: 70 },
+            { id: 'roadMaintenance2', executor: 'builder', urgency: 'urgent', structureType: STRUCTURE_ROAD, priority: 69 }
+        ]
+    };
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller,
+        storage: { id: 'storage1', store: { getUsedCapacity: () => 20000 } },
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        find: (type) => type === FIND_CONSTRUCTION_SITES ? [] : []
+    };
+    Game.creeps = {
+        MinerCore: { memory: { role: 'miner', homeRoom: 'W1N1' } },
+        HaulerCore: { memory: { role: 'hauler', homeRoom: 'W1N1' } },
+        UpgraderCore: { memory: { role: 'upgrader', homeRoom: 'W1N1' } }
+    };
+    spawnBureau.analyze();
+    const maintenanceRepairerRequest = EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'repairer');
+    assert.ok(maintenanceRepairerRequest, 'spawn bureau should request a repairer when maintenance targets exist but there is no maintenance workforce');
 
     const containerEnergy = {
         id: 'container1',
@@ -903,6 +1140,7 @@ async function runBehaviorChecks() {
         find: (type) => type === FIND_STRUCTURES ? [marketStorage] : []
     };
     const marketBuilder = new BuilderStrategyService('BuilderStrategy');
+    const marketRepairerService = new RepairerStrategyService('RepairerStrategy');
     const emptySelfSupplyBuilder = {
         room: weakLogisticsRoom,
         memory: { role: 'builder', homeRoom: 'W1N1' },
@@ -936,8 +1174,61 @@ async function runBehaviorChecks() {
     global.ResourceMarket = { W1N1: { supplyMode: 'hauler_supply' } };
     EventBus.topics = {};
     marketBuilder.assignBuilderTask(suppliedBuilder);
-    assert.strictEqual(suppliedBuilder.memory.task, undefined, 'builder should wait instead of self-supplying when logistics capacity is sufficient');
-    assert.ok(EventBus.topics.REQ_RESOURCE && EventBus.topics.REQ_RESOURCE.some((event) => event.data.targetId === 'suppliedBuilderId'), 'builder should publish resource demand when waiting for hauler supply');
+    assert.deepStrictEqual(suppliedBuilder.memory.task, {
+        type: 'WITHDRAW',
+        targetId: 'marketStorage',
+        resourceType: RESOURCE_ENERGY
+    }, 'builder should self-supply from storage for mobile work even when logistics capacity is sufficient');
+    assert.ok(!EventBus.topics.REQ_RESOURCE || !EventBus.topics.REQ_RESOURCE.some((event) => event.data.targetId === 'suppliedBuilderId'), 'builder should not wait for hauler delivery when local storage is available');
+
+    const suppliedRepairer = {
+        name: 'SuppliedRepairer',
+        id: 'suppliedRepairerId',
+        room: weakLogisticsRoom,
+        memory: { role: 'repairer', homeRoom: 'W1N1' },
+        body: [{ type: WORK }, { type: CARRY }, { type: MOVE }],
+        store: { getUsedCapacity: () => 0, getFreeCapacity: () => 50 }
+    };
+    EventBus.topics = {};
+    marketRepairerService.assignRepairerTask(suppliedRepairer);
+    assert.deepStrictEqual(suppliedRepairer.memory.task, {
+        type: 'WITHDRAW',
+        targetId: 'marketStorage',
+        resourceType: RESOURCE_ENERGY
+    }, 'repairer should self-supply from storage for mobile work even when logistics capacity is sufficient');
+    assert.ok(!EventBus.topics.REQ_RESOURCE || !EventBus.topics.REQ_RESOURCE.some((event) => event.data.targetId === 'suppliedRepairerId'), 'repairer should not wait for hauler delivery when local storage is available');
+
+    const noLocalSupplyRoom = {
+        name: 'W1N1',
+        controller,
+        storage: null,
+        find: () => []
+    };
+    const waitingBuilder = {
+        name: 'WaitingBuilder',
+        id: 'waitingBuilderId',
+        room: noLocalSupplyRoom,
+        memory: { role: 'builder', homeRoom: 'W1N1' },
+        body: [{ type: WORK }, { type: CARRY }, { type: MOVE }],
+        store: { getUsedCapacity: () => 0, getFreeCapacity: () => 50 }
+    };
+    EventBus.topics = {};
+    marketBuilder.assignBuilderTask(waitingBuilder);
+    assert.strictEqual(waitingBuilder.memory.task, undefined, 'builder should wait when ResourceMarket cannot find a local energy source');
+    assert.ok(EventBus.topics.REQ_RESOURCE && EventBus.topics.REQ_RESOURCE.some((event) => event.data.targetId === 'waitingBuilderId'), 'builder should publish resource demand when ResourceMarket returns wait_supply');
+
+    const waitingRepairer = {
+        name: 'WaitingRepairer',
+        id: 'waitingRepairerId',
+        room: noLocalSupplyRoom,
+        memory: { role: 'repairer', homeRoom: 'W1N1' },
+        body: [{ type: WORK }, { type: CARRY }, { type: MOVE }],
+        store: { getUsedCapacity: () => 0, getFreeCapacity: () => 50 }
+    };
+    EventBus.topics = {};
+    marketRepairerService.assignRepairerTask(waitingRepairer);
+    assert.strictEqual(waitingRepairer.memory.task, undefined, 'repairer should wait when ResourceMarket cannot find a local energy source');
+    assert.ok(EventBus.topics.REQ_RESOURCE && EventBus.topics.REQ_RESOURCE.some((event) => event.data.targetId === 'waitingRepairerId'), 'repairer should publish resource demand when ResourceMarket returns wait_supply');
 
     EventBus.topics = {};
     global.REACTIONS = { U: { L: RESOURCE_UTRIUM_LEMERGITE } };
@@ -963,6 +1254,41 @@ async function runBehaviorChecks() {
         resourceType: RESOURCE_UTRIUM_LEMERGITE
     }, 'loaded hauler should store lab compounds in terminal when no explicit demand exists');
 
+    EventBus.topics = {};
+    global.Memory.empire.remoteRooms = { W2N2: { enabled: true, baseRoom: 'W1N1' } };
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true },
+        energyAvailable: 650,
+        energyCapacityAvailable: 650,
+        find: () => []
+    };
+    Game.rooms.W2N2 = {
+        name: 'W2N2',
+        controller: { reservation: { ticksToEnd: 500 } },
+        find: (type) => type === FIND_SOURCES ? [] : []
+    };
+    const remoteMiningService = new RemoteMiningService('RemoteMining');
+    remoteMiningService.analyze();
+    const reserverRequest = EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'reserver');
+    assert.deepStrictEqual(reserverRequest.data.body, [CLAIM, MOVE], 'remote mining reserver demand should use the scaled reserver body');
+
+    EventBus.topics = {};
+    global.Memory.empire.remoteRooms = { W3N3: { enabled: true, baseRoom: 'W1N1', distance: 60 } };
+    Game.creeps = {};
+    Game.rooms.W3N3 = {
+        name: 'W3N3',
+        controller: { reservation: { ticksToEnd: 2000 } },
+        find: (type) => type === FIND_SOURCES ? [{ id: 'remoteSource1' }] : []
+    };
+    remoteMiningService.analyze();
+    const remoteMinerRequest = EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'remoteMiner');
+    assert.ok(
+        remoteMinerRequest.data.body.filter((part) => part === MOVE).length >
+        standardRemoteMinerBody.capacity.moveParts,
+        'long-distance remote miner demand should use a travel-heavy body'
+    );
+
     const defenderService = new DefenderStrategyService('DefenderStrategy');
     global.Security = { W1N1: { primaryTargetId: 'hostile1' } };
     const defender = {
@@ -985,6 +1311,15 @@ async function runBehaviorChecks() {
     Game.creeps = { DefenderFallback: fallbackDefender };
     defenderService.analyze();
     assert.deepStrictEqual(fallbackDefender.memory.task, { type: 'ATTACK', targetId: 'hostileFallback' }, 'defender should attack visible hostiles when security cache has no primary target');
+
+    const rangedDefender = {
+        room: fallbackDefenderRoom,
+        memory: { role: 'defender', targetRoom: 'W1N1' },
+        body: [{ type: RANGED_ATTACK }, { type: MOVE }]
+    };
+    Game.creeps = { RangedDefender: rangedDefender };
+    defenderService.analyze();
+    assert.deepStrictEqual(rangedDefender.memory.task, { type: 'RANGED_ATTACK', targetId: 'hostileFallback' }, 'ranged defenders should use ranged attack tasks');
 
     global.Security = { W1N1: { posture: 'defend' } };
     const healerHostile = {
@@ -1115,6 +1450,25 @@ async function runBehaviorChecks() {
     EventBus.topics = {};
     spawnBureau.analyze();
     assert.ok(EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'defender'), 'spawn bureau should publish defender requests from war demand');
+
+    EventBus.topics = {};
+    global.Security = {};
+    global.SpawnDemands = {};
+    const lightRangedHostile = {
+        id: 'lightRangedHostile',
+        owner: { username: 'Enemy' },
+        getActiveBodyparts: (part) => part === RANGED_ATTACK ? 1 : 0
+    };
+    Game.creeps = {};
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true, level: 4 },
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        find: (type) => type === FIND_HOSTILE_CREEPS ? [lightRangedHostile] : []
+    };
+    securityService.analyze();
+    assert.ok(global.SpawnDemands.W1N1 && global.SpawnDemands.W1N1[0].bodyProfile === 'ranged_defender', 'security service should request ranged defenders against ranged threats it can contest');
 
     const warHealer = {
         id: 'warHealer',
@@ -1304,7 +1658,13 @@ async function runBehaviorChecks() {
         },
         empire: {}
     };
+    global.CONTROLLER_STRUCTURES = {
+        [STRUCTURE_EXTENSION]: { 4: 20, 6: 40, 8: 60 },
+        [STRUCTURE_TOWER]: { 3: 1, 4: 1, 5: 2, 6: 2, 7: 3, 8: 6 },
+        [STRUCTURE_STORAGE]: { 4: 1, 5: 1, 6: 1, 7: 1, 8: 1 }
+    };
     const cityPlanner = new CityPlannerService('CityPlanner');
+    const defensePlanner = new DefensePlannerService('DefensePlanner');
     const sourceForPlan = { id: 'source1', pos: { x: 10, y: 10, roomName: 'W1N1' } };
     const controllerForPlan = { id: 'controller1', my: true, level: 4, pos: { x: 25, y: 25, roomName: 'W1N1' } };
     const spawnForPlan = { id: 'spawn1', pos: { x: 15, y: 15, roomName: 'W1N1' }, structureType: STRUCTURE_SPAWN };
@@ -1335,6 +1695,11 @@ async function runBehaviorChecks() {
     assert.ok(cityPlan.sources.source1.containerPos, 'city plan should include source container position');
     assert.ok(cityPlan.controller.containerPos, 'city plan should include controller container position');
     assert.ok(cityPlan.roadAnchors.length >= 2, 'city plan should expose road anchors for source and controller zones');
+    const coreDefensePlan = defensePlanner.buildDefensePlan(cityRoom, cityPlan);
+    assert.strictEqual(coreDefensePlan.mode, 'core_fortress', 'early defense planning should start in core fortress mode');
+    assert.ok(coreDefensePlan.towers.length > 0, 'defense plan should own tower positions');
+    assert.ok(coreDefensePlan.ramparts.some((entry) => entry.reason === 'spawn'), 'core fortress plan should protect the spawn with ramparts');
+    assert.ok(coreDefensePlan.repairTargets.rampartHits > 0, 'defense plan should define repair targets');
 
     const containerSites = [];
     const previousRoomPosition = global.RoomPosition;
@@ -1352,7 +1717,167 @@ async function runBehaviorChecks() {
     Memory.rooms.W1N1.cityPlan = cityPlan;
     cityPlanner.placePlannedContainers(cityRoom, cityPlan);
     assert.ok(containerSites.some((site) => site.structureType === STRUCTURE_CONTAINER), 'city planner should create planned container sites');
+    assert.ok(!containerSites.some((site) => site.structureType === STRUCTURE_TOWER), 'city planner should no longer place tower sites directly');
     global.RoomPosition = previousRoomPosition;
+
+    const defenseSites = [];
+    global.RoomPosition = class RoomPosition {
+        constructor(x, y, roomName) {
+            this.x = x;
+            this.y = y;
+            this.roomName = roomName;
+        }
+        createConstructionSite(structureType) {
+            defenseSites.push({ x: this.x, y: this.y, roomName: this.roomName, structureType });
+            return OK;
+        }
+    };
+    Game.time = 100;
+    Game.rooms.W1N1 = cityRoom;
+    global.RoomCache = { W1N1: {} };
+    defensePlanner.analyze();
+    assert.ok(defenseSites.some((site) => site.structureType === STRUCTURE_TOWER), 'defense planner should place tower sites from the defense build queue');
+    assert.ok(defenseSites.some((site) => site.structureType === STRUCTURE_RAMPART), 'defense planner should place rampart sites from the defense build queue');
+    assert.ok(defenseSites.length <= Memory.rooms.W1N1.cityPlan.defense.buildLimitPerRun, 'defense planner should throttle site creation per planning pass');
+    global.RoomPosition = previousRoomPosition;
+
+    const assetRoom = {
+        name: 'W1N1',
+        controller: { id: 'controller1', my: true, level: 6, pos: { x: 25, y: 25, roomName: 'W1N1' } },
+        storage: { id: 'storage1', pos: { x: 20, y: 20, roomName: 'W1N1' }, store: { getUsedCapacity: () => 20000 } },
+        find: (type) => {
+            if (type === FIND_MY_SPAWNS) return [spawnForPlan];
+            if (type === FIND_SOURCES) return [sourceForPlan];
+            if (type === FIND_STRUCTURES) {
+                return [
+                    spawnForPlan,
+                    { id: 'sourceContainer1', structureType: STRUCTURE_CONTAINER, pos: { x: 11, y: 10, roomName: 'W1N1' } },
+                    { id: 'controllerContainer1', structureType: STRUCTURE_CONTAINER, pos: { x: 24, y: 25, roomName: 'W1N1' } },
+                    { id: 'tower1', structureType: STRUCTURE_TOWER, pos: { x: 17, y: 12, roomName: 'W1N1' }, store: { getUsedCapacity: () => 1000 } },
+                    { id: 'tower2', structureType: STRUCTURE_TOWER, pos: { x: 12, y: 17, roomName: 'W1N1' }, store: { getUsedCapacity: () => 1000 } }
+                ];
+            }
+            if (type === FIND_CONSTRUCTION_SITES) return [];
+            return [];
+        }
+    };
+    const assetPlan = cityPlanner.buildCityPlan(assetRoom, firstCenter);
+    const assetDefensePlan = defensePlanner.buildDefensePlan(assetRoom, assetPlan);
+    assert.strictEqual(assetDefensePlan.mode, 'asset_protection', 'mid-game defense should activate asset protection mode');
+    assert.ok(assetDefensePlan.ramparts.some((entry) => entry.reason === 'source_container'), 'asset protection should include source container ramparts');
+
+    const territorialRoom = {
+        name: 'W1N1',
+        controller: { id: 'controller1', my: true, level: 8, pos: { x: 25, y: 25, roomName: 'W1N1' } },
+        storage: { id: 'storage1', pos: { x: 20, y: 20, roomName: 'W1N1' }, store: { getUsedCapacity: () => 100000 } },
+        find: (type) => {
+            if (type === FIND_MY_SPAWNS) return [spawnForPlan];
+            if (type === FIND_SOURCES) return [sourceForPlan];
+            if (type === FIND_STRUCTURES) {
+                return [
+                    spawnForPlan,
+                    { id: 'tower1', structureType: STRUCTURE_TOWER, pos: { x: 17, y: 12, roomName: 'W1N1' }, store: { getUsedCapacity: () => 1000 } },
+                    { id: 'tower2', structureType: STRUCTURE_TOWER, pos: { x: 12, y: 17, roomName: 'W1N1' }, store: { getUsedCapacity: () => 1000 } },
+                    { id: 'tower3', structureType: STRUCTURE_TOWER, pos: { x: 18, y: 18, roomName: 'W1N1' }, store: { getUsedCapacity: () => 1000 } }
+                ];
+            }
+            if (type === FIND_CONSTRUCTION_SITES) return [];
+            return [];
+        }
+    };
+    const territorialPlan = cityPlanner.buildCityPlan(territorialRoom, firstCenter);
+    const territorialDefensePlan = defensePlanner.buildDefensePlan(territorialRoom, territorialPlan);
+    assert.strictEqual(territorialDefensePlan.mode, 'territorial_gate', 'late-game defense should expand to territorial gate mode');
+    assert.ok(territorialDefensePlan.gates.length > 0, 'territorial defense should plan gate positions');
+    assert.ok(territorialDefensePlan.chokes.length > 0, 'territorial defense should identify choke anchors');
+
+    const maintenancePlanner = new MaintenancePlannerService('MaintenancePlanner');
+    const maintenanceStructures = [
+        { id: 'spawnDamaged', structureType: STRUCTURE_SPAWN, hits: 3500, hitsMax: 5000, pos: { x: 15, y: 15, roomName: 'W1N1' } },
+        { id: 'mainRoad', structureType: STRUCTURE_ROAD, hits: 1200, hitsMax: 5000, pos: { x: 16, y: 15, roomName: 'W1N1' } },
+        { id: 'sourceContainer1', structureType: STRUCTURE_CONTAINER, hits: 90000, hitsMax: 250000, pos: { x: 11, y: 10, roomName: 'W1N1' }, store: { getUsedCapacity: () => 500 } },
+        { id: 'rampartEmergency', structureType: STRUCTURE_RAMPART, hits: 800, hitsMax: 300000000, pos: { x: 17, y: 15, roomName: 'W1N1' } },
+        { id: 'wallRoutine', structureType: STRUCTURE_WALL, hits: 3000, hitsMax: 300000000, pos: { x: 18, y: 15, roomName: 'W1N1' } }
+    ];
+    const maintenanceRoom = {
+        name: 'W1N1',
+        controller: { id: 'controller1', my: true, level: 6, pos: { x: 25, y: 25, roomName: 'W1N1' } },
+        storage: { id: 'storage1', pos: { x: 20, y: 20, roomName: 'W1N1' }, store: { getUsedCapacity: () => 30000 } },
+        find: (type) => {
+            if (type === FIND_MY_SPAWNS) return [spawnForPlan];
+            if (type === FIND_SOURCES) return [sourceForPlan];
+            if (type === FIND_STRUCTURES) return maintenanceStructures;
+            if (type === FIND_CONSTRUCTION_SITES) return [];
+            return [];
+        }
+    };
+    Memory.rooms.W1N1.cityPlan = {
+        ...assetPlan,
+        defense: {
+            repairTargets: {
+                rampartHits: 100000,
+                wallHits: 50000
+            }
+        }
+    };
+    const maintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, Memory.rooms.W1N1.cityPlan);
+    assert.strictEqual(maintenancePlan.version, 1, 'maintenance plan should be versioned');
+    assert.ok(maintenancePlan.targets.some((target) => target.id === 'spawnDamaged' && target.repairClass === 'core'), 'maintenance plan should include damaged core structures');
+    assert.ok(maintenancePlan.targets.some((target) => target.id === 'mainRoad' && target.repairClass === 'economic'), 'maintenance plan should include damaged roads');
+    assert.ok(maintenancePlan.targets.some((target) => target.id === 'sourceContainer1' && target.repairClass === 'decay'), 'maintenance plan should include containers');
+    assert.ok(maintenancePlan.targets.some((target) => target.id === 'rampartEmergency' && target.executor === 'tower'), 'maintenance plan should route emergency rampart repair to towers');
+    assert.ok(maintenancePlan.targets.some((target) => target.id === 'wallRoutine' && target.repairClass === 'defense'), 'maintenance plan should include walls with defense targets');
+    assert.strictEqual(maintenancePlan.targets[0].id, 'rampartEmergency', 'maintenance plan should sort urgent defense emergencies first');
+
+    let repairedDefense = null;
+    const towerDefense = new TowerDefenseService('TowerDefense');
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true, level: 8 },
+        find: (type, opts) => {
+            if (type === FIND_MY_STRUCTURES) {
+                const structures = [{
+                    id: 'tower1',
+                    structureType: STRUCTURE_TOWER,
+                    store: { getUsedCapacity: () => 1000 },
+                    attack: () => OK,
+                    heal: () => OK,
+                    repair: (target) => {
+                        repairedDefense = target.id;
+                        return OK;
+                    }
+                }];
+                if (typeof opts === 'object' && opts && opts.filter) return structures.filter(opts.filter);
+                return structures;
+            }
+            if (type === FIND_MY_CREEPS) return [];
+            if (type === FIND_STRUCTURES) {
+                return [{
+                    id: 'rampart1',
+                    structureType: STRUCTURE_RAMPART,
+                    hits: 10000
+                }];
+            }
+            return [];
+        }
+    };
+    Memory.rooms.W1N1.cityPlan = {
+        defense: {
+            repairTargets: {
+                rampartHits: 5000,
+                wallHits: 0
+            }
+        }
+    };
+    Memory.rooms.W1N1.maintenancePlan = {
+        targets: [
+            { id: 'mainRoad', executor: 'builder', structureType: STRUCTURE_ROAD, priority: 60 },
+            { id: 'rampart1', executor: 'tower', structureType: STRUCTURE_RAMPART, priority: 95 }
+        ]
+    };
+    towerDefense.run();
+    assert.strictEqual(repairedDefense, 'rampart1', 'tower defense should consume emergency defense targets from the maintenance plan');
+    Memory.rooms.W1N1.cityPlan = cityPlan;
 
     const plannedMiner = {
         name: 'MinerPlanned',
@@ -1376,6 +1901,72 @@ async function runBehaviorChecks() {
         pos: cityPlan.controller.primaryUpgradePos,
         range: 0
     }, 'upgrader should move to the planned controller upgrade position before upgrading');
+
+    const repairBuilder = {
+        room: {
+            name: 'W1N1',
+            controller,
+            find: () => []
+        },
+        memory: { role: 'builder', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 50 }
+    };
+    global.RoomCache.W1N1 = { constructionSites: [] };
+    Memory.rooms.W1N1.maintenancePlan = {
+        quotas: { urgent: 3, routine: 0, longTerm: 0 },
+        targets: [
+            { id: 'routineRoad', executor: 'builder', urgency: 'routine', structureType: STRUCTURE_ROAD, priority: 95 },
+            { id: 'urgentContainer', executor: 'builder', urgency: 'urgent', structureType: STRUCTURE_CONTAINER, priority: 80 }
+        ]
+    };
+    builderService.assignBuilderTask(repairBuilder);
+    assert.deepStrictEqual(repairBuilder.memory.task, {
+        type: 'REPAIR',
+        targetId: 'urgentContainer'
+    }, 'loaded builder should prefer urgent maintenance targets over routine targets excluded by quotas');
+
+    const quotaBlockedBuilder = {
+        room: {
+            name: 'W1N1',
+            controller,
+            find: () => []
+        },
+        memory: { role: 'builder', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 50 }
+    };
+    Memory.rooms.W1N1.maintenancePlan = {
+        quotas: { urgent: 0, routine: 0, longTerm: 0 },
+        targets: [
+            { id: 'routineRoad', executor: 'builder', urgency: 'routine', structureType: STRUCTURE_ROAD, priority: 95 }
+        ]
+    };
+    builderService.assignBuilderTask(quotaBlockedBuilder);
+    assert.deepStrictEqual(quotaBlockedBuilder.memory.task, {
+        type: 'REPAIR',
+        targetId: 'routineRoad'
+    }, 'builder should consume low-priority maintenance before falling back to upgrading');
+
+    const repairerService = new RepairerStrategyService('RepairerStrategy');
+    const repairer = {
+        room: {
+            name: 'W1N1',
+            controller,
+            find: () => []
+        },
+        memory: { role: 'repairer', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 50 }
+    };
+    Memory.rooms.W1N1.maintenancePlan = {
+        quotas: { urgent: 0, routine: 0, longTerm: 0 },
+        targets: [
+            { id: 'routineRoad', executor: 'builder', urgency: 'routine', structureType: STRUCTURE_ROAD, priority: 95 }
+        ]
+    };
+    repairerService.assignRepairerTask(repairer);
+    assert.deepStrictEqual(repairer.memory.task, {
+        type: 'REPAIR',
+        targetId: 'routineRoad'
+    }, 'repairer should consume maintenance backlog even when builder quotas are exhausted');
 
     const matrixValues = new Map();
     class CostMatrix {
