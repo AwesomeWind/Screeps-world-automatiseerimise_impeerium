@@ -67,10 +67,13 @@ class LabService extends BaseService {
             const resources = Object.keys(lab.store).filter((resource) => lab.store.getUsedCapacity(resource) > 0);
             for (const resourceType of resources) {
                 isEmpty = false;
-                EventBus.publish('REQ_LOGISTICS', 90, {
-                    action: 'withdraw',
+                EventBus.publish('REQ_RESOURCE', 90, {
+                    roomName: room.name,
+                    action: 'supply',
                     targetId: lab.id,
-                    resourceType
+                    resourceType,
+                    priority: 90,
+                    purpose: 'lab_emptying'
                 }, 3);
             }
         }
@@ -81,11 +84,15 @@ class LabService extends BaseService {
     }
 
     requestLabDelivery(targetId, resourceType, amount) {
-        EventBus.publish('REQ_LOGISTICS', 80, {
-            action: 'deliver',
+        const target = Game.getObjectById(targetId);
+        EventBus.publish('REQ_RESOURCE', 80, {
+            roomName: target && target.pos ? target.pos.roomName : undefined,
+            action: 'demand',
             targetId,
             resourceType,
-            amount
+            amount,
+            priority: 80,
+            purpose: 'lab_reagent'
         }, 3);
     }
 

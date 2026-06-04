@@ -33,6 +33,7 @@ const expectedFiles = [
     'src/services/SpawnBureauService.js',
     'src/services/SpawnService.js',
     'src/services/LogisticsService.js',
+    'src/services/ResourceMarketService.js',
     'src/services/SecurityService.js',
     'src/services/WarIntelService.js',
     'src/services/WarStrategyService.js',
@@ -72,6 +73,8 @@ assertContains(main, 'WarIntelService', 'main should include war intel service')
 assertContains(main, 'WarStrategyService', 'main should include war strategy service');
 assertContains(main, 'CombatPlannerService', 'main should include combat planner service');
 assertContains(main, 'SpawnBureauService', 'main should include spawn bureau service');
+assertContains(main, 'ResourceMarketService', 'main should include resource market service');
+assertNotContains(main, "new LogisticsService('Logistics')", 'main should not run old logistics dispatcher');
 assert.ok(main.indexOf("new WarIntelService('WarIntel')") < main.indexOf("new SecurityService('Security')"), 'war intel should run before security bridge');
 assert.ok(main.indexOf("new SecurityService('Security')") < main.indexOf("new SpawnBureauService('SpawnBureau')"), 'security bridge should run before spawn bureau');
 assert.ok(main.indexOf("new SpawnBureauService('SpawnBureau')") < main.indexOf("new SpawnService('Spawn')"), 'spawn bureau should publish before spawn service executes');
@@ -99,6 +102,9 @@ async function runBehaviorChecks() {
     global.ERR_NO_BODYPART = -12;
     global.ERR_NO_PATH = -2;
     global.RESOURCE_ENERGY = 'energy';
+    global.RESOURCE_UTRIUM = 'U';
+    global.RESOURCE_LEMERGIUM = 'L';
+    global.RESOURCE_UTRIUM_LEMERGITE = 'UL';
     global.WORK = 'work';
     global.CARRY = 'carry';
     global.MOVE = 'move';
@@ -117,6 +123,8 @@ async function runBehaviorChecks() {
     global.STRUCTURE_EXTENSION = 'extension';
     global.STRUCTURE_TOWER = 'tower';
     global.STRUCTURE_STORAGE = 'storage';
+    global.STRUCTURE_TERMINAL = 'terminal';
+    global.STRUCTURE_LAB = 'lab';
     global.STRUCTURE_ROAD = 'road';
     global.STRUCTURE_CONTAINER = 'container';
     global.STRUCTURE_WALL = 'constructedWall';
@@ -148,6 +156,8 @@ async function runBehaviorChecks() {
     const { default: CombatPlannerService } = await import('../services/CombatPlannerService.js');
     const { default: SpawnBureauService } = await import('../services/SpawnBureauService.js');
     const { default: SpawnService } = await import('../services/SpawnService.js');
+    const { default: ResourceMarketService } = await import('../services/ResourceMarketService.js');
+    const { default: LabService } = await import('../services/LabService.js');
     const { default: MemoryConfig } = await import('../config/MemoryConfig.js');
     const { default: CityPlannerService } = await import('../planning/CityPlannerService.js');
     const { default: RoadPlannerService } = await import('../planning/RoadPlannerService.js');
@@ -740,6 +750,218 @@ async function runBehaviorChecks() {
         targetId: 'container1',
         resourceType: RESOURCE_ENERGY
     }, 'empty builder should withdraw from energy containers before idling');
+
+    const makeStore = (resources, capacity = 1000) => ({
+        getUsedCapacity: (resourceType) => {
+            if (resourceType) return resources[resourceType] || 0;
+            return Object.values(resources).reduce((sum, value) => sum + value, 0);
+        },
+        getFreeCapacity: (resourceType) => {
+            const used = resourceType ? (resources[resourceType] || 0) : Object.values(resources).reduce((sum, value) => sum + value, 0);
+            return Math.max(0, capacity - used);
+        },
+        [Symbol.iterator]: function* () {
+            for (const resourceType of Object.keys(resources)) yield resourceType;
+        }
+    });
+
+    const marketSpawn = {
+        id: 'marketSpawn',
+        structureType: STRUCTURE_SPAWN,
+        pos: { x: 20, y: 20, roomName: 'W1N1' },
+        store: makeStore({ energy: 0 }, 300)
+    };
+    const marketStorage = {
+        id: 'marketStorage',
+        structureType: STRUCTURE_STORAGE,
+        pos: { x: 10, y: 10, roomName: 'W1N1' },
+        store: makeStore({ energy: 1000, U: 300 }, 2000)
+    };
+    const marketTerminal = {
+        id: 'marketTerminal',
+        structureType: STRUCTURE_TERMINAL,
+        pos: { x: 12, y: 10, roomName: 'W1N1' },
+        store: makeStore({ energy: 100, L: 500 }, 3000)
+    };
+    const marketLab = {
+        id: 'marketLab',
+        structureType: STRUCTURE_LAB,
+        pos: { x: 15, y: 15, roomName: 'W1N1' },
+        store: makeStore({ UL: 50 }, 500)
+    };
+    const marketDrop = {
+        id: 'marketDrop',
+        resourceType: RESOURCE_ENERGY,
+        amount: 250,
+        pos: { x: 9, y: 10, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 9) + Math.abs(pos.y - 10) }
+    };
+    const marketRoom = {
+        name: 'W1N1',
+        controller: { my: true },
+        storage: marketStorage,
+        terminal: marketTerminal,
+        find: (type, opts = {}) => {
+            let results = [];
+            if (type === FIND_DROPPED_RESOURCES) results = [marketDrop];
+            if (type === FIND_MY_STRUCTURES) results = [marketSpawn, marketStorage, marketTerminal, marketLab];
+            if (type === FIND_STRUCTURES) results = [marketSpawn, marketStorage, marketTerminal, marketLab];
+            if (opts.filter) return results.filter(opts.filter);
+            return results;
+        }
+    };
+    const marketObjects = {
+        marketSpawn,
+        marketStorage,
+        marketTerminal,
+        marketLab,
+        marketDrop
+    };
+    Game.rooms = { W1N1: marketRoom };
+    Game.getObjectById = (id) => marketObjects[id] || Game.creeps[id] || null;
+    Game.creeps = {
+        HaulerA: {
+            name: 'HaulerA',
+            room: marketRoom,
+            memory: { role: 'hauler', homeRoom: 'W1N1' },
+            pos: { x: 8, y: 10, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 8) + Math.abs(pos.y - 10) },
+            store: makeStore({}, 100),
+            body: [{ type: CARRY }, { type: CARRY }, { type: MOVE }]
+        },
+        HaulerB: {
+            name: 'HaulerB',
+            room: marketRoom,
+            memory: { role: 'hauler', homeRoom: 'W1N1' },
+            pos: { x: 8, y: 11, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 8) + Math.abs(pos.y - 11) },
+            store: makeStore({}, 100),
+            body: [{ type: CARRY }, { type: CARRY }, { type: MOVE }]
+        }
+    };
+    global.ResourceMarket = {};
+    EventBus.topics = {};
+    EventBus.clearSubscribers();
+    const resourceMarket = new ResourceMarketService('ResourceMarket');
+    resourceMarket.init();
+    resourceMarket.analyze();
+    assert.ok(global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'marketDrop' && supply.resourceType === RESOURCE_ENERGY), 'resource market should discover dropped energy supply');
+    assert.ok(global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'marketStorage' && supply.resourceType === RESOURCE_UTRIUM), 'resource market should discover storage mineral supply');
+    assert.ok(global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'marketTerminal' && supply.resourceType === RESOURCE_LEMERGIUM), 'resource market should discover terminal mineral supply');
+    assert.ok(global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'marketLab' && supply.resourceType === RESOURCE_UTRIUM_LEMERGITE), 'resource market should discover lab compound supply');
+    assert.deepStrictEqual(Game.creeps.HaulerA.memory.task, { type: 'PICKUP', targetId: 'marketDrop' }, 'resource market should assign first empty hauler to picked-up dropped resource');
+    assert.ok(Game.creeps.HaulerB.memory.task.targetId !== 'marketDrop', 'resource market reservations should prevent duplicate dropped resource pickup assignment');
+
+    EventBus.topics = {};
+    Game.creeps = {
+        HaulerLoaded: {
+            name: 'HaulerLoaded',
+            room: marketRoom,
+            memory: { role: 'hauler', homeRoom: 'W1N1' },
+            pos: { x: 11, y: 10, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 11) + Math.abs(pos.y - 10) },
+            store: makeStore({ U: 100 }, 100),
+            body: [{ type: CARRY }, { type: CARRY }, { type: MOVE }]
+        }
+    };
+    resourceMarket.init();
+    EventBus.publish('REQ_RESOURCE', 85, {
+        roomName: 'W1N1',
+        action: 'move',
+        resourceType: RESOURCE_UTRIUM,
+        amount: 100,
+        targetId: 'marketTerminal',
+        priority: 85,
+        purpose: 'terminal_balance'
+    }, 3);
+    EventBus.dispatch();
+    assert.deepStrictEqual(Game.creeps.HaulerLoaded.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'marketTerminal',
+        resourceType: RESOURCE_UTRIUM,
+        amount: 100
+    }, 'resource market should fulfill explicit arbitrary resource move requests');
+
+    EventBus.topics = {};
+    const fullHauler = {
+        name: 'FullHauler',
+        room: marketRoom,
+        memory: { role: 'hauler', homeRoom: 'W1N1' },
+        pos: { x: 11, y: 10, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 11) + Math.abs(pos.y - 10) },
+        store: makeStore({ energy: 100 }, 100),
+        body: [{ type: CARRY }, { type: CARRY }, { type: MOVE }]
+    };
+    Game.creeps = { FullHauler: fullHauler };
+    resourceMarket.init();
+    resourceMarket.assignHauler(fullHauler);
+    assert.deepStrictEqual(fullHauler.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'marketSpawn',
+        resourceType: RESOURCE_ENERGY
+    }, 'loaded hauler should prioritize spawn energy demand from resource market');
+
+    const weakLogisticsRoom = {
+        name: 'W1N1',
+        controller,
+        storage: marketStorage,
+        find: (type) => type === FIND_STRUCTURES ? [marketStorage] : []
+    };
+    const marketBuilder = new BuilderStrategyService('BuilderStrategy');
+    const emptySelfSupplyBuilder = {
+        room: weakLogisticsRoom,
+        memory: { role: 'builder', homeRoom: 'W1N1' },
+        body: [{ type: WORK }, { type: CARRY }, { type: MOVE }],
+        store: { getUsedCapacity: () => 0 }
+    };
+    Game.creeps = {
+        BuilderNeedingEnergy: emptySelfSupplyBuilder,
+        HaulerTiny: { memory: { role: 'hauler', homeRoom: 'W1N1' }, body: [{ type: CARRY }] }
+    };
+    global.ResourceMarket = { W1N1: { supplyMode: 'self_supply' } };
+    marketBuilder.assignBuilderTask(emptySelfSupplyBuilder);
+    assert.deepStrictEqual(emptySelfSupplyBuilder.memory.task, {
+        type: 'WITHDRAW',
+        targetId: 'marketStorage',
+        resourceType: RESOURCE_ENERGY
+    }, 'builder should self-supply energy when room logistics capacity is insufficient');
+
+    const suppliedBuilder = {
+        name: 'SuppliedBuilder',
+        id: 'suppliedBuilderId',
+        room: weakLogisticsRoom,
+        memory: { role: 'builder', homeRoom: 'W1N1' },
+        body: [{ type: WORK }, { type: CARRY }, { type: MOVE }],
+        store: { getUsedCapacity: () => 0, getFreeCapacity: () => 50 }
+    };
+    Game.creeps = {
+        SuppliedBuilder: suppliedBuilder,
+        HaulerStrong: { memory: { role: 'hauler', homeRoom: 'W1N1' }, body: [{ type: CARRY }, { type: CARRY }, { type: CARRY }, { type: CARRY }, { type: CARRY }, { type: CARRY }] }
+    };
+    global.ResourceMarket = { W1N1: { supplyMode: 'hauler_supply' } };
+    EventBus.topics = {};
+    marketBuilder.assignBuilderTask(suppliedBuilder);
+    assert.strictEqual(suppliedBuilder.memory.task, undefined, 'builder should wait instead of self-supplying when logistics capacity is sufficient');
+    assert.ok(EventBus.topics.REQ_RESOURCE && EventBus.topics.REQ_RESOURCE.some((event) => event.data.targetId === 'suppliedBuilderId'), 'builder should publish resource demand when waiting for hauler supply');
+
+    EventBus.topics = {};
+    global.REACTIONS = { U: { L: RESOURCE_UTRIUM_LEMERGITE } };
+    const labService = new LabService('Lab');
+    labService.requestLabDelivery('marketLab', RESOURCE_UTRIUM, 100);
+    assert.ok(EventBus.topics.REQ_RESOURCE && EventBus.topics.REQ_RESOURCE.some((event) => event.data.action === 'demand' && event.data.resourceType === RESOURCE_UTRIUM), 'lab delivery should publish REQ_RESOURCE demand');
+    assert.ok(!EventBus.topics.REQ_LOGISTICS, 'lab delivery should not publish old logistics requests');
+
+    const compoundHauler = {
+        name: 'CompoundHauler',
+        room: marketRoom,
+        memory: { role: 'hauler', homeRoom: 'W1N1' },
+        pos: { x: 14, y: 15, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 14) + Math.abs(pos.y - 15) },
+        store: makeStore({ UL: 50 }, 100),
+        body: [{ type: CARRY }, { type: MOVE }]
+    };
+    Game.creeps = { CompoundHauler: compoundHauler };
+    resourceMarket.init();
+    resourceMarket.assignHauler(compoundHauler);
+    assert.deepStrictEqual(compoundHauler.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'marketTerminal',
+        resourceType: RESOURCE_UTRIUM_LEMERGITE
+    }, 'loaded hauler should store lab compounds in terminal when no explicit demand exists');
 
     const defenderService = new DefenderStrategyService('DefenderStrategy');
     global.Security = { W1N1: { primaryTargetId: 'hostile1' } };

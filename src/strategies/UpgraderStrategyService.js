@@ -1,5 +1,6 @@
 import BaseService from '../core/BaseService.js';
 import TaskTypes from '../core/TaskTypes.js';
+import EventBus from '../core/EventBus.js';
 
 class UpgraderStrategyService extends BaseService {
     analyze() {
@@ -45,6 +46,10 @@ class UpgraderStrategyService extends BaseService {
 
     assignUpgraderTask(creep) {
         if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
+            if (this.shouldWaitForHaulerSupply(creep)) {
+                this.requestEnergySupply(creep, 55, 'upgrader_work');
+                return;
+            }
             const energySource = this.findEnergySource(creep.room);
             if (energySource) {
                 creep.memory.task = energySource.withdraw ? {
@@ -100,6 +105,24 @@ class UpgraderStrategyService extends BaseService {
             filter: (resource) => resource.resourceType === RESOURCE_ENERGY && resource.amount > 50
         }).sort((a, b) => b.amount - a.amount);
         return dropped[0] || null;
+    }
+
+    shouldWaitForHaulerSupply(creep) {
+        const roomName = creep.memory.homeRoom || creep.room.name;
+        const market = global.ResourceMarket && global.ResourceMarket[roomName];
+        return market && market.supplyMode === 'hauler_supply';
+    }
+
+    requestEnergySupply(creep, priority, purpose) {
+        EventBus.publish('REQ_RESOURCE', priority, {
+            roomName: creep.memory.homeRoom || creep.room.name,
+            action: 'demand',
+            resourceType: RESOURCE_ENERGY,
+            amount: creep.store.getFreeCapacity ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : undefined,
+            targetId: creep.id || creep.name,
+            priority,
+            purpose
+        }, 2);
     }
 }
 

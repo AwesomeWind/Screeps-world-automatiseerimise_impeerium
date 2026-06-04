@@ -5,7 +5,7 @@ import ActionParser from './core/ActionParser.js';
 import RoomCacheService from './services/RoomCacheService.js';
 import SpawnBureauService from './services/SpawnBureauService.js';
 import SpawnService from './services/SpawnService.js';
-import LogisticsService from './services/LogisticsService.js';
+import ResourceMarketService from './services/ResourceMarketService.js';
 import SecurityService from './services/SecurityService.js';
 import WarIntelService from './services/WarIntelService.js';
 import WarStrategyService from './services/WarStrategyService.js';
@@ -36,7 +36,7 @@ function createServices() {
         new SecurityService('Security'),
         new SpawnBureauService('SpawnBureau'),
         new SpawnService('Spawn'),
-        new LogisticsService('Logistics'),
+        new ResourceMarketService('ResourceMarket'),
         new MinerStrategyService('MinerStrategy'),
         new BuilderStrategyService('BuilderStrategy'),
         new HaulerStrategyService('HaulerStrategy'),
