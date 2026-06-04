@@ -4,10 +4,14 @@ import TaskTypes from '../core/TaskTypes.js';
 
 const DEFAULT_PRIORITY = 50;
 const WAIT_SUPPLY = 'WAIT_SUPPLY';
+const RESERVATION_TTL = 5;
+const CONTROLLER_BUFFER_TARGET = 1000;
+const CONTROLLER_BUFFER_MIN = 200;
 
 function availableSupplyAmount(market, supply) {
     if (!market) return supply.amount || 0;
-    if (market.reservations && market.reservations.supply && market.reservations.supply[supply.id]) return 0;
+    const reservation = market.reservations && market.reservations.supply && market.reservations.supply[supply.id];
+    if (reservation && reservation.expiresAt >= Game.time) return 0;
     return supply.amount || 0;
 }
 
@@ -15,7 +19,10 @@ function reserveSupplyAmount(market, supply, amount) {
     if (!market) return;
     if (!market.reservations) market.reservations = {};
     if (!market.reservations.supply) market.reservations.supply = {};
-    market.reservations.supply[supply.id] = amount || supply.amount || 1;
+    market.reservations.supply[supply.id] = {
+        amount: amount || supply.amount || 1,
+        expiresAt: Game.time + RESERVATION_TTL
+    };
 }
 
 function energySuppliesForRoom(room, market) {
@@ -173,11 +180,13 @@ class ResourceMarketService extends BaseService {
         super(serviceName);
         this.idleHaulers = [];
         EventBus.subscribe('REQ_RESOURCE', this.handleResourceRequest.bind(this));
+        global.ResourceMarketService = this;
     }
 
     init() {
         global.ResourceMarket = {};
         this.idleHaulers = [];
+        global.ResourceMarketService = this;
 
         for (const name in Game.creeps) {
             const creep = Game.creeps[name];
@@ -200,14 +209,12 @@ class ResourceMarketService extends BaseService {
     }
 
     buildRoomMarket(room) {
+        const reservations = this.loadReservations(room.name);
         const market = {
             roomName: room.name,
             supplies: [],
             demands: [],
-            reservations: {
-                supply: {},
-                demand: {}
-            },
+            reservations,
             logistics: this.estimateLogistics(room.name),
             supplyMode: 'self_supply'
         };
@@ -217,7 +224,10 @@ class ResourceMarketService extends BaseService {
         this.scanDroppedResources(room, market);
         this.scanStructures(room, market);
         this.scanCreepStores(room, market);
+        this.scanWorkerEnergyDemands(room, market);
         this.scanEconomyEnergyDemands(room, market);
+        this.scanControllerBufferDemands(room, market);
+        this.persistReservations(room.name, market.reservations);
     }
 
     handleResourceRequest(event) {
@@ -236,7 +246,7 @@ class ResourceMarketService extends BaseService {
         if (data.action === 'supply') {
             market.supplies.push(this.createEventSupply(data, roomName));
         } else {
-            market.demands.push(this.createEventDemand(data, roomName, event.priority));
+            this.upsertDemand(market, this.createEventDemand(data, roomName, event.priority));
         }
 
         for (const hauler of this.idleHaulers.slice()) {
@@ -252,6 +262,7 @@ class ResourceMarketService extends BaseService {
         if (!global.ResourceMarket[roomName] && Game.rooms[roomName]) this.buildRoomMarket(Game.rooms[roomName]);
         if (!global.ResourceMarket[roomName]) return false;
         const market = global.ResourceMarket[roomName];
+        this.pruneReservations(market.reservations);
 
         const carriedResources = this.getStoredResourceTypes(creep.store)
             .filter((resourceType) => creep.store.getUsedCapacity(resourceType) > 0);
@@ -260,6 +271,7 @@ class ResourceMarketService extends BaseService {
             if (task) {
                 creep.memory.task = task;
                 this.removeIdleHauler(creep);
+                this.persistReservations(roomName, market.reservations);
                 return true;
             }
         }
@@ -271,6 +283,7 @@ class ResourceMarketService extends BaseService {
 
         creep.memory.task = task;
         this.removeIdleHauler(creep);
+        this.persistReservations(roomName, market.reservations);
         return true;
     }
 
@@ -440,6 +453,66 @@ class ResourceMarketService extends BaseService {
         }
     }
 
+    scanWorkerEnergyDemands(room, market) {
+        for (const name in Game.creeps) {
+            const creep = Game.creeps[name];
+            if (!creep.room || creep.room.name !== room.name) continue;
+            if (!creep.memory || creep.memory.task) continue;
+            if (!creep.store || creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0) continue;
+
+            if (creep.memory.role === 'builder' || creep.memory.role === 'repairer') {
+                const plan = planMobileWorkerEnergyTask(creep, {
+                    purpose: `${creep.memory.role}_work`,
+                    priority: 60,
+                    supplyTargetId: creep.id || creep.name
+                });
+                if (plan && plan.type === WAIT_SUPPLY) {
+                    market.demands.push(this.createStateDemand({
+                        id: `worker-demand:${creep.id || creep.name}:${RESOURCE_ENERGY}`,
+                        roomName: room.name,
+                        targetId: creep.id || creep.name,
+                        resourceType: RESOURCE_ENERGY,
+                        currentAmount: 0,
+                        minAmount: 0,
+                        targetAmount: creep.store.getFreeCapacity ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : 50,
+                        priority: plan.priority || 60,
+                        purpose: plan.purpose || `${creep.memory.role}_work`,
+                        demandType: 'worker',
+                        deliveryMode: 'haul',
+                        producer: 'worker_energy'
+                    }));
+                }
+                continue;
+            }
+
+            if (creep.memory.role === 'upgrader') {
+                const controllerContainer = this.findControllerContainer(room);
+                const plan = planWorkerEnergyTask(creep, {
+                    priority: 55,
+                    purpose: 'upgrader_work',
+                    stationaryBufferTarget: controllerContainer,
+                    supplyTargetId: (controllerContainer && controllerContainer.id) || creep.id || creep.name
+                });
+                if (plan && plan.type === WAIT_SUPPLY && !controllerContainer) {
+                    market.demands.push(this.createStateDemand({
+                        id: `worker-demand:${creep.id || creep.name}:${RESOURCE_ENERGY}`,
+                        roomName: room.name,
+                        targetId: creep.id || creep.name,
+                        resourceType: RESOURCE_ENERGY,
+                        currentAmount: 0,
+                        minAmount: 0,
+                        targetAmount: creep.store.getFreeCapacity ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : 50,
+                        priority: plan.priority || 55,
+                        purpose: plan.purpose || 'upgrader_work',
+                        demandType: 'worker',
+                        deliveryMode: 'haul',
+                        producer: 'worker_energy'
+                    }));
+                }
+            }
+        }
+    }
+
     scanEconomyEnergyDemands(room, market) {
         const targets = room.find(FIND_MY_STRUCTURES, {
             filter: (structure) => {
@@ -452,16 +525,46 @@ class ResourceMarketService extends BaseService {
         });
 
         for (const structure of targets) {
-            market.demands.push({
+            const currentAmount = structure.store.getUsedCapacity(RESOURCE_ENERGY);
+            const targetAmount = currentAmount + structure.store.getFreeCapacity(RESOURCE_ENERGY);
+            market.demands.push(this.createStateDemand({
                 id: `demand:${structure.id}:${RESOURCE_ENERGY}`,
                 roomName: room.name,
                 targetId: structure.id,
                 resourceType: RESOURCE_ENERGY,
-                amount: structure.store.getFreeCapacity(RESOURCE_ENERGY),
+                currentAmount,
+                minAmount: 0,
+                targetAmount,
                 priority: structure.structureType === STRUCTURE_TOWER ? 95 : 100,
-                purpose: 'economy_energy'
-            });
+                purpose: 'economy_energy',
+                demandType: 'pull',
+                deliveryMode: 'haul',
+                producer: 'economy_energy'
+            }));
         }
+    }
+
+    scanControllerBufferDemands(room, market) {
+        const container = this.findControllerContainer(room);
+        if (!container || !container.store || !container.store.getUsedCapacity) return;
+
+        const currentAmount = container.store.getUsedCapacity(RESOURCE_ENERGY);
+        if (currentAmount >= CONTROLLER_BUFFER_TARGET) return;
+
+        market.demands.push(this.createStateDemand({
+            id: `demand:${container.id}:${RESOURCE_ENERGY}:controller_buffer`,
+            roomName: room.name,
+            targetId: container.id,
+            resourceType: RESOURCE_ENERGY,
+            currentAmount,
+            minAmount: CONTROLLER_BUFFER_MIN,
+            targetAmount: CONTROLLER_BUFFER_TARGET,
+            priority: currentAmount < CONTROLLER_BUFFER_MIN ? 85 : 55,
+            purpose: 'controller_buffer',
+            demandType: 'buffer',
+            deliveryMode: 'haul',
+            producer: 'controller_buffer'
+        }));
     }
 
     addStoreSupplies(roomName, market, structure) {
@@ -483,18 +586,25 @@ class ResourceMarketService extends BaseService {
     addStoreDemand(roomName, market, structure) {
         const free = structure.store.getFreeCapacity(RESOURCE_ENERGY);
         if (free <= 0) return;
-        market.demands.push({
+        const currentAmount = structure.store.getUsedCapacity ? structure.store.getUsedCapacity(RESOURCE_ENERGY) : 0;
+        market.demands.push(this.createStateDemand({
             id: `demand:${structure.id}:${RESOURCE_ENERGY}`,
             roomName,
             targetId: structure.id,
             resourceType: RESOURCE_ENERGY,
-            amount: free,
+            currentAmount,
+            minAmount: 0,
+            targetAmount: currentAmount + free,
             priority: 25,
-            purpose: 'storage_balance'
-        });
+            purpose: 'storage_balance',
+            demandType: 'sink',
+            deliveryMode: 'haul',
+            producer: 'storage_balance'
+        }));
     }
 
     createEventDemand(data, roomName, eventPriority) {
+        const demandType = data.demandType || this.inferDemandType(data);
         return {
             id: `event-demand:${data.targetId}:${data.resourceType}:${Game.time}`,
             roomName,
@@ -502,8 +612,53 @@ class ResourceMarketService extends BaseService {
             resourceType: data.resourceType || RESOURCE_ENERGY,
             amount: data.amount,
             priority: data.priority || eventPriority || DEFAULT_PRIORITY,
-            purpose: data.purpose || data.action || 'resource_request'
+            purpose: data.purpose || data.action || 'resource_request',
+            demandType,
+            deliveryMode: data.deliveryMode || 'haul',
+            producer: data.producer || 'event'
         };
+    }
+
+    upsertDemand(market, demand) {
+        const existing = market.demands.find((entry) => this.sameDemand(entry, demand));
+        if (!existing) {
+            market.demands.push(demand);
+            return;
+        }
+
+        if (demand.amount !== undefined) {
+            existing.amount = Math.max(existing.amount || 0, demand.amount);
+        }
+        if (demand.currentAmount !== undefined) {
+            existing.currentAmount = Math.min(existing.currentAmount || 0, demand.currentAmount);
+        }
+        if (demand.minAmount !== undefined) {
+            existing.minAmount = Math.max(existing.minAmount || 0, demand.minAmount);
+        }
+        if (demand.targetAmount !== undefined) {
+            existing.targetAmount = Math.max(existing.targetAmount || 0, demand.targetAmount);
+        }
+        existing.priority = Math.max(existing.priority || 0, demand.priority || 0);
+        existing.deliveryMode = existing.deliveryMode || demand.deliveryMode;
+        existing.demandType = existing.demandType || demand.demandType;
+        existing.producer = existing.producer || demand.producer;
+    }
+
+    sameDemand(left, right) {
+        return left.targetId === right.targetId &&
+            left.resourceType === right.resourceType &&
+            left.purpose === right.purpose &&
+            left.demandType === right.demandType;
+    }
+
+    inferDemandType(data) {
+        const purpose = data && data.purpose ? data.purpose : '';
+        if (purpose === 'builder_work' || purpose === 'repairer_work' || purpose === 'upgrader_work') {
+            return 'worker';
+        }
+        if (purpose === 'controller_buffer') return 'buffer';
+        if (purpose === 'storage_balance' || purpose === 'terminal_balance') return 'sink';
+        return 'pull';
     }
 
     createEventSupply(data, roomName) {
@@ -519,22 +674,32 @@ class ResourceMarketService extends BaseService {
     }
 
     getAvailableSupplyAmount(market, supply) {
-        if (market.reservations.supply[supply.id]) return 0;
+        const reservation = market.reservations.supply[supply.id];
+        if (reservation && reservation.expiresAt >= Game.time) return 0;
         return supply.amount || 0;
     }
 
     getAvailableDemandAmount(market, demand) {
-        const reserved = market.reservations.demand[demand.id] || 0;
+        const reservation = market.reservations.demand[demand.id];
+        const reserved = reservation && reservation.expiresAt >= Game.time ? reservation.amount : 0;
         if (demand.amount === undefined) return Infinity;
         return Math.max(0, demand.amount - reserved);
     }
 
     reserveSupply(market, supply, amount) {
-        market.reservations.supply[supply.id] = amount || supply.amount || 1;
+        market.reservations.supply[supply.id] = {
+            amount: amount || supply.amount || 1,
+            expiresAt: Game.time + RESERVATION_TTL
+        };
     }
 
     reserveDemand(market, demand, amount) {
-        market.reservations.demand[demand.id] = (market.reservations.demand[demand.id] || 0) + (amount || 1);
+        const reservation = market.reservations.demand[demand.id];
+        const previousAmount = reservation && reservation.expiresAt >= Game.time ? reservation.amount : 0;
+        market.reservations.demand[demand.id] = {
+            amount: previousAmount + (amount || 1),
+            expiresAt: Game.time + RESERVATION_TTL
+        };
     }
 
     getPickupAmount(creep, supply, market) {
@@ -556,6 +721,7 @@ class ResourceMarketService extends BaseService {
                 haulerThroughput += carryCapacity * 50 / Math.max(roundTripDistance, 1);
             }
             if (creep.memory.role === 'builder') workDemand += this.countBodyParts(creep, WORK) * 5;
+            if (creep.memory.role === 'repairer') workDemand += this.countBodyParts(creep, WORK) * 5;
             if (creep.memory.role === 'upgrader') workDemand += this.countBodyParts(creep, WORK);
         }
 
@@ -590,6 +756,75 @@ class ResourceMarketService extends BaseService {
     isDemandStructure(structure) {
         return structure.structureType === STRUCTURE_CONTAINER ||
             structure.structureType === STRUCTURE_STORAGE;
+    }
+
+    createStateDemand(data) {
+        const currentAmount = data.currentAmount || 0;
+        const targetAmount = data.targetAmount || currentAmount;
+        const amount = Math.max(0, targetAmount - currentAmount);
+        return {
+            id: data.id,
+            roomName: data.roomName,
+            targetId: data.targetId,
+            resourceType: data.resourceType || RESOURCE_ENERGY,
+            currentAmount,
+            minAmount: data.minAmount || 0,
+            targetAmount,
+            amount,
+            priority: data.priority || DEFAULT_PRIORITY,
+            purpose: data.purpose || 'resource_request',
+            demandType: data.demandType || 'pull',
+            deliveryMode: data.deliveryMode || 'haul',
+            producer: data.producer || 'market'
+        };
+    }
+
+    findControllerContainer(room) {
+        const plannedPos = Memory.rooms &&
+            Memory.rooms[room.name] &&
+            Memory.rooms[room.name].cityPlan &&
+            Memory.rooms[room.name].cityPlan.controller &&
+            Memory.rooms[room.name].cityPlan.controller.containerPos;
+        if (!plannedPos || !room.find) return null;
+
+        const structures = room.find(FIND_STRUCTURES, {
+            filter: (structure) => structure.structureType === STRUCTURE_CONTAINER
+        });
+        return structures.find((structure) => {
+            return structure.pos &&
+                structure.pos.x === plannedPos.x &&
+                structure.pos.y === plannedPos.y &&
+                structure.pos.roomName === plannedPos.roomName;
+        }) || null;
+    }
+
+    loadReservations(roomName) {
+        const roomMemory = Memory.rooms && Memory.rooms[roomName];
+        const marketMemory = roomMemory && roomMemory.resourceMarket;
+        const reservations = marketMemory && marketMemory.reservations ? marketMemory.reservations : {
+            supply: {},
+            demand: {}
+        };
+        this.pruneReservations(reservations);
+        return reservations;
+    }
+
+    persistReservations(roomName, reservations) {
+        if (!Memory.rooms) Memory.rooms = {};
+        if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+        if (!Memory.rooms[roomName].resourceMarket) Memory.rooms[roomName].resourceMarket = {};
+        Memory.rooms[roomName].resourceMarket.reservations = reservations;
+    }
+
+    pruneReservations(reservations) {
+        if (!reservations) return;
+        for (const kind of ['supply', 'demand']) {
+            if (!reservations[kind]) reservations[kind] = {};
+            for (const id of Object.keys(reservations[kind])) {
+                const reservation = reservations[kind][id];
+                if (!reservation || reservation.expiresAt < Game.time) delete reservations[kind][id];
+            }
+        }
     }
 
     getRoomNameFromTarget(targetId) {

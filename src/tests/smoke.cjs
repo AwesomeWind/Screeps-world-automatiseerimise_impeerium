@@ -71,6 +71,7 @@ assertContains(read('src/strategies/BuilderStrategyService.js'), 'planWorkerEner
 assertNotContains(read('src/strategies/BuilderStrategyService.js'), 'assignRepairerTask', 'builder strategy should not own repairer task assignment');
 assertContains(read('src/strategies/UpgraderStrategyService.js'), 'planWorkerEnergyTask', 'upgrader strategy should consume resource market energy planning');
 assertContains(read('src/strategies/RepairerStrategyService.js'), 'planWorkerEnergyTask', 'repairer strategy should consume resource market energy planning');
+assertContains(read('src/strategies/HaulerStrategyService.js'), 'assignHauler', 'hauler strategy should delegate task assignment to resource market');
 
 const main = read('src/main.js');
 for (const phase of ['init();', 'analyze();', 'EventBus.dispatch();', 'run();', 'cleanup();']) {
@@ -648,22 +649,7 @@ async function runBehaviorChecks() {
     service.assignMiningTask(secondMiner);
     assert.deepStrictEqual(secondMiner.memory.miningPos, { x: 10, y: 11, roomName: 'W1N1' }, 'miner should choose an unoccupied valid mining position when planned position is occupied');
 
-    const droppedEnergy = {
-        id: 'drop1',
-        resourceType: RESOURCE_ENERGY,
-        amount: 100,
-        pos: {
-            getRangeTo: (pos) => Math.abs(pos.x - 10) + Math.abs(pos.y - 10)
-        }
-    };
-    const haulerRoom = {
-        name: 'W1N1',
-        find: (type) => {
-            if (type === FIND_DROPPED_RESOURCES) return [droppedEnergy];
-            if (type === FIND_MY_STRUCTURES) return [spawn];
-            return [];
-        }
-    };
+    const haulerRoom = { name: 'W1N1' };
     const hauler = {
         room: haulerRoom,
         memory: { role: 'hauler', homeRoom: 'W1N1' },
@@ -673,55 +659,39 @@ async function runBehaviorChecks() {
         }
     };
     const haulerService = new HaulerStrategyService('HaulerStrategy');
-    haulerService.assignFallbackTask(hauler);
+    global.ResourceMarketService = {
+        assignHauler: (creep) => {
+            creep.memory.task = { type: 'PICKUP', targetId: 'drop1' };
+            return true;
+        }
+    };
+    haulerService.assignHaulerTask(hauler);
     assert.deepStrictEqual(hauler.memory.task, {
         type: 'PICKUP',
         targetId: 'drop1'
-    }, 'empty hauler should pick up source-adjacent dropped energy');
+    }, 'hauler strategy should delegate empty-hauler assignment to resource market');
 
-    const fullSpawn = {
-        id: 'fullSpawn',
-        structureType: STRUCTURE_SPAWN,
-        store: {
-            getFreeCapacity: () => 0
-        }
-    };
-    const fullExtension = {
-        id: 'fullExtension',
-        structureType: STRUCTURE_EXTENSION,
-        store: {
-            getFreeCapacity: () => 0
-        }
-    };
-    const haulerDepositContainer = {
-        id: 'depositContainer',
-        structureType: STRUCTURE_CONTAINER,
-        store: {
-            getFreeCapacity: () => 100
-        }
-    };
     const loadedHaulerWithFullEconomy = {
-        room: {
-            name: 'W1N1',
-            find: (type, opts = {}) => {
-                let results = [];
-                if (type === FIND_MY_STRUCTURES) results = [fullSpawn, fullExtension];
-                if (type === FIND_STRUCTURES) results = [fullSpawn, fullExtension, haulerDepositContainer];
-                if (opts.filter) return results.filter(opts.filter);
-                return results;
-            }
-        },
+        room: { name: 'W1N1' },
         memory: { role: 'hauler', homeRoom: 'W1N1' },
         store: {
             getUsedCapacity: () => 100
         }
     };
-    haulerService.assignFallbackTask(loadedHaulerWithFullEconomy);
+    global.ResourceMarketService.assignHauler = (creep) => {
+        creep.memory.task = {
+            type: 'TRANSFER',
+            targetId: 'depositContainer',
+            resourceType: RESOURCE_ENERGY
+        };
+        return true;
+    };
+    haulerService.assignHaulerTask(loadedHaulerWithFullEconomy);
     assert.deepStrictEqual(loadedHaulerWithFullEconomy.memory.task, {
         type: 'TRANSFER',
         targetId: 'depositContainer',
         resourceType: RESOURCE_ENERGY
-    }, 'loaded hauler should deposit into containers when spawn, extensions, towers, and storage are full');
+    }, 'hauler strategy should delegate loaded-hauler assignment to resource market');
 
     EventBus.topics = {};
     Game.rooms.W1N1 = {
@@ -1026,6 +996,12 @@ async function runBehaviorChecks() {
         pos: { x: 15, y: 15, roomName: 'W1N1' },
         store: makeStore({ UL: 50 }, 500)
     };
+    const marketControllerContainer = {
+        id: 'marketControllerContainer',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 24, y: 25, roomName: 'W1N1' },
+        store: makeStore({ energy: 150 }, 2000)
+    };
     const marketDrop = {
         id: 'marketDrop',
         resourceType: RESOURCE_ENERGY,
@@ -1034,14 +1010,14 @@ async function runBehaviorChecks() {
     };
     const marketRoom = {
         name: 'W1N1',
-        controller: { my: true },
+        controller: { my: true, pos: { x: 25, y: 25, roomName: 'W1N1' } },
         storage: marketStorage,
         terminal: marketTerminal,
         find: (type, opts = {}) => {
             let results = [];
             if (type === FIND_DROPPED_RESOURCES) results = [marketDrop];
             if (type === FIND_MY_STRUCTURES) results = [marketSpawn, marketStorage, marketTerminal, marketLab];
-            if (type === FIND_STRUCTURES) results = [marketSpawn, marketStorage, marketTerminal, marketLab];
+            if (type === FIND_STRUCTURES) results = [marketSpawn, marketStorage, marketTerminal, marketLab, marketControllerContainer];
             if (opts.filter) return results.filter(opts.filter);
             return results;
         }
@@ -1051,7 +1027,15 @@ async function runBehaviorChecks() {
         marketStorage,
         marketTerminal,
         marketLab,
+        marketControllerContainer,
         marketDrop
+    };
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            controller: {
+                containerPos: { x: 24, y: 25, roomName: 'W1N1' }
+            }
+        }
     };
     Game.rooms = { W1N1: marketRoom };
     Game.getObjectById = (id) => marketObjects[id] || Game.creeps[id] || null;
@@ -1083,6 +1067,14 @@ async function runBehaviorChecks() {
     assert.ok(global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'marketStorage' && supply.resourceType === RESOURCE_UTRIUM), 'resource market should discover storage mineral supply');
     assert.ok(global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'marketTerminal' && supply.resourceType === RESOURCE_LEMERGIUM), 'resource market should discover terminal mineral supply');
     assert.ok(global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'marketLab' && supply.resourceType === RESOURCE_UTRIUM_LEMERGITE), 'resource market should discover lab compound supply');
+    const spawnDemand = global.ResourceMarket.W1N1.demands.find((demand) => demand.targetId === 'marketSpawn');
+    assert.strictEqual(spawnDemand.demandType, 'pull', 'economy energy demand should declare pull semantics');
+    assert.strictEqual(spawnDemand.currentAmount, 0, 'economy energy demand should record current store amount');
+    assert.strictEqual(spawnDemand.targetAmount, 300, 'economy energy demand should record target store amount');
+    const controllerBufferDemand = global.ResourceMarket.W1N1.demands.find((demand) => demand.targetId === 'marketControllerContainer' && demand.demandType === 'buffer');
+    assert.ok(controllerBufferDemand, 'resource market should create controller buffer demand from city plan');
+    assert.strictEqual(controllerBufferDemand.demandType, 'buffer', 'controller container should be tracked as buffer demand');
+    assert.strictEqual(controllerBufferDemand.minAmount, 200, 'controller buffer demand should define a refill floor');
     assert.deepStrictEqual(Game.creeps.HaulerA.memory.task, { type: 'PICKUP', targetId: 'marketDrop' }, 'resource market should assign first empty hauler to picked-up dropped resource');
     assert.ok(Game.creeps.HaulerB.memory.task.targetId !== 'marketDrop', 'resource market reservations should prevent duplicate dropped resource pickup assignment');
 
@@ -1132,6 +1124,70 @@ async function runBehaviorChecks() {
         targetId: 'marketSpawn',
         resourceType: RESOURCE_ENERGY
     }, 'loaded hauler should prioritize spawn energy demand from resource market');
+
+    const repairDemandRoom = {
+        name: 'W1N1',
+        controller: { my: true },
+        storage: null,
+        find: (type, opts = {}) => {
+            let results = [];
+            if (type === FIND_DROPPED_RESOURCES) results = [];
+            if (type === FIND_MY_STRUCTURES) results = [];
+            if (type === FIND_STRUCTURES) results = [];
+            if (opts.filter) return results.filter(opts.filter);
+            return results;
+        }
+    };
+    const supplyHauler = {
+        name: 'SupplyHauler',
+        id: 'supplyHaulerId',
+        room: repairDemandRoom,
+        memory: { role: 'hauler', homeRoom: 'W1N1' },
+        pos: { x: 10, y: 10, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 10) + Math.abs(pos.y - 10) },
+        store: makeStore({ energy: 100 }, 100),
+        body: [{ type: CARRY }, { type: CARRY }, { type: MOVE }]
+    };
+    const marketWaitingRepairer = {
+        name: 'MarketWaitingRepairer',
+        id: 'marketWaitingRepairerId',
+        room: repairDemandRoom,
+        memory: { role: 'repairer', homeRoom: 'W1N1' },
+        pos: { x: 12, y: 10, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 12) + Math.abs(pos.y - 10) },
+        store: { getUsedCapacity: () => 0, getFreeCapacity: () => 50 },
+        body: [{ type: WORK }, { type: CARRY }, { type: MOVE }]
+    };
+    Game.rooms = { W1N1: repairDemandRoom };
+    Game.creeps = { SupplyHauler: supplyHauler, MarketWaitingRepairer: marketWaitingRepairer };
+    Game.getObjectById = (id) => Game.creeps[id] || null;
+    global.ResourceMarket = {};
+    resourceMarket.init();
+    resourceMarket.analyze();
+    assert.deepStrictEqual(supplyHauler.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'marketWaitingRepairerId',
+        resourceType: RESOURCE_ENERGY,
+        amount: 50
+    }, 'resource market should assign loaded hauler to waiting repairer before worker strategies publish late demands');
+    supplyHauler.memory.task = undefined;
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(repairDemandRoom);
+    EventBus.publish('REQ_RESOURCE', 60, {
+        roomName: 'W1N1',
+        action: 'demand',
+        resourceType: RESOURCE_ENERGY,
+        amount: 50,
+        targetId: 'marketWaitingRepairerId',
+        purpose: 'repairer_work'
+    }, 2);
+    EventBus.dispatch();
+    const repairerDemands = global.ResourceMarket.W1N1.demands.filter((demand) => {
+        return demand.targetId === 'marketWaitingRepairerId' &&
+            demand.resourceType === RESOURCE_ENERGY &&
+            demand.purpose === 'repairer_work';
+    });
+    assert.strictEqual(repairerDemands.length, 1, 'resource market should deduplicate pre-scanned worker demand and late repairer resource request');
+    Game.rooms = { W1N1: marketRoom };
+    Game.getObjectById = (id) => marketObjects[id] || Game.creeps[id] || null;
 
     const weakLogisticsRoom = {
         name: 'W1N1',
