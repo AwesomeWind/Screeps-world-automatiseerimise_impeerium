@@ -29,7 +29,10 @@ const expectedFiles = [
     'src/core/TaskTypes.js',
     'src/core/ActionParser.js',
     'src/core/BodyBuilder.js',
+    'src/core/WorkPositionCoordinator.js',
+    'src/core/WorkPositionPlanner.js',
     'src/services/RoomCacheService.js',
+    'src/services/RoomPhaseService.js',
     'src/services/SpawnBureauService.js',
     'src/services/SpawnService.js',
     'src/services/LogisticsService.js',
@@ -83,6 +86,7 @@ assertNotContains(main, 'RawMemory._parsed = global.LastMemory', 'main should no
 assertContains(main, 'WarIntelService', 'main should include war intel service');
 assertContains(main, 'WarStrategyService', 'main should include war strategy service');
 assertContains(main, 'CombatPlannerService', 'main should include combat planner service');
+assertContains(main, 'RoomPhaseService', 'main should include room phase service');
 assertContains(main, 'SpawnBureauService', 'main should include spawn bureau service');
 assertContains(main, 'ResourceMarketService', 'main should include resource market service');
 assertContains(main, 'DefensePlannerService', 'main should include defense planner service');
@@ -90,6 +94,7 @@ assertContains(main, 'MaintenancePlannerService', 'main should include maintenan
 assertContains(main, 'RepairerStrategyService', 'main should include repairer strategy service');
 assertNotContains(main, "new LogisticsService('Logistics')", 'main should not run old logistics dispatcher');
 assert.ok(main.indexOf("new WarIntelService('WarIntel')") < main.indexOf("new SecurityService('Security')"), 'war intel should run before security bridge');
+assert.ok(main.indexOf("new RoomPhaseService('RoomPhase')") < main.indexOf("new SpawnBureauService('SpawnBureau')"), 'room phase should run before spawn bureau reads room state');
 assert.ok(main.indexOf("new SecurityService('Security')") < main.indexOf("new SpawnBureauService('SpawnBureau')"), 'security bridge should run before spawn bureau');
 assert.ok(main.indexOf("new SpawnBureauService('SpawnBureau')") < main.indexOf("new SpawnService('Spawn')"), 'spawn bureau should publish before spawn service executes');
 assert.ok(main.indexOf("new CityPlannerService('CityPlanner')") < main.indexOf("new DefensePlannerService('DefensePlanner')"), 'city planner should populate the city plan before defense planner reads it');
@@ -172,6 +177,7 @@ async function runBehaviorChecks() {
     const { default: WarIntelService } = await import('../services/WarIntelService.js');
     const { default: WarStrategyService } = await import('../services/WarStrategyService.js');
     const { default: CombatPlannerService } = await import('../services/CombatPlannerService.js');
+    const { default: RoomPhaseService } = await import('../services/RoomPhaseService.js');
     const { default: SpawnBureauService } = await import('../services/SpawnBureauService.js');
     const { default: SpawnService } = await import('../services/SpawnService.js');
     const { default: ResourceMarketService } = await import('../services/ResourceMarketService.js');
@@ -185,6 +191,8 @@ async function runBehaviorChecks() {
     const { default: RoadPlannerService } = await import('../planning/RoadPlannerService.js');
 
     assertContains(main, 'UpgraderStrategyService', 'main services');
+
+    const roomPhaseService = new RoomPhaseService('RoomPhase');
 
     const smallMinerBody = BodyBuilder.build('miner', {
         energyAvailable: 250,
@@ -252,6 +260,16 @@ async function runBehaviorChecks() {
     }, { bodyProfile: 'supplied_builder' });
     assert.ok(suppliedBuilderBody.capacity.workParts > mobileBuilderBody.capacity.workParts, 'supplied builder should bias work parts when logistics can feed it');
     assert.ok(mobileBuilderBody.capacity.carryParts >= suppliedBuilderBody.capacity.carryParts, 'mobile builder should keep more carry capacity for self-supply');
+    const storagePhaseBuilderBody = BodyBuilder.build('builder', {
+        energyAvailable: 550,
+        energyCapacityAvailable: 550
+    }, { phase: 'storage', bodyProfile: 'supplied_builder' });
+    const terminalPhaseBuilderBody = BodyBuilder.build('builder', {
+        energyAvailable: 550,
+        energyCapacityAvailable: 550
+    }, { phase: 'terminal', bodyProfile: 'supplied_builder' });
+    assert.deepStrictEqual(storagePhaseBuilderBody.body, suppliedBuilderBody.body, 'storage phase builder bodies should reuse the supplied builder profile');
+    assert.deepStrictEqual(terminalPhaseBuilderBody.body, suppliedBuilderBody.body, 'terminal phase builder bodies should reuse the supplied builder profile');
     const repairerBody = BodyBuilder.build('repairer', {
         energyAvailable: 550,
         energyCapacityAvailable: 550
@@ -299,6 +317,52 @@ async function runBehaviorChecks() {
     };
     ActionParser.run(fullMiner);
     assert.strictEqual(fullMiner.memory.task, null, 'HARVEST should end when creep store is full');
+
+    global.Memory = { creeps: {}, rooms: { W1N1: { maintenancePlan: { targets: [1, 2] } } }, empire: {} };
+    Game.rooms = {
+        W1N1: {
+            name: 'W1N1',
+            controller: { my: true, level: 3 },
+            energyAvailable: 150,
+            energyCapacityAvailable: 300,
+            storage: null,
+            terminal: null
+        }
+    };
+    Game.creeps = {
+        BootstrapMiner: { memory: { role: 'miner', homeRoom: 'W1N1' } }
+    };
+    roomPhaseService.analyze();
+    assert.strictEqual(global.RoomPhase.W1N1.phase, 'bootstrap', 'room phase should classify a room with miners but no hauler as bootstrap');
+    assert.strictEqual(global.RoomPhase.W1N1.energyCritical, true, 'room phase should flag low available energy as critical');
+    assert.strictEqual(global.RoomPhase.W1N1.maintenancePressure, 2, 'room phase should expose maintenance backlog size');
+
+    Game.rooms.W1N1.energyAvailable = 280;
+    Game.creeps = {
+        EarlyMiner: { memory: { role: 'miner', homeRoom: 'W1N1' } },
+        EarlyHauler: { memory: { role: 'hauler', homeRoom: 'W1N1' } }
+    };
+    roomPhaseService.analyze();
+    assert.strictEqual(global.RoomPhase.W1N1.phase, 'early', 'room phase should classify a room with miner and hauler but no storage as early');
+    assert.strictEqual(global.RoomPhase.W1N1.logisticsMode, 'self_supply', 'room phase should keep early rooms on self supply until storage logistics are online');
+
+    Game.rooms.W1N1.storage = {
+        store: {
+            getUsedCapacity: () => 20000
+        }
+    };
+    roomPhaseService.analyze();
+    assert.strictEqual(global.RoomPhase.W1N1.phase, 'storage', 'room phase should classify storage-backed rooms as storage phase');
+    assert.strictEqual(global.RoomPhase.W1N1.hasStorage, true, 'room phase should expose storage presence');
+
+    Game.rooms.W1N1.terminal = {
+        store: {
+            getUsedCapacity: () => 5000
+        }
+    };
+    roomPhaseService.analyze();
+    assert.strictEqual(global.RoomPhase.W1N1.phase, 'terminal', 'room phase should classify terminal-backed rooms as terminal phase');
+    assert.strictEqual(global.RoomPhase.W1N1.hasTerminal, true, 'room phase should expose terminal presence');
 
     let moveRange = null;
     const exactMoveCreep = {
@@ -350,6 +414,87 @@ async function runBehaviorChecks() {
     Game.getObjectById = (id) => ({ id, hits: 5000, pos: {} });
     ActionParser.run(completedRepairCreep);
     assert.strictEqual(completedRepairCreep.memory.task, null, 'REPAIR should clear after the target reaches targetHits');
+
+    let buildMoveTarget = null;
+    const reroutingBuilder = {
+        memory: {
+            task: {
+                type: 'BUILD',
+                targetId: 'roadSite1',
+                workPos: { x: 11, y: 10, roomName: 'W1N1' }
+            }
+        },
+        room: {
+            name: 'W1N1',
+            find: (type, opts) => {
+                if (type !== FIND_STRUCTURES) return [];
+                const structures = [{ structureType: STRUCTURE_ROAD, pos: { x: 10, y: 10, roomName: 'W1N1' } }];
+                return opts && opts.filter ? structures.filter(opts.filter) : structures;
+            }
+        },
+        pos: {
+            x: 10,
+            y: 10,
+            roomName: 'W1N1',
+            inRangeTo: (target, range) => {
+                const tx = target.x !== undefined ? target.x : target.pos.x;
+                const ty = target.y !== undefined ? target.y : target.pos.y;
+                return Math.max(Math.abs(tx - 10), Math.abs(ty - 10)) <= range;
+            }
+        },
+        build: () => OK,
+        moveTo: (pos, opts) => {
+            buildMoveTarget = { pos, range: opts.range };
+            return OK;
+        }
+    };
+    Game.getObjectById = (id) => id === 'roadSite1' ? { id, pos: { x: 10, y: 11, roomName: 'W1N1' } } : null;
+    ActionParser.run(reroutingBuilder);
+    assert.deepStrictEqual(buildMoveTarget, { pos: { x: 11, y: 10, roomName: 'W1N1' }, range: 0 }, 'BUILD should move to the planned off-road work position before starting a long task');
+    assert.deepStrictEqual(reroutingBuilder.memory.task, {
+        type: 'BUILD',
+        targetId: 'roadSite1',
+        workPos: { x: 11, y: 10, roomName: 'W1N1' }
+    }, 'BUILD should keep the original long task while moving toward its work position');
+
+    let buildCalls = 0;
+    const offRoadBuilder = {
+        memory: {
+            task: {
+                type: 'BUILD',
+                targetId: 'roadSite1',
+                workPos: { x: 12, y: 10, roomName: 'W1N1' }
+            }
+        },
+        room: {
+            name: 'W1N1',
+            find: (type, opts) => {
+                if (type !== FIND_STRUCTURES) return [];
+                const structures = [{ structureType: STRUCTURE_ROAD, pos: { x: 12, y: 10, roomName: 'W1N1' } }];
+                return opts && opts.filter ? structures.filter(opts.filter) : structures;
+            }
+        },
+        pos: {
+            x: 10,
+            y: 10,
+            roomName: 'W1N1',
+            inRangeTo: (target, range) => {
+                const tx = target.x !== undefined ? target.x : target.pos.x;
+                const ty = target.y !== undefined ? target.y : target.pos.y;
+                return Math.max(Math.abs(tx - 10), Math.abs(ty - 10)) <= range;
+            }
+        },
+        build: () => {
+            buildCalls++;
+            return OK;
+        },
+        moveTo: () => {
+            throw new Error('builder already in a valid off-road build position and should not move');
+        }
+    };
+    Game.getObjectById = (id) => id === 'roadSite1' ? { id, pos: { x: 10, y: 11, roomName: 'W1N1' } } : null;
+    ActionParser.run(offRoadBuilder);
+    assert.strictEqual(buildCalls, 1, 'BUILD should continue from any non-road range-1 position instead of requiring the exact reserved work position');
 
     const stuckMoveCreep = {
         memory: { task: { type: 'MOVE_TO', pos: { x: 10, y: 10, roomName: 'W1N1' }, range: 0, stuckLimit: 2 } },
@@ -415,6 +560,10 @@ async function runBehaviorChecks() {
         }
     };
 
+    Game.getObjectById = (id) => {
+        if (id === 'source1') return { id, pos: { x: 10, y: 10, roomName: 'W1N1' } };
+        return null;
+    };
     const service = new MinerStrategyService('MinerStrategy');
     service.assignMiningTask(miner);
     assert.deepStrictEqual(miner.memory.task, {
@@ -839,15 +988,49 @@ async function runBehaviorChecks() {
     global.ResourceMarket = {};
 
     const builderService = new BuilderStrategyService('BuilderStrategy');
-    const buildSite = { id: 'site1' };
+    const buildSite = { id: 'site1', pos: { x: 15, y: 15, roomName: 'W1N1' } };
+    Game.map = {
+        getRoomTerrain: () => ({
+            get: () => 0
+        })
+    };
     global.RoomCache.W1N1 = { constructionSites: ['site1'] };
     const builder = {
-        room: { name: 'W1N1', controller, find: () => [] },
+        room: {
+            name: 'W1N1',
+            controller,
+            find: (type) => {
+                if (type !== FIND_STRUCTURES) return [];
+                return [{ structureType: STRUCTURE_ROAD, pos: { x: 14, y: 15, roomName: 'W1N1' } }];
+            }
+        },
         memory: { role: 'builder', homeRoom: 'W1N1' },
         store: { getUsedCapacity: () => 50 }
     };
+    const builderTwo = {
+        room: builder.room,
+        memory: { role: 'builder', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 50 }
+    };
+    Game.creeps = {
+        BuilderOne: builder,
+        BuilderTwo: builderTwo
+    };
+    Game.getObjectById = (id) => id === 'site1' ? buildSite : null;
     builderService.assignBuilderTask(builder);
-    assert.deepStrictEqual(builder.memory.task, { type: 'BUILD', targetId: 'site1' }, 'loaded builder should build construction sites before other work');
+    builderService.assignBuilderTask(builderTwo);
+    assert.deepStrictEqual(builder.memory.task, {
+        type: 'BUILD',
+        targetId: 'site1',
+        workPos: { x: 14, y: 14, roomName: 'W1N1' },
+        workPosReservedAt: Game.time
+    }, 'loaded builder should build construction sites before other work and reserve an off-road work position');
+    assert.deepStrictEqual(builderTwo.memory.task, {
+        type: 'BUILD',
+        targetId: 'site1',
+        workPos: { x: 14, y: 16, roomName: 'W1N1' },
+        workPosReservedAt: Game.time
+    }, 'builders targeting the same site should reserve different work positions');
 
     EventBus.topics = {};
     Game.rooms.W1N1 = {
@@ -862,6 +1045,14 @@ async function runBehaviorChecks() {
         MinerCore: { memory: { role: 'miner', homeRoom: 'W1N1' } },
         HaulerCore: { memory: { role: 'hauler', homeRoom: 'W1N1' } },
         UpgraderCore: { memory: { role: 'upgrader', homeRoom: 'W1N1' } }
+    };
+    global.RoomPhase = {
+        W1N1: {
+            phase: 'early',
+            hasStorage: false,
+            hasTerminal: false,
+            logisticsMode: 'self_supply'
+        }
     };
     builderService.ensureBuilders(Game.rooms.W1N1);
     assert.ok(!EventBus.topics.REQ_SPAWN, 'builder strategy should not publish spawn requests after spawn bureau owns spawning');
@@ -885,12 +1076,50 @@ async function runBehaviorChecks() {
         HaulerCore: { memory: { role: 'hauler', homeRoom: 'W1N1' } },
         UpgraderCore: { memory: { role: 'upgrader', homeRoom: 'W1N1' } }
     };
+    global.RoomPhase = {
+        W1N1: {
+            phase: 'storage',
+            hasStorage: true,
+            hasTerminal: false,
+            logisticsMode: 'hauler'
+        }
+    };
     spawnBureau.analyze();
     const suppliedBuilderRequest = EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'builder');
     assert.ok(
         suppliedBuilderRequest.data.body.filter((part) => part === WORK).length >
         suppliedBuilderRequest.data.body.filter((part) => part === CARRY).length,
         'storage-backed builder should use a supplied work-heavy body'
+    );
+
+    EventBus.topics = {};
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller,
+        storage: null,
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        find: (type) => type === FIND_CONSTRUCTION_SITES ? [{ id: 'siteStoragePhase' }] : []
+    };
+    Game.creeps = {
+        MinerCore: { memory: { role: 'miner', homeRoom: 'W1N1' } },
+        HaulerCore: { memory: { role: 'hauler', homeRoom: 'W1N1' } },
+        UpgraderCore: { memory: { role: 'upgrader', homeRoom: 'W1N1' } }
+    };
+    global.RoomPhase = {
+        W1N1: {
+            phase: 'storage',
+            hasStorage: true,
+            hasTerminal: false,
+            logisticsMode: 'hauler'
+        }
+    };
+    spawnBureau.analyze();
+    const roomPhaseBuilderRequest = EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'builder');
+    assert.ok(
+        roomPhaseBuilderRequest.data.body.filter((part) => part === WORK).length >
+        roomPhaseBuilderRequest.data.body.filter((part) => part === CARRY).length,
+        'room phase storage state should make builder spawning use supplied builder bodies even before room.storage exists'
     );
 
     EventBus.topics = {};
@@ -1071,7 +1300,9 @@ async function runBehaviorChecks() {
     EventBus.clearSubscribers();
     const resourceMarket = new ResourceMarketService('ResourceMarket');
     resourceMarket.init();
+    global.RoomPhase = { W1N1: { logisticsMode: 'hauler' } };
     resourceMarket.analyze();
+    assert.strictEqual(global.ResourceMarket.W1N1.supplyMode, 'hauler_supply', 'resource market should adopt hauler supply mode from room phase');
     assert.ok(global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'marketDrop' && supply.resourceType === RESOURCE_ENERGY), 'resource market should discover dropped energy supply');
     assert.ok(global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'marketStorage' && supply.resourceType === RESOURCE_UTRIUM), 'resource market should discover storage mineral supply');
     assert.ok(global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'marketTerminal' && supply.resourceType === RESOURCE_LEMERGIUM), 'resource market should discover terminal mineral supply');
@@ -1079,6 +1310,11 @@ async function runBehaviorChecks() {
     const spawnDemand = global.ResourceMarket.W1N1.demands.find((demand) => demand.targetId === 'marketSpawn');
     assert.strictEqual(spawnDemand.demandType, 'pull', 'economy energy demand should declare pull semantics');
     assert.strictEqual(spawnDemand.currentAmount, 0, 'economy energy demand should record current store amount');
+
+    global.RoomPhase = { W1N1: { logisticsMode: 'self_supply' } };
+    resourceMarket.init();
+    resourceMarket.analyze();
+    assert.strictEqual(global.ResourceMarket.W1N1.supplyMode, 'self_supply', 'resource market should keep self supply mode when room phase marks logistics as self supply');
     assert.strictEqual(spawnDemand.targetAmount, 300, 'economy energy demand should record target store amount');
     const controllerBufferDemand = global.ResourceMarket.W1N1.demands.find((demand) => demand.targetId === 'marketControllerContainer' && demand.demandType === 'buffer');
     assert.ok(controllerBufferDemand, 'resource market should create controller buffer demand from city plan');
@@ -1168,6 +1404,7 @@ async function runBehaviorChecks() {
     Game.rooms = { W1N1: repairDemandRoom };
     Game.creeps = { SupplyHauler: supplyHauler, MarketWaitingRepairer: marketWaitingRepairer };
     Game.getObjectById = (id) => Game.creeps[id] || null;
+    global.RoomPhase = { W1N1: { logisticsMode: 'hauler' } };
     global.ResourceMarket = {};
     resourceMarket.init();
     resourceMarket.analyze();
@@ -1860,6 +2097,7 @@ async function runBehaviorChecks() {
     const maintenanceStructures = [
         { id: 'spawnDamaged', structureType: STRUCTURE_SPAWN, hits: 3500, hitsMax: 5000, pos: { x: 15, y: 15, roomName: 'W1N1' } },
         { id: 'mainRoad', structureType: STRUCTURE_ROAD, hits: 1200, hitsMax: 5000, pos: { x: 16, y: 15, roomName: 'W1N1' } },
+        { id: 'healthyRoad', structureType: STRUCTURE_ROAD, hits: 3000, hitsMax: 5000, pos: { x: 16, y: 16, roomName: 'W1N1' } },
         { id: 'sourceContainer1', structureType: STRUCTURE_CONTAINER, hits: 90000, hitsMax: 250000, pos: { x: 11, y: 10, roomName: 'W1N1' }, store: { getUsedCapacity: () => 500 } },
         { id: 'rampartEmergency', structureType: STRUCTURE_RAMPART, hits: 800, hitsMax: 300000000, pos: { x: 17, y: 15, roomName: 'W1N1' } },
         { id: 'wallRoutine', structureType: STRUCTURE_WALL, hits: 3000, hitsMax: 300000000, pos: { x: 18, y: 15, roomName: 'W1N1' } }
@@ -1888,8 +2126,19 @@ async function runBehaviorChecks() {
     const maintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, Memory.rooms.W1N1.cityPlan);
     assert.strictEqual(maintenancePlan.version, 1, 'maintenance plan should be versioned');
     assert.ok(maintenancePlan.targets.some((target) => target.id === 'spawnDamaged' && target.repairClass === 'core'), 'maintenance plan should include damaged core structures');
-    assert.ok(maintenancePlan.targets.some((target) => target.id === 'mainRoad' && target.repairClass === 'economic'), 'maintenance plan should include damaged roads');
-    assert.ok(maintenancePlan.targets.some((target) => target.id === 'sourceContainer1' && target.repairClass === 'decay'), 'maintenance plan should include containers');
+    assert.ok(maintenancePlan.targets.some((target) => {
+        return target.id === 'mainRoad' &&
+            target.repairClass === 'economic' &&
+            target.targetHits === 4000 &&
+            target.repairBelow === 2500;
+    }), 'maintenance plan should include roads below the repair band and repair them to the upper band');
+    assert.ok(!maintenancePlan.targets.some((target) => target.id === 'healthyRoad'), 'maintenance plan should skip roads that have not fallen below the repair band');
+    assert.ok(maintenancePlan.targets.some((target) => {
+        return target.id === 'sourceContainer1' &&
+            target.repairClass === 'decay' &&
+            target.targetHits === 225000 &&
+            target.repairBelow === 150000;
+    }), 'maintenance plan should include containers below the repair band and repair them to the upper band');
     assert.ok(maintenancePlan.targets.some((target) => target.id === 'rampartEmergency' && target.executor === 'tower'), 'maintenance plan should route emergency rampart repair to towers');
     assert.ok(maintenancePlan.targets.some((target) => target.id === 'wallRoutine' && target.repairClass === 'defense'), 'maintenance plan should include walls with defense targets');
     assert.strictEqual(maintenancePlan.targets[0].id, 'rampartEmergency', 'maintenance plan should sort urgent defense emergencies first');
@@ -1985,16 +2234,30 @@ async function runBehaviorChecks() {
         ]
     };
     Game.getObjectById = (id) => {
-        if (id === 'routineRoad') return { id, hits: 700, hitsMax: 5000, pos: {} };
-        if (id === 'urgentContainer') return { id, hits: 50000, hitsMax: 250000, pos: {} };
+        if (id === 'routineRoad') return { id, hits: 700, hitsMax: 5000, pos: { x: 8, y: 8, roomName: 'W1N1' } };
+        if (id === 'urgentContainer') return { id, hits: 50000, hitsMax: 250000, pos: { x: 10, y: 10, roomName: 'W1N1' } };
         if (id === 'controller1') return { id, pos: {} };
         return null;
+    };
+    Game.map = {
+        getRoomTerrain: () => ({
+            get: (x, y) => (x === 10 && y === 9 ? TERRAIN_MASK_WALL : 0)
+        })
+    };
+    repairBuilder.room.find = (type) => {
+        if (type !== FIND_STRUCTURES) return [];
+        return [
+            { structureType: STRUCTURE_ROAD, pos: { x: 10, y: 11, roomName: 'W1N1' } },
+            { structureType: STRUCTURE_ROAD, pos: { x: 11, y: 10, roomName: 'W1N1' } }
+        ];
     };
     builderService.assignBuilderTask(repairBuilder);
     assert.deepStrictEqual(repairBuilder.memory.task, {
         type: 'REPAIR',
         targetId: 'urgentContainer',
-        targetHits: 250000
+        targetHits: 250000,
+        workPos: { x: 9, y: 9, roomName: 'W1N1' },
+        workPosReservedAt: Game.time
     }, 'loaded builder should prefer urgent maintenance targets over routine targets excluded by quotas');
 
     const quotaBlockedBuilder = {
@@ -2013,15 +2276,21 @@ async function runBehaviorChecks() {
         ]
     };
     Game.getObjectById = (id) => {
-        if (id === 'routineRoad') return { id, hits: 700, hitsMax: 5000, pos: {} };
+        if (id === 'routineRoad') return { id, hits: 700, hitsMax: 5000, pos: { x: 8, y: 8, roomName: 'W1N1' } };
         if (id === 'controller1') return { id, pos: {} };
         return null;
+    };
+    quotaBlockedBuilder.room.find = (type) => {
+        if (type !== FIND_STRUCTURES) return [];
+        return [{ structureType: STRUCTURE_ROAD, pos: { x: 8, y: 9, roomName: 'W1N1' } }];
     };
     builderService.assignBuilderTask(quotaBlockedBuilder);
     assert.deepStrictEqual(quotaBlockedBuilder.memory.task, {
         type: 'REPAIR',
         targetId: 'routineRoad',
-        targetHits: 5000
+        targetHits: 5000,
+        workPos: { x: 7, y: 7, roomName: 'W1N1' },
+        workPosReservedAt: Game.time
     }, 'builder should consume low-priority maintenance before falling back to upgrading');
 
     const repairerService = new RepairerStrategyService('RepairerStrategy');
@@ -2041,15 +2310,18 @@ async function runBehaviorChecks() {
         ]
     };
     Game.getObjectById = (id) => {
-        if (id === 'routineRoad') return { id, hits: 700, hitsMax: 5000, pos: {} };
+        if (id === 'routineRoad') return { id, hits: 700, hitsMax: 5000, pos: { x: 8, y: 8, roomName: 'W1N1' } };
         if (id === 'controller1') return { id, pos: {} };
         return null;
     };
+    repairer.room.find = quotaBlockedBuilder.room.find;
     repairerService.assignRepairerTask(repairer);
     assert.deepStrictEqual(repairer.memory.task, {
         type: 'REPAIR',
         targetId: 'routineRoad',
-        targetHits: 5000
+        targetHits: 5000,
+        workPos: { x: 7, y: 7, roomName: 'W1N1' },
+        workPosReservedAt: Game.time
     }, 'repairer should consume maintenance backlog even when builder quotas are exhausted');
 
     const stalePlanRepairer = {
@@ -2072,16 +2344,22 @@ async function runBehaviorChecks() {
         ]
     };
     Game.getObjectById = (id) => {
-        if (id === 'fullRoad') return { id, hits: 5000, hitsMax: 5000, pos: {} };
-        if (id === 'damagedRoad') return { id, hits: 700, hitsMax: 5000, pos: {} };
+        if (id === 'fullRoad') return { id, hits: 5000, hitsMax: 5000, pos: { x: 5, y: 5, roomName: 'W1N1' } };
+        if (id === 'damagedRoad') return { id, hits: 700, hitsMax: 5000, pos: { x: 7, y: 7, roomName: 'W1N1' } };
         if (id === 'controller1') return { id, pos: {} };
         return null;
+    };
+    stalePlanRepairer.room.find = (type) => {
+        if (type !== FIND_STRUCTURES) return [];
+        return [{ structureType: STRUCTURE_ROAD, pos: { x: 7, y: 8, roomName: 'W1N1' } }];
     };
     repairerService.assignRepairerTask(stalePlanRepairer);
     assert.deepStrictEqual(stalePlanRepairer.memory.task, {
         type: 'REPAIR',
         targetId: 'damagedRoad',
-        targetHits: 5000
+        targetHits: 5000,
+        workPos: { x: 6, y: 6, roomName: 'W1N1' },
+        workPosReservedAt: Game.time
     }, 'repairer should skip stale maintenance targets that already meet their targetHits');
 
     const matrixValues = new Map();

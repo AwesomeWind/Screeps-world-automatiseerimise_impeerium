@@ -1,6 +1,7 @@
 import BaseService from '../core/BaseService.js';
 import TaskTypes from '../core/TaskTypes.js';
 import EventBus from '../core/EventBus.js';
+import WorkPositionCoordinator from '../core/WorkPositionCoordinator.js';
 import { planWorkerEnergyTask, WAIT_SUPPLY } from '../services/ResourceMarketService.js';
 
 class BuilderStrategyService extends BaseService {
@@ -58,14 +59,23 @@ class BuilderStrategyService extends BaseService {
 
         const cache = global.RoomCache && global.RoomCache[creep.room.name];
         const siteId = cache && cache.constructionSites[0];
-        if (siteId) creep.memory.task = { type: TaskTypes.BUILD, targetId: siteId };
+        if (siteId) {
+            const site = Game.getObjectById(siteId);
+            creep.memory.task = this.withWorkPos(creep, {
+                type: TaskTypes.BUILD,
+                targetId: siteId
+            }, site);
+        }
         else {
             const repairTarget = this.findMaintenanceTarget(creep.room, false);
             if (repairTarget) {
+                const structure = Game.getObjectById(repairTarget.id);
                 creep.memory.task = {
-                    type: TaskTypes.REPAIR,
-                    targetId: repairTarget.id,
-                    targetHits: repairTarget.targetHits
+                    ...this.withWorkPos(creep, {
+                        type: TaskTypes.REPAIR,
+                        targetId: repairTarget.id,
+                        targetHits: repairTarget.targetHits
+                    }, structure)
                 };
             }
             else if (creep.room.controller) creep.memory.task = { type: TaskTypes.UPGRADE, targetId: creep.room.controller.id };
@@ -135,6 +145,11 @@ class BuilderStrategyService extends BaseService {
     urgencyFor(target) {
         if (target.urgency === 'urgent' || target.urgency === 'longTerm') return target.urgency;
         return 'routine';
+    }
+
+    withWorkPos(creep, task, target) {
+        const reservation = WorkPositionCoordinator.reserve(creep.room, creep, target);
+        return reservation ? { ...task, ...reservation } : task;
     }
 }
 

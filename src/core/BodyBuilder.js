@@ -12,9 +12,14 @@ function countParts(body) {
 
 function phaseFor(room, context) {
     if (context.phase) return context.phase;
-    if (room.storage) return 'stable';
+    if (room.storage || room.terminal) return 'stable';
     if ((room.energyCapacityAvailable || 0) >= 300) return 'early';
     return 'bootstrap';
+}
+
+function normalizedPhase(phase) {
+    if (phase === 'storage' || phase === 'terminal' || phase === 'empire') return 'stable';
+    return phase;
 }
 
 function countType(body, partType) {
@@ -236,7 +241,7 @@ function rangedDefenderSpec(capacity) {
 }
 
 function resolveSpec(role, room, context, capacity) {
-    const phase = phaseFor(room, context);
+    const phase = normalizedPhase(phaseFor(room, context));
     const profile = context.bodyProfile || role;
     const bodyContext = Object.assign({}, context, { phase, capacity });
 

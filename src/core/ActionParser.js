@@ -1,4 +1,5 @@
 import TaskTypes from './TaskTypes.js';
+import WorkPositionCoordinator from './WorkPositionCoordinator.js';
 
 function clearTask(creep) {
     creep.memory.task = null;
@@ -14,6 +15,51 @@ function repairTargetReached(task, target) {
     if (!target || target.hits === undefined) return true;
     if (task.targetHits === undefined) return target.hits >= target.hitsMax;
     return target.hits >= task.targetHits;
+}
+
+function roomPos(pos) {
+    if (!pos) return null;
+    return { x: pos.x, y: pos.y, roomName: pos.roomName };
+}
+
+function structureAt(creep, structureType) {
+    if (!creep.room || typeof creep.room.find !== 'function') return false;
+    const structures = creep.room.find(FIND_STRUCTURES, {
+        filter: (structure) => structure.structureType === structureType &&
+            structure.pos &&
+            structure.pos.x === creep.pos.x &&
+            structure.pos.y === creep.pos.y
+    });
+    return structures.length > 0;
+}
+
+function plannedWorkTarget(creep, task) {
+    if (!task.workPos) return null;
+    if (samePos(currentPos(creep), task.workPos)) return null;
+    return { pos: roomPos(task.workPos) };
+}
+
+function canWorkFromCurrentPos(creep, target) {
+    return creep.pos &&
+        typeof creep.pos.inRangeTo === 'function' &&
+        target &&
+        target.pos &&
+        creep.pos.inRangeTo(target.pos, 1) &&
+        !structureAt(creep, STRUCTURE_ROAD);
+}
+
+function ensureWorkPos(creep, task, target) {
+    if (!creep.room || !target || !target.pos) return task.workPos || null;
+    if (task.workPos && !WorkPositionCoordinator.claimedByOther(creep.room, creep, task.workPos)) {
+        return task.workPos;
+    }
+
+    const reservation = WorkPositionCoordinator.refresh(creep.room, creep, target, task.workPos);
+    if (!reservation) return null;
+
+    task.workPos = reservation.workPos;
+    task.workPosReservedAt = reservation.workPosReservedAt;
+    return task.workPos;
 }
 
 function moveToTarget(creep, target, task, range) {
@@ -92,10 +138,30 @@ const ActionParser = {
                 if (result === OK || result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_FULL || result === ERR_INVALID_TARGET) clearTask(creep);
                 break;
             case TaskTypes.BUILD:
+                if (!canWorkFromCurrentPos(creep, target)) {
+                    ensureWorkPos(creep, task, target);
+                    const workTarget = plannedWorkTarget(creep, task);
+                    if (workTarget) {
+                        result = ERR_NOT_IN_RANGE;
+                        target.pos = workTarget.pos;
+                        range = 0;
+                        break;
+                    }
+                }
                 result = creep.build(target);
                 if (result === OK || result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET) clearTask(creep);
                 break;
             case TaskTypes.REPAIR:
+                if (!canWorkFromCurrentPos(creep, target)) {
+                    ensureWorkPos(creep, task, target);
+                    const workTarget = plannedWorkTarget(creep, task);
+                    if (workTarget) {
+                        result = ERR_NOT_IN_RANGE;
+                        target.pos = workTarget.pos;
+                        range = 0;
+                        break;
+                    }
+                }
                 result = creep.repair(target);
                 if (result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET || repairTargetReached(task, target)) clearTask(creep);
                 break;

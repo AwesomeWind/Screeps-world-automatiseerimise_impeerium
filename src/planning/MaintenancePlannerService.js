@@ -3,7 +3,7 @@ import MemoryConfig from '../config/MemoryConfig.js';
 
 const MAINTENANCE_PLAN_VERSION = 1;
 const CORE_TYPES = new Set(['spawn', 'extension', 'tower', 'storage', 'terminal', 'lab', 'link', 'factory', 'powerSpawn', 'nuker', 'observer']);
-const ECONOMIC_TYPES = new Set(['road', 'extractor']);
+const ECONOMIC_TYPES = new Set(['extractor']);
 
 class MaintenancePlannerService extends BaseService {
     analyze() {
@@ -47,6 +47,10 @@ class MaintenancePlannerService extends BaseService {
             return this.containerTarget(structure, cityPlan);
         }
 
+        if (structure.structureType === STRUCTURE_ROAD) {
+            return this.bandTarget(structure, 'economic', `${structure.structureType}_damage`, 0.5, 0.8, 60);
+        }
+
         if (ECONOMIC_TYPES.has(structure.structureType)) {
             return this.standardTarget(structure, 'economic', `${structure.structureType}_damage`, structure.hitsMax, 60);
         }
@@ -85,22 +89,9 @@ class MaintenancePlannerService extends BaseService {
     }
 
     containerTarget(structure, cityPlan) {
-        if (structure.hits >= structure.hitsMax) return null;
-
         const role = this.containerRole(structure.pos, cityPlan);
         const priority = role === 'source_container' ? 82 : (role === 'controller_container' ? 80 : 65);
-
-        return {
-            id: structure.id,
-            structureType: structure.structureType,
-            pos: this.serializePos(structure.pos),
-            priority: priority + this.damageBonus(structure.hits, structure.hitsMax),
-            urgency: structure.hits < structure.hitsMax * 0.4 ? 'urgent' : 'routine',
-            reason: role,
-            targetHits: structure.hitsMax,
-            executor: 'builder',
-            repairClass: 'decay'
-        };
+        return this.bandTarget(structure, 'decay', role, 0.6, 0.9, priority);
     }
 
     standardTarget(structure, repairClass, reason, targetHits, basePriority) {
@@ -115,7 +106,28 @@ class MaintenancePlannerService extends BaseService {
             reason,
             targetHits,
             executor: 'builder',
-            repairClass
+            repairClass,
+            repairPolicy: 'full'
+        };
+    }
+
+    bandTarget(structure, repairClass, reason, repairBelowRatio, targetRatio, basePriority) {
+        const repairBelow = Math.floor(structure.hitsMax * repairBelowRatio);
+        const targetHits = Math.floor(structure.hitsMax * targetRatio);
+        if (structure.hits >= repairBelow) return null;
+
+        return {
+            id: structure.id,
+            structureType: structure.structureType,
+            pos: this.serializePos(structure.pos),
+            priority: basePriority + this.damageBonus(structure.hits, targetHits),
+            urgency: structure.hits < repairBelow * 0.7 ? 'urgent' : 'routine',
+            reason,
+            repairBelow,
+            targetHits,
+            executor: 'builder',
+            repairClass,
+            repairPolicy: 'band'
         };
     }
 

@@ -1,6 +1,7 @@
 import BaseService from '../core/BaseService.js';
 import TaskTypes from '../core/TaskTypes.js';
 import EventBus from '../core/EventBus.js';
+import WorkPositionCoordinator from '../core/WorkPositionCoordinator.js';
 import { planWorkerEnergyTask, WAIT_SUPPLY } from '../services/ResourceMarketService.js';
 
 class RepairerStrategyService extends BaseService {
@@ -31,11 +32,12 @@ class RepairerStrategyService extends BaseService {
 
         const repairTarget = this.findMaintenanceTarget(creep.room);
         if (repairTarget) {
-            creep.memory.task = {
+            const structure = Game.getObjectById(repairTarget.id);
+            creep.memory.task = this.withWorkPos(creep, {
                 type: TaskTypes.REPAIR,
                 targetId: repairTarget.id,
                 targetHits: repairTarget.targetHits
-            };
+            }, structure);
         }
         else if (creep.room.controller) creep.memory.task = { type: TaskTypes.UPGRADE, targetId: creep.room.controller.id };
     }
@@ -84,6 +86,11 @@ class RepairerStrategyService extends BaseService {
         if (!structure || structure.hits === undefined) return false;
         const targetHits = target.targetHits === undefined ? structure.hitsMax : target.targetHits;
         return targetHits === undefined || structure.hits < targetHits;
+    }
+
+    withWorkPos(creep, task, target) {
+        const reservation = WorkPositionCoordinator.reserve(creep.room, creep, target);
+        return reservation ? { ...task, ...reservation } : task;
     }
 }
 

@@ -218,7 +218,12 @@ class ResourceMarketService extends BaseService {
             logistics: this.estimateLogistics(room.name),
             supplyMode: 'self_supply'
         };
-        market.supplyMode = market.logistics.haulerThroughput >= market.logistics.workDemand * 1.2 ? 'hauler_supply' : 'self_supply';
+        const roomPhase = global.RoomPhase && global.RoomPhase[room.name];
+        if (roomPhase && roomPhase.logisticsMode) {
+            market.supplyMode = roomPhase.logisticsMode === 'hauler' ? 'hauler_supply' : 'self_supply';
+        } else {
+            market.supplyMode = market.logistics.haulerThroughput >= market.logistics.workDemand * 1.2 ? 'hauler_supply' : 'self_supply';
+        }
         global.ResourceMarket[room.name] = market;
 
         this.scanDroppedResources(room, market);

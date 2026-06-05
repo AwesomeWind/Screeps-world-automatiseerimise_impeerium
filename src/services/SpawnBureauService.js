@@ -180,7 +180,9 @@ class SpawnBureauService extends BaseService {
     addIntent(room, state, intent) {
         if (state.intents.some((planned) => planned.quotaKey === intent.quotaKey)) return;
 
+        const roomPhase = this.roomPhase(room);
         const bodySpec = BodyBuilder.build(intent.role, room, {
+            phase: roomPhase.phase,
             bodyProfile: intent.bodyProfile,
             energyCapacity: room.energyCapacityAvailable || room.energyAvailable || 0
         });
@@ -237,8 +239,21 @@ class SpawnBureauService extends BaseService {
     }
 
     builderBodyProfile(room) {
-        if (room.storage) return 'supplied_builder';
+        const roomPhase = this.roomPhase(room);
+        if (roomPhase.hasStorage || roomPhase.phase === 'storage' || roomPhase.phase === 'terminal' || roomPhase.phase === 'empire') {
+            return 'supplied_builder';
+        }
         return 'mobile_builder';
+    }
+
+    roomPhase(room) {
+        const phase = global.RoomPhase && global.RoomPhase[room.name];
+        if (phase) return phase;
+        return {
+            phase: room.storage ? 'storage' : 'early',
+            hasStorage: !!room.storage,
+            hasTerminal: !!room.terminal
+        };
     }
 
     maintenanceDemand(room) {
