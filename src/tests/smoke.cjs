@@ -330,17 +330,26 @@ async function runBehaviorChecks() {
 
     let repairedTargetId = null;
     const repairCreep = {
-        memory: { task: { type: 'REPAIR', targetId: 'rampartRepairTarget' } },
+        memory: { task: { type: 'REPAIR', targetId: 'rampartRepairTarget', targetHits: 5000 } },
         repair: (target) => {
             repairedTargetId = target.id;
             return OK;
         },
         pos: {}
     };
-    Game.getObjectById = (id) => ({ id, pos: {} });
+    Game.getObjectById = (id) => ({ id, hits: 2500, pos: {} });
     ActionParser.run(repairCreep);
     assert.strictEqual(repairedTargetId, 'rampartRepairTarget', 'REPAIR should execute creep.repair');
-    assert.strictEqual(repairCreep.memory.task, null, 'REPAIR should clear after successful repair');
+    assert.deepStrictEqual(repairCreep.memory.task, { type: 'REPAIR', targetId: 'rampartRepairTarget', targetHits: 5000 }, 'REPAIR should keep the task while the target is still below targetHits');
+
+    const completedRepairCreep = {
+        memory: { task: { type: 'REPAIR', targetId: 'roadAtTarget', targetHits: 5000 } },
+        repair: () => OK,
+        pos: {}
+    };
+    Game.getObjectById = (id) => ({ id, hits: 5000, pos: {} });
+    ActionParser.run(completedRepairCreep);
+    assert.strictEqual(completedRepairCreep.memory.task, null, 'REPAIR should clear after the target reaches targetHits');
 
     const stuckMoveCreep = {
         memory: { task: { type: 'MOVE_TO', pos: { x: 10, y: 10, roomName: 'W1N1' }, range: 0, stuckLimit: 2 } },
@@ -1971,14 +1980,21 @@ async function runBehaviorChecks() {
     Memory.rooms.W1N1.maintenancePlan = {
         quotas: { urgent: 3, routine: 0, longTerm: 0 },
         targets: [
-            { id: 'routineRoad', executor: 'builder', urgency: 'routine', structureType: STRUCTURE_ROAD, priority: 95 },
-            { id: 'urgentContainer', executor: 'builder', urgency: 'urgent', structureType: STRUCTURE_CONTAINER, priority: 80 }
+            { id: 'routineRoad', executor: 'builder', urgency: 'routine', structureType: STRUCTURE_ROAD, priority: 95, targetHits: 5000 },
+            { id: 'urgentContainer', executor: 'builder', urgency: 'urgent', structureType: STRUCTURE_CONTAINER, priority: 80, targetHits: 250000 }
         ]
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'routineRoad') return { id, hits: 700, hitsMax: 5000, pos: {} };
+        if (id === 'urgentContainer') return { id, hits: 50000, hitsMax: 250000, pos: {} };
+        if (id === 'controller1') return { id, pos: {} };
+        return null;
     };
     builderService.assignBuilderTask(repairBuilder);
     assert.deepStrictEqual(repairBuilder.memory.task, {
         type: 'REPAIR',
-        targetId: 'urgentContainer'
+        targetId: 'urgentContainer',
+        targetHits: 250000
     }, 'loaded builder should prefer urgent maintenance targets over routine targets excluded by quotas');
 
     const quotaBlockedBuilder = {
@@ -1993,13 +2009,19 @@ async function runBehaviorChecks() {
     Memory.rooms.W1N1.maintenancePlan = {
         quotas: { urgent: 0, routine: 0, longTerm: 0 },
         targets: [
-            { id: 'routineRoad', executor: 'builder', urgency: 'routine', structureType: STRUCTURE_ROAD, priority: 95 }
+            { id: 'routineRoad', executor: 'builder', urgency: 'routine', structureType: STRUCTURE_ROAD, priority: 95, targetHits: 5000 }
         ]
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'routineRoad') return { id, hits: 700, hitsMax: 5000, pos: {} };
+        if (id === 'controller1') return { id, pos: {} };
+        return null;
     };
     builderService.assignBuilderTask(quotaBlockedBuilder);
     assert.deepStrictEqual(quotaBlockedBuilder.memory.task, {
         type: 'REPAIR',
-        targetId: 'routineRoad'
+        targetId: 'routineRoad',
+        targetHits: 5000
     }, 'builder should consume low-priority maintenance before falling back to upgrading');
 
     const repairerService = new RepairerStrategyService('RepairerStrategy');
@@ -2015,14 +2037,52 @@ async function runBehaviorChecks() {
     Memory.rooms.W1N1.maintenancePlan = {
         quotas: { urgent: 0, routine: 0, longTerm: 0 },
         targets: [
-            { id: 'routineRoad', executor: 'builder', urgency: 'routine', structureType: STRUCTURE_ROAD, priority: 95 }
+            { id: 'routineRoad', executor: 'builder', urgency: 'routine', structureType: STRUCTURE_ROAD, priority: 95, targetHits: 5000 }
         ]
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'routineRoad') return { id, hits: 700, hitsMax: 5000, pos: {} };
+        if (id === 'controller1') return { id, pos: {} };
+        return null;
     };
     repairerService.assignRepairerTask(repairer);
     assert.deepStrictEqual(repairer.memory.task, {
         type: 'REPAIR',
-        targetId: 'routineRoad'
+        targetId: 'routineRoad',
+        targetHits: 5000
     }, 'repairer should consume maintenance backlog even when builder quotas are exhausted');
+
+    const stalePlanRepairer = {
+        room: {
+            name: 'W1N1',
+            controller: {
+                id: 'controller1'
+            }
+        },
+        store: {
+            getUsedCapacity: () => 50
+        },
+        memory: { role: 'repairer', homeRoom: 'W1N1' },
+        pos: {}
+    };
+    Memory.rooms.W1N1.maintenancePlan = {
+        targets: [
+            { id: 'fullRoad', executor: 'builder', urgency: 'routine', structureType: STRUCTURE_ROAD, priority: 95, targetHits: 5000 },
+            { id: 'damagedRoad', executor: 'builder', urgency: 'routine', structureType: STRUCTURE_ROAD, priority: 94, targetHits: 5000 }
+        ]
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'fullRoad') return { id, hits: 5000, hitsMax: 5000, pos: {} };
+        if (id === 'damagedRoad') return { id, hits: 700, hitsMax: 5000, pos: {} };
+        if (id === 'controller1') return { id, pos: {} };
+        return null;
+    };
+    repairerService.assignRepairerTask(stalePlanRepairer);
+    assert.deepStrictEqual(stalePlanRepairer.memory.task, {
+        type: 'REPAIR',
+        targetId: 'damagedRoad',
+        targetHits: 5000
+    }, 'repairer should skip stale maintenance targets that already meet their targetHits');
 
     const matrixValues = new Map();
     class CostMatrix {

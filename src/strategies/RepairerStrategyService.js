@@ -29,8 +29,14 @@ class RepairerStrategyService extends BaseService {
             return;
         }
 
-        const repairTargetId = this.findMaintenanceTarget(creep.room);
-        if (repairTargetId) creep.memory.task = { type: TaskTypes.REPAIR, targetId: repairTargetId };
+        const repairTarget = this.findMaintenanceTarget(creep.room);
+        if (repairTarget) {
+            creep.memory.task = {
+                type: TaskTypes.REPAIR,
+                targetId: repairTarget.id,
+                targetHits: repairTarget.targetHits
+            };
+        }
         else if (creep.room.controller) creep.memory.task = { type: TaskTypes.UPGRADE, targetId: creep.room.controller.id };
     }
 
@@ -65,12 +71,19 @@ class RepairerStrategyService extends BaseService {
             Memory.rooms[room.name].maintenancePlan.targets;
         if (!maintenance) return null;
 
-        const target = maintenance.find((entry) => this.canRepair(entry));
-        return target ? target.id : null;
+        return maintenance.find((entry) => this.isRepairableTarget(entry)) || null;
     }
 
     canRepair(target) {
         return target.executor === 'builder' || target.executor === 'repairer';
+    }
+
+    isRepairableTarget(target) {
+        if (!this.canRepair(target)) return false;
+        const structure = Game.getObjectById(target.id);
+        if (!structure || structure.hits === undefined) return false;
+        const targetHits = target.targetHits === undefined ? structure.hitsMax : target.targetHits;
+        return targetHits === undefined || structure.hits < targetHits;
     }
 }
 

@@ -10,6 +10,12 @@ function targetFromTask(task) {
     return null;
 }
 
+function repairTargetReached(task, target) {
+    if (!target || target.hits === undefined) return true;
+    if (task.targetHits === undefined) return target.hits >= target.hitsMax;
+    return target.hits >= task.targetHits;
+}
+
 function moveToTarget(creep, target, task, range) {
     if (!target || !target.pos) return ERR_INVALID_TARGET;
     return creep.moveTo(target.pos, {
@@ -91,7 +97,7 @@ const ActionParser = {
                 break;
             case TaskTypes.REPAIR:
                 result = creep.repair(target);
-                if (result === OK || result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET) clearTask(creep);
+                if (result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET || repairTargetReached(task, target)) clearTask(creep);
                 break;
             case TaskTypes.UPGRADE:
                 range = 3;

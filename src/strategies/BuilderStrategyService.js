@@ -60,8 +60,14 @@ class BuilderStrategyService extends BaseService {
         const siteId = cache && cache.constructionSites[0];
         if (siteId) creep.memory.task = { type: TaskTypes.BUILD, targetId: siteId };
         else {
-            const repairTargetId = this.findMaintenanceTarget(creep.room, false);
-            if (repairTargetId) creep.memory.task = { type: TaskTypes.REPAIR, targetId: repairTargetId };
+            const repairTarget = this.findMaintenanceTarget(creep.room, false);
+            if (repairTarget) {
+                creep.memory.task = {
+                    type: TaskTypes.REPAIR,
+                    targetId: repairTarget.id,
+                    targetHits: repairTarget.targetHits
+                };
+            }
             else if (creep.room.controller) creep.memory.task = { type: TaskTypes.UPGRADE, targetId: creep.room.controller.id };
         }
     }
@@ -97,25 +103,33 @@ class BuilderStrategyService extends BaseService {
             Memory.rooms[room.name].maintenancePlan.targets;
         if (!maintenance) return null;
 
-        const firstRepairable = maintenance.find((entry) => this.canRepair(entry));
-        if (ignoreQuotas) return firstRepairable ? firstRepairable.id : null;
+        const firstRepairable = maintenance.find((entry) => this.isRepairableTarget(entry));
+        if (ignoreQuotas) return firstRepairable || null;
 
         const quotas = Memory.rooms[room.name].maintenancePlan.quotas;
-        if (!quotas) return firstRepairable ? firstRepairable.id : null;
+        if (!quotas) return firstRepairable || null;
 
         const used = { urgent: 0, routine: 0, longTerm: 0 };
         for (const target of maintenance) {
-            if (!this.canRepair(target)) continue;
+            if (!this.isRepairableTarget(target)) continue;
             const urgency = this.urgencyFor(target);
             used[urgency]++;
             const quota = quotas[urgency];
-            if (quota === undefined || used[urgency] <= quota) return target.id;
+            if (quota === undefined || used[urgency] <= quota) return target;
         }
-        return firstRepairable ? firstRepairable.id : null;
+        return firstRepairable || null;
     }
 
     canRepair(target) {
         return target.executor === 'builder' || target.executor === 'repairer';
+    }
+
+    isRepairableTarget(target) {
+        if (!this.canRepair(target)) return false;
+        const structure = Game.getObjectById(target.id);
+        if (!structure || structure.hits === undefined) return false;
+        const targetHits = target.targetHits === undefined ? structure.hitsMax : target.targetHits;
+        return targetHits === undefined || structure.hits < targetHits;
     }
 
     urgencyFor(target) {
