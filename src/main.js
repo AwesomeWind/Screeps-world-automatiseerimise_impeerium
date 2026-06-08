@@ -6,6 +6,7 @@ import RoomCacheService from './services/RoomCacheService.js';
 import RoomPhaseService from './services/RoomPhaseService.js';
 import SpawnBureauService from './services/SpawnBureauService.js';
 import SpawnService from './services/SpawnService.js';
+import TaskGuardService from './services/TaskGuardService.js';
 import ResourceMarketService from './services/ResourceMarketService.js';
 import SecurityService from './services/SecurityService.js';
 import WarIntelService from './services/WarIntelService.js';
@@ -41,6 +42,7 @@ function createServices() {
         new RoomPhaseService('RoomPhase'),
         new SpawnBureauService('SpawnBureau'),
         new SpawnService('Spawn'),
+        new TaskGuardService('TaskGuard'),
         new ResourceMarketService('ResourceMarket'),
         new MinerStrategyService('MinerStrategy'),
         new BuilderStrategyService('BuilderStrategy'),

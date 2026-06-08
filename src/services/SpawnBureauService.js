@@ -129,7 +129,7 @@ class SpawnBureauService extends BaseService {
             return;
         }
 
-        const maintenanceWorkers = this.countRole(room.name, 'builder', state) + this.countRole(room.name, 'repairer', state);
+        const maintenanceWorkers = this.countRole(room.name, 'repairer', state);
         if (maintenanceWorkers === 0) {
             this.addIntent(room, state, {
                 role: 'repairer',
@@ -279,7 +279,7 @@ class SpawnBureauService extends BaseService {
         let totalTargets = 0;
 
         for (const target of plan.targets) {
-            if (target.executor !== 'builder') continue;
+            if (target.executor !== 'repairer') continue;
             const urgency = this.urgencyFor(target);
             counts[urgency]++;
             totalTargets++;

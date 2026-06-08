@@ -1,8 +1,8 @@
 import BaseService from '../core/BaseService.js';
 import TaskTypes from '../core/TaskTypes.js';
-import EventBus from '../core/EventBus.js';
 import WorkPositionCoordinator from '../core/WorkPositionCoordinator.js';
-import { planWorkerEnergyTask, WAIT_SUPPLY } from '../services/ResourceMarketService.js';
+import { assignTask } from '../core/TaskMetadata.js';
+import { planWorkerEnergyTask } from '../services/ResourceMarketService.js';
 
 class RepairerStrategyService extends BaseService {
     analyze() {
@@ -26,44 +26,39 @@ class RepairerStrategyService extends BaseService {
 
     assignRepairerTask(creep) {
         if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
-            this.assignEnergyTask(creep, 'repairer_work');
+            this.assignEnergyTask(creep, 'repair');
             return;
         }
 
         const repairTarget = this.findMaintenanceTarget(creep.room);
         if (repairTarget) {
             const structure = Game.getObjectById(repairTarget.id);
-            creep.memory.task = this.withWorkPos(creep, {
+            assignTask(creep, this.withWorkPos(creep, {
                 type: TaskTypes.REPAIR,
                 targetId: repairTarget.id,
                 targetHits: repairTarget.targetHits
-            }, structure);
+            }, structure));
         }
-        else if (creep.room.controller) creep.memory.task = { type: TaskTypes.UPGRADE, targetId: creep.room.controller.id };
+        else if (creep.room.controller) assignTask(creep, { type: TaskTypes.UPGRADE, targetId: creep.room.controller.id });
     }
 
     assignEnergyTask(creep, purpose) {
-        const energyTask = planWorkerEnergyTask(creep, { purpose, priority: 60 });
-        if (!energyTask) return;
-
-        if (energyTask.type === WAIT_SUPPLY) {
-            this.requestEnergySupply(creep, energyTask.priority || 60, energyTask.purpose || purpose);
+        const market = global.ResourceMarketService;
+        if (!market || !market.requestResource) {
+            const energyTask = planWorkerEnergyTask(creep, { purpose, priority: 60 });
+            if (energyTask) assignTask(creep, energyTask);
             return;
         }
-
-        creep.memory.task = energyTask;
-    }
-
-    requestEnergySupply(creep, priority, purpose) {
-        EventBus.publish('REQ_RESOURCE', priority, {
-            roomName: creep.memory.homeRoom || creep.room.name,
-            action: 'demand',
+        const response = market.requestResource(creep, {
             resourceType: RESOURCE_ENERGY,
-            amount: creep.store.getFreeCapacity ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : undefined,
+            amount: creep.store.getFreeCapacity ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : 50,
+            purpose,
             targetId: creep.id || creep.name,
-            priority,
-            purpose
-        }, 2);
+            targetPos: creep.pos ? { x: creep.pos.x, y: creep.pos.y, roomName: creep.pos.roomName } : null,
+            priority: 60,
+            allowedFulfillment: ['self_fetch', 'delivery']
+        });
+        if (response && response.mode === 'self_fetch') assignTask(creep, response.task);
     }
 
     findMaintenanceTarget(room) {
@@ -77,7 +72,7 @@ class RepairerStrategyService extends BaseService {
     }
 
     canRepair(target) {
-        return target.executor === 'builder' || target.executor === 'repairer';
+        return target.executor === 'repairer';
     }
 
     isRepairableTarget(target) {

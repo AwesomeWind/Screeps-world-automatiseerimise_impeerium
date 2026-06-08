@@ -48,7 +48,7 @@ class MaintenancePlannerService extends BaseService {
         }
 
         if (structure.structureType === STRUCTURE_ROAD) {
-            return this.bandTarget(structure, 'economic', `${structure.structureType}_damage`, 0.5, 0.8, 60);
+            return this.bandTarget(structure, 'economic', `${structure.structureType}_damage`, 0.65, 0.9, 60);
         }
 
         if (ECONOMIC_TYPES.has(structure.structureType)) {
@@ -91,7 +91,10 @@ class MaintenancePlannerService extends BaseService {
     containerTarget(structure, cityPlan) {
         const role = this.containerRole(structure.pos, cityPlan);
         const priority = role === 'source_container' ? 82 : (role === 'controller_container' ? 80 : 65);
-        return this.bandTarget(structure, 'decay', role, 0.6, 0.9, priority);
+        if (role === 'source_container' || role === 'controller_container') {
+            return this.bandTarget(structure, 'decay', role, 0.75, 0.95, priority);
+        }
+        return this.bandTarget(structure, 'decay', role, 0.65, 0.9, priority);
     }
 
     standardTarget(structure, repairClass, reason, targetHits, basePriority) {
@@ -105,7 +108,7 @@ class MaintenancePlannerService extends BaseService {
             urgency: structure.hits < targetHits * 0.5 ? 'urgent' : 'routine',
             reason,
             targetHits,
-            executor: 'builder',
+            executor: 'repairer',
             repairClass,
             repairPolicy: 'full'
         };
@@ -125,7 +128,7 @@ class MaintenancePlannerService extends BaseService {
             reason,
             repairBelow,
             targetHits,
-            executor: 'builder',
+            executor: 'repairer',
             repairClass,
             repairPolicy: 'band'
         };

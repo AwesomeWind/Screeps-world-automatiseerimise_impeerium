@@ -1,5 +1,6 @@
 import BaseService from '../core/BaseService.js';
 import TaskTypes from '../core/TaskTypes.js';
+import { assignTask } from '../core/TaskMetadata.js';
 
 class MinerStrategyService extends BaseService {
     init() {
@@ -105,24 +106,24 @@ class MinerStrategyService extends BaseService {
         }
         if (!creep.memory.miningPos) return;
         if (creep.memory.miningPos && creep.pos && !this.isAtPosition(creep, creep.memory.miningPos)) {
-            creep.memory.task = {
+            assignTask(creep, {
                 type: TaskTypes.MOVE_TO,
                 pos: creep.memory.miningPos,
                 range: 0
-            };
+            });
             return;
         }
 
-        creep.memory.task = { type: TaskTypes.HARVEST, targetId: sourceId };
+        assignTask(creep, { type: TaskTypes.HARVEST, targetId: sourceId });
     }
 
     assignRoomMove(creep) {
         if (!creep.memory.targetRoom || creep.room.name === creep.memory.targetRoom) return;
-        creep.memory.task = {
+        assignTask(creep, {
             type: TaskTypes.MOVE_TO,
             pos: { x: 25, y: 25, roomName: creep.memory.targetRoom },
             range: 20
-        };
+        });
     }
 
     assignReserveTask(creep) {
@@ -132,7 +133,7 @@ class MinerStrategyService extends BaseService {
             return;
         }
         if (creep.room.controller) {
-            creep.memory.task = { type: TaskTypes.RESERVE, targetId: creep.room.controller.id };
+            assignTask(creep, { type: TaskTypes.RESERVE, targetId: creep.room.controller.id });
         }
     }
 

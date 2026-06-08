@@ -1,7 +1,7 @@
 import BaseService from '../core/BaseService.js';
 import TaskTypes from '../core/TaskTypes.js';
-import EventBus from '../core/EventBus.js';
-import { planWorkerEnergyTask, WAIT_SUPPLY } from '../services/ResourceMarketService.js';
+import { assignTask } from '../core/TaskMetadata.js';
+import { planWorkerEnergyTask } from '../services/ResourceMarketService.js';
 
 class UpgraderStrategyService extends BaseService {
     analyze() {
@@ -48,34 +48,68 @@ class UpgraderStrategyService extends BaseService {
     assignUpgraderTask(creep) {
         if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
             const controllerContainer = this.findControllerContainer(creep.room);
-            const energyTask = planWorkerEnergyTask(creep, {
-                priority: 55,
-                purpose: 'upgrader_work',
-                stationaryBufferTarget: controllerContainer,
-                supplyTargetId: (controllerContainer && controllerContainer.id) || creep.id || creep.name
-            });
-            if (!energyTask) return;
-            if (energyTask.type === WAIT_SUPPLY) {
-                const supplyTarget = (controllerContainer && energyTask.supplyTargetId === controllerContainer.id) ? controllerContainer : creep;
-                this.requestEnergySupply(supplyTarget, energyTask.priority || 55, energyTask.purpose || 'upgrader_work', creep.memory.homeRoom || creep.room.name);
+            if (controllerContainer && controllerContainer.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
+                assignTask(creep, {
+                    type: TaskTypes.WITHDRAW,
+                    targetId: controllerContainer.id,
+                    resourceType: RESOURCE_ENERGY
+                });
                 return;
             }
-            creep.memory.task = energyTask;
+
+            const market = global.ResourceMarketService;
+            if (!market || !market.requestResource) {
+                const roomMarket = global.ResourceMarket && global.ResourceMarket[creep.memory.homeRoom || creep.room.name];
+                if (controllerContainer && roomMarket && roomMarket.supplyMode === 'hauler_supply') {
+                    if (!roomMarket.demands) roomMarket.demands = [];
+                    roomMarket.demands.push({
+                        id: `compat-demand:${controllerContainer.id}:${RESOURCE_ENERGY}`,
+                        roomName: creep.memory.homeRoom || creep.room.name,
+                        targetId: controllerContainer.id,
+                        resourceType: RESOURCE_ENERGY,
+                        amount: creep.store.getFreeCapacity ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : 50,
+                        priority: 55,
+                        purpose: 'upgrade',
+                        demandType: 'buffer',
+                        deliveryMode: 'haul',
+                        producer: 'compat_upgrader'
+                    });
+                    return;
+                }
+                const energyTask = planWorkerEnergyTask(creep, {
+                    priority: 55,
+                    purpose: 'upgrade',
+                    stationaryBufferTarget: controllerContainer,
+                    supplyTargetId: (controllerContainer && controllerContainer.id) || creep.id || creep.name
+                });
+                if (energyTask) assignTask(creep, energyTask);
+                return;
+            }
+            const response = market.requestResource(creep, {
+                resourceType: RESOURCE_ENERGY,
+                amount: creep.store.getFreeCapacity ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : 50,
+                purpose: 'upgrade',
+                targetId: (controllerContainer && controllerContainer.id) || creep.id || creep.name,
+                targetPos: controllerContainer && controllerContainer.pos ? controllerContainer.pos : (creep.pos ? { x: creep.pos.x, y: creep.pos.y, roomName: creep.pos.roomName } : null),
+                priority: 55,
+                allowedFulfillment: controllerContainer ? ['delivery'] : ['self_fetch', 'delivery']
+            });
+            if (response && response.mode === 'self_fetch') assignTask(creep, response.task);
             return;
         }
 
         const upgradePos = this.getPlannedUpgradePos(creep.room.name);
         if (upgradePos && (!creep.pos || !creep.pos.inRangeTo || !creep.pos.inRangeTo(upgradePos.x, upgradePos.y, 0))) {
-            creep.memory.task = {
+            assignTask(creep, {
                 type: TaskTypes.MOVE_TO,
                 pos: upgradePos,
                 range: 0
-            };
+            });
             return;
         }
 
         if (creep.room.controller) {
-            creep.memory.task = { type: TaskTypes.UPGRADE, targetId: creep.room.controller.id };
+            assignTask(creep, { type: TaskTypes.UPGRADE, targetId: creep.room.controller.id });
         }
     }
 
@@ -124,17 +158,6 @@ class UpgraderStrategyService extends BaseService {
         return sorted[0] || null;
     }
 
-    requestEnergySupply(target, priority, purpose, roomName) {
-        EventBus.publish('REQ_RESOURCE', priority, {
-            roomName: roomName || (target.memory && target.memory.homeRoom) || (target.room && target.room.name),
-            action: 'demand',
-            resourceType: RESOURCE_ENERGY,
-            amount: target.store && target.store.getFreeCapacity ? target.store.getFreeCapacity(RESOURCE_ENERGY) : undefined,
-            targetId: target.id || target.name,
-            priority,
-            purpose
-        }, 2);
-    }
 }
 
 export default UpgraderStrategyService;

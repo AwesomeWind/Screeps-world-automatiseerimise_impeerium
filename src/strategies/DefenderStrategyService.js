@@ -1,5 +1,6 @@
 import BaseService from '../core/BaseService.js';
 import TaskTypes from '../core/TaskTypes.js';
+import { assignTask } from '../core/TaskMetadata.js';
 
 class DefenderStrategyService extends BaseService {
     analyze() {
@@ -9,11 +10,11 @@ class DefenderStrategyService extends BaseService {
 
             const roomName = creep.memory.targetRoom || creep.room.name;
             if (creep.room.name !== roomName) {
-                creep.memory.task = {
+                assignTask(creep, {
                     type: TaskTypes.MOVE_TO,
                     pos: { x: 25, y: 25, roomName },
                     range: 20
-                };
+                });
                 continue;
             }
 
@@ -24,11 +25,11 @@ class DefenderStrategyService extends BaseService {
             if (posture === 'develop' || posture === 'avoid') {
                 const rallyPos = this.findRallyPos(creep.room);
                 if (rallyPos) {
-                    creep.memory.task = {
+                    assignTask(creep, {
                         type: TaskTypes.MOVE_TO,
                         pos: rallyPos,
                         range: 3
-                    };
+                    });
                 }
                 continue;
             }
@@ -44,11 +45,11 @@ class DefenderStrategyService extends BaseService {
         if (plan.posture === 'avoid' || plan.posture === 'develop' || plan.posture === 'rally') {
             const rallyPos = plan.retreatPoint || plan.rallyPoint;
             if (!rallyPos) return false;
-            creep.memory.task = {
+            assignTask(creep, {
                 type: TaskTypes.MOVE_TO,
                 pos: rallyPos,
                 range: 3
-            };
+            });
             return true;
         }
 
@@ -61,10 +62,10 @@ class DefenderStrategyService extends BaseService {
     }
 
     assignAttackTask(creep, targetId) {
-        creep.memory.task = {
+        assignTask(creep, {
             type: this.hasBodyPart(creep, RANGED_ATTACK) ? TaskTypes.RANGED_ATTACK : TaskTypes.ATTACK,
             targetId
-        };
+        });
     }
 
     findTargetId(creep, roomName) {

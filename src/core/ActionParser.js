@@ -1,8 +1,9 @@
 import TaskTypes from './TaskTypes.js';
 import WorkPositionCoordinator from './WorkPositionCoordinator.js';
+import { clearTaskState } from './TaskMetadata.js';
 
-function clearTask(creep) {
-    creep.memory.task = null;
+function clearTask(creep, reason, result) {
+    clearTaskState(creep, reason, result === undefined ? {} : { result });
 }
 
 function targetFromTask(task) {
@@ -19,7 +20,7 @@ function repairTargetReached(task, target) {
 
 function roomPos(pos) {
     if (!pos) return null;
-    return { x: pos.x, y: pos.y, roomName: pos.roomName };
+    return new RoomPosition(pos.x, pos.y, pos.roomName);
 }
 
 function structureAt(creep, structureType) {
@@ -113,7 +114,7 @@ const ActionParser = {
 
         const target = targetFromTask(task);
         if (!target) {
-            clearTask(creep);
+            clearTask(creep, 'target_missing');
             return;
         }
 
@@ -123,19 +124,31 @@ const ActionParser = {
         switch (task.type) {
             case TaskTypes.HARVEST:
                 result = creep.harvest(target);
-                if (result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_FULL || result === ERR_INVALID_TARGET || result === OK) clearTask(creep);
+                if (result === ERR_NOT_ENOUGH_RESOURCES) clearTask(creep, 'harvest_no_resource', result);
+                if (result === ERR_FULL) clearTask(creep, 'harvest_full', result);
+                if (result === ERR_INVALID_TARGET) clearTask(creep, 'harvest_invalid_target', result);
+                if (result === OK) clearTask(creep, 'harvest_completed_tick', result);
                 break;
             case TaskTypes.TRANSFER:
                 result = creep.transfer(target, task.resourceType || RESOURCE_ENERGY, task.amount);
-                if (result === OK || result === ERR_FULL || result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET) clearTask(creep);
+                if (result === OK) clearTask(creep, 'transfer_completed', result);
+                if (result === ERR_FULL) clearTask(creep, 'transfer_target_full', result);
+                if (result === ERR_NOT_ENOUGH_RESOURCES) clearTask(creep, 'transfer_no_resource', result);
+                if (result === ERR_INVALID_TARGET) clearTask(creep, 'transfer_invalid_target', result);
                 break;
             case TaskTypes.WITHDRAW:
                 result = creep.withdraw(target, task.resourceType || RESOURCE_ENERGY, task.amount);
-                if (result === OK || result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_FULL || result === ERR_INVALID_TARGET) clearTask(creep);
+                if (result === OK) clearTask(creep, 'withdraw_completed', result);
+                if (result === ERR_NOT_ENOUGH_RESOURCES) clearTask(creep, 'withdraw_no_resource', result);
+                if (result === ERR_FULL) clearTask(creep, 'withdraw_full', result);
+                if (result === ERR_INVALID_TARGET) clearTask(creep, 'withdraw_invalid_target', result);
                 break;
             case TaskTypes.PICKUP:
                 result = creep.pickup(target);
-                if (result === OK || result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_FULL || result === ERR_INVALID_TARGET) clearTask(creep);
+                if (result === OK) clearTask(creep, 'pickup_completed', result);
+                if (result === ERR_NOT_ENOUGH_RESOURCES) clearTask(creep, 'pickup_no_resource', result);
+                if (result === ERR_FULL) clearTask(creep, 'pickup_full', result);
+                if (result === ERR_INVALID_TARGET) clearTask(creep, 'pickup_invalid_target', result);
                 break;
             case TaskTypes.BUILD:
                 if (!canWorkFromCurrentPos(creep, target)) {
@@ -149,7 +162,8 @@ const ActionParser = {
                     }
                 }
                 result = creep.build(target);
-                if (result === OK || result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET) clearTask(creep);
+                if (result === ERR_NOT_ENOUGH_RESOURCES) clearTask(creep, 'build_no_energy', result);
+                if (result === ERR_INVALID_TARGET) clearTask(creep, 'build_invalid_target', result);
                 break;
             case TaskTypes.REPAIR:
                 if (!canWorkFromCurrentPos(creep, target)) {
@@ -163,43 +177,49 @@ const ActionParser = {
                     }
                 }
                 result = creep.repair(target);
-                if (result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET || repairTargetReached(task, target)) clearTask(creep);
+                if (result === ERR_NOT_ENOUGH_RESOURCES) clearTask(creep, 'repair_no_energy', result);
+                if (result === ERR_INVALID_TARGET) clearTask(creep, 'repair_invalid_target', result);
+                if (repairTargetReached(task, target)) clearTask(creep, 'repair_target_reached', result);
                 break;
             case TaskTypes.UPGRADE:
                 range = 3;
                 result = creep.upgradeController(target);
-                if (result === ERR_NOT_ENOUGH_RESOURCES || result === ERR_INVALID_TARGET) clearTask(creep);
+                if (result === ERR_NOT_ENOUGH_RESOURCES) clearTask(creep, 'upgrade_no_energy', result);
+                if (result === ERR_INVALID_TARGET) clearTask(creep, 'upgrade_invalid_target', result);
                 break;
             case TaskTypes.ATTACK:
                 result = creep.attack(target);
-                if (result === ERR_INVALID_TARGET) clearTask(creep);
+                if (result === ERR_INVALID_TARGET) clearTask(creep, 'attack_invalid_target', result);
                 break;
             case TaskTypes.RANGED_ATTACK:
                 range = 3;
                 result = creep.rangedAttack(target);
-                if (result === OK || result === ERR_INVALID_TARGET) clearTask(creep);
+                if (result === OK) clearTask(creep, 'ranged_attack_completed_tick', result);
+                if (result === ERR_INVALID_TARGET) clearTask(creep, 'ranged_attack_invalid_target', result);
                 break;
             case TaskTypes.RESERVE:
                 result = creep.reserveController(target);
-                if (result === ERR_INVALID_TARGET || result === ERR_NO_BODYPART) clearTask(creep);
+                if (result === ERR_INVALID_TARGET) clearTask(creep, 'reserve_invalid_target', result);
+                if (result === ERR_NO_BODYPART) clearTask(creep, 'reserve_no_bodypart', result);
                 break;
             case TaskTypes.MOVE_TO:
                 range = task.range === undefined ? 1 : task.range;
-                if (creep.pos.inRangeTo(target.pos, range)) clearTask(creep);
-                else if (!updateMoveProgress(creep, task)) clearTask(creep);
+                if (creep.pos.inRangeTo(target.pos, range)) clearTask(creep, 'move_arrived');
+                else if (!updateMoveProgress(creep, task)) clearTask(creep, 'move_stuck_or_expired');
                 else result = ERR_NOT_IN_RANGE;
                 break;
             default:
                 console.log(`[ActionParser] unknown task type: ${task.type}`);
-                clearTask(creep);
+                clearTask(creep, 'unknown_task_type');
                 return;
         }
 
         if (result === ERR_NOT_IN_RANGE) {
             result = moveToTarget(creep, target, task, range);
-            if (result === ERR_NO_PATH || result === ERR_INVALID_TARGET) clearTask(creep);
+            if (result === ERR_NO_PATH) clearTask(creep, 'move_no_path', result);
+            if (result === ERR_INVALID_TARGET) clearTask(creep, 'move_invalid_target', result);
         } else if (result === ERR_INVALID_ARGS || result === ERR_NO_BODYPART) {
-            clearTask(creep);
+            clearTask(creep, result === ERR_INVALID_ARGS ? 'action_invalid_args' : 'action_no_bodypart', result);
         }
     }
 };

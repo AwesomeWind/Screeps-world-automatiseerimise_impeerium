@@ -6,25 +6,26 @@ const ROAD_NETWORK_VERSION = 2;
 
 class RoadPlannerService extends BaseService {
     analyze() {
-        if (Game.time % 500 !== 0) return;
-
         for (const roomName in Game.rooms) {
             const room = Game.rooms[roomName];
             if (!room.controller || !room.controller.my) continue;
             if (!MemoryConfig.flag(roomName, 'roads', true)) continue;
 
             const cache = global.RoomCache && global.RoomCache[roomName];
-            if (!cache || !cache.centerPos) continue;
+            if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
+            const roomMemory = Memory.rooms[roomName];
 
-            if (Memory.rooms[roomName].roadNetworkVersion !== ROAD_NETWORK_VERSION) {
-                Memory.rooms[roomName].roadNetwork = null;
+            if (roomMemory.roadNetworkVersion !== ROAD_NETWORK_VERSION) {
+                roomMemory.roadNetwork = null;
             }
 
-            if (!Memory.rooms[roomName].roadNetwork) {
-                Memory.rooms[roomName].roadNetwork = this.planRoads(room, cache);
-                Memory.rooms[roomName].roadNetworkVersion = ROAD_NETWORK_VERSION;
+            if (!roomMemory.roadNetwork || Game.time % 500 === 0) {
+                if (!cache || !cache.centerPos) continue;
+                roomMemory.roadNetwork = this.planRoads(room, cache);
+                roomMemory.roadNetworkVersion = ROAD_NETWORK_VERSION;
             }
-            this.placeRoadSites(room, Memory.rooms[roomName].roadNetwork);
+
+            if (roomMemory.roadNetwork) this.placeRoadSites(room, roomMemory.roadNetwork);
         }
     }
 
@@ -115,7 +116,10 @@ class RoadPlannerService extends BaseService {
             if (placed >= 5) break;
             const parts = coord.split(',');
             const result = new RoomPosition(Number(parts[0]), Number(parts[1]), room.name).createConstructionSite(STRUCTURE_ROAD);
-            if (result === OK) placed++;
+            if (result === OK) {
+                placed++;
+                if (global.RoomCache && global.RoomCache[room.name]) global.RoomCache[room.name].isDirty = true;
+            }
         }
     }
 }
