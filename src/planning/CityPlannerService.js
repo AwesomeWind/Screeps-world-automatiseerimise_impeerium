@@ -16,8 +16,11 @@ class CityPlannerService extends BaseService {
             const center = MemoryConfig.baseCenter(room);
             if (!center) continue;
             const roomMemory = MemoryConfig.room(room.name);
-            if (!roomMemory.cityPlan || roomMemory.cityPlan.version !== CITY_PLAN_VERSION) {
-                roomMemory.cityPlan = this.buildCityPlan(room, center);
+            const nextPlan = this.buildCityPlan(room, center);
+            if (!roomMemory.cityPlan ||
+                roomMemory.cityPlan.version !== CITY_PLAN_VERSION ||
+                roomMemory.cityPlan.signature !== nextPlan.signature) {
+                roomMemory.cityPlan = nextPlan;
             }
 
             this.placeByType(room, center, STRUCTURE_EXTENSION);
@@ -57,7 +60,9 @@ class CityPlannerService extends BaseService {
         };
         if (primaryUpgradePos) roadAnchors.push(primaryUpgradePos);
 
-        return {
+        const coreRoads = this.buildCoreRoads(room, center);
+
+        const plan = {
             version: CITY_PLAN_VERSION,
             center: { x: center.x, y: center.y, roomName: room.name },
             core: {
@@ -66,8 +71,11 @@ class CityPlannerService extends BaseService {
             sources,
             controller,
             roadAnchors,
+            coreRoads,
             updatedAt: Game.time
         };
+        plan.signature = this.planSignature(plan);
+        return plan;
     }
 
     buildCoreStructures(room, center) {
@@ -85,6 +93,38 @@ class CityPlannerService extends BaseService {
             }
         }
         return structures;
+    }
+
+    buildCoreRoads(room, center) {
+        const roads = [];
+        const offsets = parsedCoreBlueprint[STRUCTURE_ROAD] || [];
+        for (const offset of offsets) {
+            roads.push({ x: center.x + offset.dx, y: center.y + offset.dy, roomName: room.name });
+        }
+        return roads;
+    }
+
+    planSignature(plan) {
+        const sourceKeys = Object.keys(plan.sources || {}).sort().map((sourceId) => {
+            const sourcePlan = plan.sources[sourceId];
+            const anchor = sourcePlan && sourcePlan.roadAnchor ? sourcePlan.roadAnchor : null;
+            return `${sourceId}:${this.serializePos(anchor)}`;
+        });
+        const roadAnchors = (plan.roadAnchors || []).map((pos) => this.serializePos(pos)).sort();
+        const coreRoads = (plan.coreRoads || []).map((pos) => this.serializePos(pos)).sort();
+        return JSON.stringify({
+            version: plan.version,
+            center: this.serializePos(plan.center),
+            controller: plan.controller ? this.serializePos(plan.controller.roadAnchor) : null,
+            sourceKeys,
+            roadAnchors,
+            coreRoads
+        });
+    }
+
+    serializePos(pos) {
+        if (!pos) return 'null';
+        return `${pos.roomName}:${pos.x},${pos.y}`;
     }
 
     getOpenPositions(room, origin, range) {

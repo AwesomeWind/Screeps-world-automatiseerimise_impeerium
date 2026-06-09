@@ -9,6 +9,7 @@ const RESERVATION_TTL = 5;
 const CONTROLLER_BUFFER_TARGET = 1000;
 const CONTROLLER_BUFFER_MIN = 200;
 const SELF_FETCH_BIAS = 1.2;
+const DEMAND_PRIORITY_WEIGHT = 1000000;
 
 function availableSupplyAmount(market, supply) {
     if (!market) return supply.amount || 0;
@@ -357,6 +358,16 @@ class ResourceMarketService extends BaseService {
                 this.persistMarket(roomName, market);
                 return true;
             }
+
+            const pickupTask = this.createTopOffPickupTask(creep, market, carriedResources);
+            if (pickupTask) {
+                assignTask(creep, pickupTask);
+                this.removeIdleHauler(creep);
+                market.stats.haulerAssignments++;
+                this.captureMarketStats(market);
+                this.persistMarket(roomName, market);
+                return true;
+            }
         }
 
         if (creep.store.getFreeCapacity && creep.store.getFreeCapacity() <= 0) return false;
@@ -435,9 +446,75 @@ class ResourceMarketService extends BaseService {
     }
 
     createPickupTask(creep, market) {
+        const demandTask = this.createDemandPickupTask(creep, market);
+        if (demandTask) return demandTask;
+
         const supply = this.findBestSupply(creep, market, undefined, { forHauler: true });
         if (!supply) return null;
         const amount = this.getPickupAmount(creep, supply, market);
+        this.reserveSupply(market, supply, amount);
+        if (supply.kind === 'dropped') {
+            return {
+                type: TaskTypes.PICKUP,
+                targetId: supply.targetId
+            };
+        }
+        return {
+            type: TaskTypes.WITHDRAW,
+            targetId: supply.targetId,
+            resourceType: supply.resourceType,
+            amount: amount || undefined
+        };
+    }
+
+    createTopOffPickupTask(creep, market, carriedResources) {
+        if (!creep.store.getFreeCapacity || creep.store.getFreeCapacity() <= 0) return null;
+
+        let best = null;
+        let bestScore = -Infinity;
+        for (const demand of market.demands) {
+            if (carriedResources.indexOf(demand.resourceType) === -1) continue;
+            const carriedAmount = creep.store.getUsedCapacity(demand.resourceType);
+            const availableDemand = this.getAvailableDemandAmount(market, demand);
+            if (!this.shouldContinueLoadingForDemand(demand, carriedAmount, availableDemand)) continue;
+
+            const supply = this.findBestSupplyForDemand(creep, market, demand);
+            if (!supply) continue;
+            const target = Game.getObjectById(demand.targetId);
+            const distance = target && target.pos && creep.pos && creep.pos.getRangeTo ? creep.pos.getRangeTo(target.pos) : 25;
+            const score = this.demandScore(demand, availableDemand, distance);
+            if (score > bestScore) {
+                best = { demand, supply };
+                bestScore = score;
+            }
+        }
+
+        return best ? this.createPickupTaskForDemand(creep, market, best.supply, best.demand) : null;
+    }
+
+    createDemandPickupTask(creep, market) {
+        let best = null;
+        let bestScore = -Infinity;
+        for (const demand of market.demands) {
+            const availableDemand = this.getAvailableDemandAmount(market, demand);
+            if (availableDemand <= 0) continue;
+
+            const supply = this.findBestSupplyForDemand(creep, market, demand);
+            if (!supply) continue;
+            const target = Game.getObjectById(demand.targetId);
+            const distance = target && target.pos && creep.pos && creep.pos.getRangeTo ? creep.pos.getRangeTo(target.pos) : 25;
+            const score = this.demandScore(demand, availableDemand, distance);
+            if (score > bestScore) {
+                best = { demand, supply };
+                bestScore = score;
+            }
+        }
+
+        return best ? this.createPickupTaskForDemand(creep, market, best.supply, best.demand) : null;
+    }
+
+    createPickupTaskForDemand(creep, market, supply, demand) {
+        const amount = this.getPickupAmountForDemand(creep, supply, demand, market);
         this.reserveSupply(market, supply, amount);
         if (supply.kind === 'dropped') {
             return {
@@ -651,16 +728,61 @@ class ResourceMarketService extends BaseService {
         return best;
     }
 
+    findBestSupplyForDemand(creep, market, demand) {
+        let best = null;
+        let bestScore = -Infinity;
+        for (const supply of market.supplies) {
+            if (supply.resourceType !== demand.resourceType) continue;
+            if (supply.kind === 'carried') continue;
+            if (supply.targetId === demand.targetId) continue;
+            if (!this.canUseSupplyForDemand(market, supply, demand)) continue;
+            const available = this.getAvailableSupplyAmount(market, supply);
+            if (available <= 0) continue;
+            const target = Game.getObjectById(supply.targetId);
+            const distance = target && target.pos && creep.pos && creep.pos.getRangeTo ? creep.pos.getRangeTo(target.pos) : 25;
+            const kindBonus = supply.kind === 'dropped' ? 1000 : 0;
+            const score = kindBonus + Math.min(available, 5000) + supply.priority * 10 - distance * 5;
+            if (score > bestScore) {
+                best = supply;
+                bestScore = score;
+            }
+        }
+        return best;
+    }
+
     shouldHaulerPickupSupply(market, supply) {
         if (supply.kind === 'dropped') return true;
         if (supply.id && supply.id.startsWith('event-supply:')) return true;
-        return this.marketHasDemandFor(market, supply.resourceType);
+        return this.marketHasAllowedDemandForSupply(market, supply);
     }
 
     marketHasDemandFor(market, resourceType) {
         return (market.demands || []).some((demand) => {
             return demand.resourceType === resourceType && this.getAvailableDemandAmount(market, demand) > 0;
         });
+    }
+
+    marketHasAllowedDemandForSupply(market, supply) {
+        return (market.demands || []).some((demand) => {
+            return demand.resourceType === supply.resourceType &&
+                this.getAvailableDemandAmount(market, demand) > 0 &&
+                demand.targetId !== supply.targetId &&
+                this.canUseSupplyForDemand(market, supply, demand);
+        });
+    }
+
+    canUseSupplyForDemand(market, supply, demand) {
+        if (!supply || !demand || supply.resourceType !== demand.resourceType) return false;
+        if (!this.isStorageEnergySupply(market, supply)) return true;
+        if (demand.purpose !== 'economy_energy') return true;
+        const roomPhase = global.RoomPhase && global.RoomPhase[market.roomName];
+        return !!(roomPhase && roomPhase.storageRescueActive);
+    }
+
+    isStorageEnergySupply(market, supply) {
+        if (!supply || supply.resourceType !== RESOURCE_ENERGY) return false;
+        const room = Game.rooms && Game.rooms[market.roomName];
+        return !!(room && room.storage && supply.targetId === room.storage.id);
     }
 
     findBestDemand(creep, market, carriedResources) {
@@ -673,7 +795,7 @@ class ResourceMarketService extends BaseService {
             if (available <= 0) continue;
             const target = Game.getObjectById(demand.targetId);
             const distance = target && target.pos && creep.pos && creep.pos.getRangeTo ? creep.pos.getRangeTo(target.pos) : 25;
-            const score = demand.priority * 100 + available - distance * 3;
+            const score = this.demandScore(demand, available, distance);
             if (score > bestScore) {
                 best = demand;
                 bestScore = score;
@@ -703,7 +825,9 @@ class ResourceMarketService extends BaseService {
         const structures = room.find(FIND_STRUCTURES);
         for (const structure of structures) {
             if (!structure.store) continue;
-            if (this.isSupplyStructure(structure)) this.addStoreSupplies(room.name, market, structure);
+            if (this.isSupplyStructure(structure) && !this.isControllerContainer(room, structure)) {
+                this.addStoreSupplies(room.name, market, structure);
+            }
             if (this.isDemandStructure(structure)) this.addStoreDemand(room.name, market, structure);
         }
     }
@@ -985,6 +1109,33 @@ class ResourceMarketService extends BaseService {
         return Math.min(free || available, available);
     }
 
+    getPickupAmountForDemand(creep, supply, demand, market) {
+        const free = creep.store.getFreeCapacity ? creep.store.getFreeCapacity(supply.resourceType) : supply.amount;
+        const availableSupply = this.getAvailableSupplyAmount(market, supply);
+        const availableDemand = this.getAvailableDemandAmount(market, demand);
+        if (this.shouldBulkLoadForDemand(demand)) return Math.min(free || availableSupply, availableSupply);
+        return Math.min(free || availableSupply, availableSupply, availableDemand);
+    }
+
+    shouldBulkLoadForDemand(demand) {
+        return demand.resourceType === RESOURCE_ENERGY &&
+            (demand.purpose === 'economy_energy' ||
+                demand.purpose === 'storage_balance' ||
+                demand.purpose === 'controller_buffer');
+    }
+
+    shouldContinueLoadingForDemand(demand, carriedAmount, availableDemand) {
+        if (availableDemand <= 0) return false;
+        if (this.shouldBulkLoadForDemand(demand)) return true;
+        return carriedAmount < availableDemand;
+    }
+
+    demandScore(demand, available, distance) {
+        return (demand.priority || DEFAULT_PRIORITY) * DEMAND_PRIORITY_WEIGHT +
+            Math.min(available || 0, 5000) -
+            distance * 3;
+    }
+
     estimateLogistics(roomName) {
         let haulerThroughput = 0;
         let workDemand = 0;
@@ -1068,11 +1219,25 @@ class ResourceMarketService extends BaseService {
             filter: (structure) => structure.structureType === STRUCTURE_CONTAINER
         });
         return structures.find((structure) => {
-            return structure.pos &&
-                structure.pos.x === plannedPos.x &&
-                structure.pos.y === plannedPos.y &&
-                structure.pos.roomName === plannedPos.roomName;
+            return this.samePos(structure.pos, plannedPos);
         }) || null;
+    }
+
+    isControllerContainer(room, structure) {
+        if (!room || !structure || structure.structureType !== STRUCTURE_CONTAINER) return false;
+        const plannedPos = Memory.rooms &&
+            Memory.rooms[room.name] &&
+            Memory.rooms[room.name].cityPlan &&
+            Memory.rooms[room.name].cityPlan.controller &&
+            Memory.rooms[room.name].cityPlan.controller.containerPos;
+        return this.samePos(structure.pos, plannedPos);
+    }
+
+    samePos(left, right) {
+        return !!left && !!right &&
+            left.x === right.x &&
+            left.y === right.y &&
+            left.roomName === right.roomName;
     }
 
     loadReservations(roomName) {

@@ -255,6 +255,15 @@ function resolveSpec(role, room, context, capacity) {
         };
     }
 
+    if (profile === 'emergency_miner') {
+        return {
+            base: [WORK, MOVE],
+            steps: [
+                { parts: [WORK], typeLimits: { [WORK]: 2 } }
+            ]
+        };
+    }
+
     if (profile === 'emergency_hauler') {
         return {
             base: [CARRY, MOVE],

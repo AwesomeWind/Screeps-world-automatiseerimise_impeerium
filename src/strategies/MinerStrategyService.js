@@ -209,12 +209,14 @@ class MinerStrategyService extends BaseService {
     pickMiningPos(room, source, currentCreep) {
         const positions = this.getOpenMiningPositions(room, source);
         const occupied = this.getAssignedMiningPosKeys(room.name, source.id, currentCreep);
-        const planned = this.getPlannedMiningPos(room.name, source.id);
-        if (planned &&
-            this.isPositionInList(planned, positions) &&
-            !this.isPositionDangerous(room, planned) &&
-            !occupied[`${planned.x},${planned.y}`]) {
-            return planned;
+        const preferredPositions = this.getPreferredMiningPositions(room, source.id);
+        for (const preferred of preferredPositions) {
+            if (preferred &&
+                this.isPositionInList(preferred, positions) &&
+                !this.isPositionDangerous(room, preferred) &&
+                !occupied[`${preferred.x},${preferred.y}`]) {
+                return preferred;
+            }
         }
         for (const pos of positions) {
             if (!occupied[`${pos.x},${pos.y}`]) return pos;
@@ -256,6 +258,49 @@ class MinerStrategyService extends BaseService {
             Memory.rooms[roomName].cityPlan.sources &&
             Memory.rooms[roomName].cityPlan.sources[sourceId];
         return plan ? plan.primaryMiningPos : null;
+    }
+
+    getPreferredMiningPositions(room, sourceId) {
+        const positions = [];
+        const builtContainerPos = this.getBuiltSourceContainerPos(room, sourceId);
+        const plannedContainerPos = this.getPlannedSourceContainerPos(room.name, sourceId);
+        const plannedMiningPos = this.getPlannedMiningPos(room.name, sourceId);
+
+        if (builtContainerPos) positions.push(builtContainerPos);
+        if (plannedContainerPos) positions.push(plannedContainerPos);
+        if (plannedMiningPos) positions.push(plannedMiningPos);
+
+        return positions.filter((pos, index, list) => {
+            return list.findIndex((candidate) => this.samePos(candidate, pos)) === index;
+        });
+    }
+
+    getPlannedSourceContainerPos(roomName, sourceId) {
+        if (typeof Memory === 'undefined') return null;
+        const plan = Memory.rooms &&
+            Memory.rooms[roomName] &&
+            Memory.rooms[roomName].cityPlan &&
+            Memory.rooms[roomName].cityPlan.sources &&
+            Memory.rooms[roomName].cityPlan.sources[sourceId];
+        return plan ? plan.containerPos : null;
+    }
+
+    getBuiltSourceContainerPos(room, sourceId) {
+        const plannedContainerPos = this.getPlannedSourceContainerPos(room.name, sourceId);
+        if (!plannedContainerPos || !room || !room.find) return null;
+        const structures = room.find(FIND_STRUCTURES, {
+            filter: (structure) => {
+                return structure.structureType === STRUCTURE_CONTAINER &&
+                    structure.pos &&
+                    this.samePos(structure.pos, plannedContainerPos);
+            }
+        });
+        return structures.length > 0 ? plannedContainerPos : null;
+    }
+
+    samePos(a, b) {
+        if (!a || !b) return false;
+        return a.x === b.x && a.y === b.y && a.roomName === b.roomName;
     }
 
     getAssignedMiningPosKeys(roomName, sourceId, currentCreep) {

@@ -36,6 +36,7 @@ const expectedFiles = [
     'src/services/RoomPhaseService.js',
     'src/services/SpawnBureauService.js',
     'src/services/SpawnService.js',
+    'src/services/CreepRetirementService.js',
     'src/services/TaskGuardService.js',
     'src/services/LogisticsService.js',
     'src/services/ResourceMarketService.js',
@@ -90,6 +91,7 @@ assertContains(main, 'CombatPlannerService', 'main should include combat planner
 assertContains(main, 'RoomPhaseService', 'main should include room phase service');
 assertContains(main, 'SpawnBureauService', 'main should include spawn bureau service');
 assertContains(main, 'TaskGuardService', 'main should include task guard service');
+assertContains(main, 'CreepRetirementService', 'main should include creep retirement service');
 assertContains(main, 'ResourceMarketService', 'main should include resource market service');
 assertContains(main, 'DefensePlannerService', 'main should include defense planner service');
 assertContains(main, 'MaintenancePlannerService', 'main should include maintenance planner service');
@@ -100,6 +102,7 @@ assert.ok(main.indexOf("new RoomPhaseService('RoomPhase')") < main.indexOf("new 
 assert.ok(main.indexOf("new SecurityService('Security')") < main.indexOf("new SpawnBureauService('SpawnBureau')"), 'security bridge should run before spawn bureau');
 assert.ok(main.indexOf("new SpawnBureauService('SpawnBureau')") < main.indexOf("new SpawnService('Spawn')"), 'spawn bureau should publish before spawn service executes');
 assert.ok(main.indexOf("new TaskGuardService('TaskGuard')") < main.indexOf("new ResourceMarketService('ResourceMarket')"), 'task guard should run before resource market and role strategies');
+assert.ok(main.indexOf("new UpgraderStrategyService('UpgraderStrategy')") < main.indexOf("new CreepRetirementService('CreepRetirement')"), 'retirement should evaluate after role strategies assign useful work');
 assert.ok(main.indexOf("new CityPlannerService('CityPlanner')") < main.indexOf("new DefensePlannerService('DefensePlanner')"), 'city planner should populate the city plan before defense planner reads it');
 
 const rollupConfig = read('rollup.config.js');
@@ -183,6 +186,7 @@ async function runBehaviorChecks() {
     const { default: RoomPhaseService } = await import('../services/RoomPhaseService.js');
     const { default: SpawnBureauService } = await import('../services/SpawnBureauService.js');
     const { default: SpawnService } = await import('../services/SpawnService.js');
+    const { default: CreepRetirementService } = await import('../services/CreepRetirementService.js');
     const { default: TaskGuard } = await import('../core/TaskGuard.js');
     const { default: ResourceMarketService } = await import('../services/ResourceMarketService.js');
     const { default: TaskGuardService } = await import('../services/TaskGuardService.js');
@@ -359,6 +363,89 @@ async function runBehaviorChecks() {
     roomPhaseService.analyze();
     assert.strictEqual(global.RoomPhase.W1N1.phase, 'storage', 'room phase should classify storage-backed rooms as storage phase');
     assert.strictEqual(global.RoomPhase.W1N1.hasStorage, true, 'room phase should expose storage presence');
+
+    const rescueSpawn = {
+        id: 'rescueSpawn',
+        structureType: STRUCTURE_SPAWN,
+        store: {
+            getUsedCapacity: () => 100,
+            getFreeCapacity: () => 200
+        }
+    };
+    const rescueExtension = {
+        id: 'rescueExtension',
+        structureType: STRUCTURE_EXTENSION,
+        store: {
+            getUsedCapacity: () => 0,
+            getFreeCapacity: () => 50
+        }
+    };
+    Game.rooms.W1N1.storage = {
+        store: {
+            getUsedCapacity: () => 2000
+        }
+    };
+    Game.rooms.W1N1.find = (type, opts = {}) => {
+        let results = [];
+        if (type === FIND_MY_STRUCTURES) results = [rescueSpawn, rescueExtension];
+        if (opts.filter) return results.filter(opts.filter);
+        return results;
+    };
+    Game.rooms.W1N1.terminal = null;
+    Game.creeps = {
+        RescueMiner: { memory: { role: 'miner', homeRoom: 'W1N1' } },
+        RescueHauler: { memory: { role: 'hauler', homeRoom: 'W1N1' } }
+    };
+    Memory.rooms.W1N1.energyPosture = 'normal';
+    roomPhaseService.analyze();
+    assert.strictEqual(global.RoomPhase.W1N1.energyPosture, 'spawn_rescue', 'room phase should enter spawn rescue when spawn and extensions fall below the low watermark');
+    assert.strictEqual(global.RoomPhase.W1N1.storageRescueActive, true, 'spawn rescue should allow storage to feed economy energy');
+    assert.ok(global.RoomPhase.W1N1.spawnEnergyRatio < 0.5, 'room phase should expose spawn and extension energy ratio');
+    assert.strictEqual(global.RoomPhase.W1N1.storageEnergy, 2000, 'room phase should expose storage energy');
+
+    rescueSpawn.store = {
+        getUsedCapacity: () => 250,
+        getFreeCapacity: () => 50
+    };
+    rescueExtension.store = {
+        getUsedCapacity: () => 40,
+        getFreeCapacity: () => 10
+    };
+    roomPhaseService.analyze();
+    assert.strictEqual(global.RoomPhase.W1N1.energyPosture, 'spawn_rescue', 'room phase should keep spawn rescue active until the high watermark is reached');
+
+    rescueSpawn.store = {
+        getUsedCapacity: () => 300,
+        getFreeCapacity: () => 0
+    };
+    rescueExtension.store = {
+        getUsedCapacity: () => 50,
+        getFreeCapacity: () => 0
+    };
+    roomPhaseService.analyze();
+    assert.strictEqual(global.RoomPhase.W1N1.energyPosture, 'normal', 'room phase should exit spawn rescue once spawn and extensions recover above the high watermark');
+    assert.strictEqual(global.RoomPhase.W1N1.storageRescueActive, false, 'normal posture should disable storage rescue');
+
+    rescueSpawn.store = {
+        getUsedCapacity: () => 0,
+        getFreeCapacity: () => 300
+    };
+    rescueExtension.store = {
+        getUsedCapacity: () => 0,
+        getFreeCapacity: () => 50
+    };
+    Game.rooms.W1N1.storage = {
+        store: {
+            getUsedCapacity: () => 500
+        }
+    };
+    Game.creeps = {
+        RescueHauler: { memory: { role: 'hauler', homeRoom: 'W1N1' } }
+    };
+    Memory.rooms.W1N1.energyPosture = 'normal';
+    roomPhaseService.analyze();
+    assert.strictEqual(global.RoomPhase.W1N1.energyPosture, 'bootstrap_rescue', 'room phase should enter bootstrap rescue when there is no miner and spawn energy cannot produce a recovery miner');
+    assert.strictEqual(global.RoomPhase.W1N1.storageRescueActive, true, 'bootstrap rescue should allow storage draw even below the ordinary reserve');
 
     Game.rooms.W1N1.terminal = {
         store: {
@@ -680,6 +767,52 @@ async function runBehaviorChecks() {
         !EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'miner'), 'bootstrap room should not request a second pure miner before an energy hauler exists');
 
     EventBus.topics = {};
+    Game.map = {
+        getRoomTerrain: () => ({
+            get: () => 0
+        })
+    };
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true },
+        storage: { id: 'storage1' },
+        energyAvailable: 300,
+        energyCapacityAvailable: 550,
+        find: () => []
+    };
+    Game.getObjectById = (id) => id === 'source1' ? { id, pos: { x: 10, y: 10, roomName: 'W1N1' } } : null;
+    global.RoomCache = { W1N1: { sources: ['source1'] } };
+    global.RoomPhase = { W1N1: { phase: 'storage', hasStorage: true } };
+    Game.creeps = {
+        RecoveryHauler: {
+            memory: { role: 'hauler', homeRoom: 'W1N1' },
+            body: [{ type: CARRY }, { type: MOVE }]
+        }
+    };
+    Memory.creeps = {
+        RecoveryHauler: {
+            role: 'hauler',
+            homeRoom: 'W1N1'
+        }
+    };
+    spawnBureau.analyze();
+    const recoveryMinerRequest = EventBus.topics.REQ_SPAWN &&
+        EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'miner');
+    const recoveryHaulerRequest = EventBus.topics.REQ_SPAWN &&
+        EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'hauler');
+    assert.ok(recoveryMinerRequest, 'spawn bureau should request a miner when a storage room has no mining workforce');
+    assert.ok(recoveryMinerRequest.data.body.reduce((sum, part) => sum + BODYPART_COST[part], 0) <= Game.rooms.W1N1.energyAvailable, 'miner recovery body should be spawnable with currently available energy');
+    assert.ok(!recoveryHaulerRequest || recoveryMinerRequest.priority > recoveryHaulerRequest.priority, 'miner recovery should outrank continued hauler expansion during starvation');
+
+    EventBus.topics = {};
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true },
+        storage: null,
+        energyAvailable: 300,
+        energyCapacityAvailable: 300
+    };
+    global.RoomPhase = { W1N1: { phase: 'bootstrap', hasStorage: false } };
     Game.creeps = {};
     global.RoomCache = { W1N1: { sources: ['source1'] } };
     Memory.creeps = {
@@ -725,6 +858,43 @@ async function runBehaviorChecks() {
     spawnBureau.analyze();
     assert.ok(!EventBus.topics.REQ_SPAWN ||
         !EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'miner'), 'spawn bureau should count live miners without homeRoom against source mining slots');
+
+    EventBus.topics = {};
+    Game.map = {
+        getRoomTerrain: () => ({
+            get: (x, y) => (x === 9 && y === 9 ? 0 : TERRAIN_MASK_WALL)
+        })
+    };
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true },
+        storage: null,
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        find: () => []
+    };
+    Game.getObjectById = (id) => id === 'source1' ? { id, pos: { x: 10, y: 10, roomName: 'W1N1' } } : null;
+    global.RoomCache = { W1N1: { sources: ['source1'] } };
+    Memory.creeps = {};
+    Game.creeps = {
+        RetiringMiner: {
+            name: 'RetiringMiner',
+            room: { name: 'W1N1' },
+            ticksToLive: 20,
+            memory: { role: 'miner', homeRoom: 'W1N1', sourceId: 'source1' },
+            body: [{ type: WORK }, { type: WORK }, { type: MOVE }]
+        },
+        StableHauler: {
+            name: 'StableHauler',
+            room: { name: 'W1N1' },
+            ticksToLive: 1000,
+            memory: { role: 'hauler', homeRoom: 'W1N1' },
+            body: [{ type: CARRY }, { type: MOVE }]
+        }
+    };
+    spawnBureau.analyze();
+    assert.ok(EventBus.topics.REQ_SPAWN &&
+        EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'miner' && event.data.memory.sourceId === 'source1'), 'spawn bureau should pre-spawn replacement miners before the current miner expires');
 
     Game.map = {
         getRoomTerrain: () => ({
@@ -910,6 +1080,7 @@ async function runBehaviorChecks() {
     };
     spawnBureau.analyze();
     assert.ok(EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'upgrader'), 'spawn bureau should request upgrader creeps');
+    assert.strictEqual(EventBus.topics.REQ_SPAWN.filter((event) => event.data.role === 'upgrader').length, 1, 'storage rooms with controller container planning should only request one stationary upgrader');
 
     EventBus.topics = {};
     Game.rooms.W1N1 = {
@@ -1235,6 +1406,56 @@ async function runBehaviorChecks() {
     };
     builderService.assignBuilderTask(storagePhaseBuilder);
     assert.strictEqual(storagePhaseBuilder.memory.task.targetId, 'storagePhaseStorageSite', 'storage-phase builders should prioritize storage over non-critical roads');
+
+    const incompleteRoadSite = {
+        id: 'incompleteRoadSite',
+        structureType: STRUCTURE_ROAD,
+        progress: 0,
+        progressTotal: 300,
+        pos: { x: 21, y: 21, roomName: 'W1N1' }
+    };
+    const incompleteStorageSite = {
+        id: 'incompleteStorageSite',
+        structureType: STRUCTURE_STORAGE,
+        progress: 0,
+        progressTotal: 5000,
+        pos: { x: 22, y: 21, roomName: 'W1N1' }
+    };
+    const incompleteRoadNetworkBuilder = {
+        name: 'IncompleteRoadNetworkBuilder',
+        room: {
+            name: 'W1N1',
+            controller,
+            find: (type, opts) => {
+                if (type === FIND_CONSTRUCTION_SITES) return [incompleteRoadSite, incompleteStorageSite];
+                if (type !== FIND_STRUCTURES) return [];
+                const structures = [{ structureType: STRUCTURE_ROAD, pos: { x: 20, y: 20, roomName: 'W1N1' } }];
+                return opts && opts.filter ? structures.filter(opts.filter) : structures;
+            }
+        },
+        pos: { x: 20, y: 20, roomName: 'W1N1', getRangeTo: (pos) => Math.max(Math.abs(pos.x - 20), Math.abs(pos.y - 20)) },
+        memory: { role: 'builder', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 50 }
+    };
+    Game.creeps = { IncompleteRoadNetworkBuilder: incompleteRoadNetworkBuilder };
+    global.RoomPhase = { W1N1: { phase: 'storage' } };
+    Memory.rooms.W1N1 = {
+        ...(Memory.rooms.W1N1 || {}),
+        roadNetwork: ['20,20', '21,21', '22,22', '23,23'],
+        cityPlan: {
+            center: { x: 20, y: 20, roomName: 'W1N1' },
+            sources: {},
+            controller: { containerPos: { x: 24, y: 24, roomName: 'W1N1' } }
+        }
+    };
+    global.RoomCache.W1N1 = { constructionSites: ['incompleteRoadSite', 'incompleteStorageSite'] };
+    Game.getObjectById = (id) => {
+        if (id === 'incompleteRoadSite') return incompleteRoadSite;
+        if (id === 'incompleteStorageSite') return incompleteStorageSite;
+        return null;
+    };
+    builderService.assignBuilderTask(incompleteRoadNetworkBuilder);
+    assert.strictEqual(incompleteRoadNetworkBuilder.memory.task.targetId, 'incompleteRoadSite', 'storage-phase builders should still prioritize critical roads while the planned road network is largely incomplete');
 
     const sourceContainerSite = {
         id: 'sourceContainerSite',
@@ -1710,6 +1931,63 @@ async function runBehaviorChecks() {
     assert.deepStrictEqual(Game.creeps.HaulerA.memory.task, { type: 'PICKUP', targetId: 'marketDrop' }, 'resource market should assign first empty hauler to picked-up dropped resource');
     assert.ok(Game.creeps.HaulerB.memory.task.targetId !== 'marketDrop', 'resource market reservations should prevent duplicate dropped resource pickup assignment');
 
+    const controllerSourceRoom = {
+        name: 'W1N1',
+        controller: { my: true, pos: { x: 25, y: 25, roomName: 'W1N1' } },
+        storage: null,
+        find: (type, opts = {}) => {
+            let results = [];
+            if (type === FIND_DROPPED_RESOURCES) results = [];
+            if (type === FIND_MY_STRUCTURES) results = [marketSpawn];
+            if (type === FIND_STRUCTURES) results = [{
+                ...marketControllerContainer,
+                store: makeStore({ energy: 500 }, 2000)
+            }, marketSpawn];
+            if (opts.filter) return results.filter(opts.filter);
+            return results;
+        }
+    };
+    const controllerSourceHauler = {
+        name: 'ControllerSourceHauler',
+        room: controllerSourceRoom,
+        memory: { role: 'hauler', homeRoom: 'W1N1' },
+        pos: { x: 24, y: 24, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 24) + Math.abs(pos.y - 24) },
+        store: makeStore({}, 100),
+        body: [{ type: CARRY }, { type: CARRY }, { type: MOVE }]
+    };
+    Game.rooms = { W1N1: controllerSourceRoom };
+    Game.creeps = { ControllerSourceHauler: controllerSourceHauler };
+    Game.getObjectById = (id) => {
+        if (id === 'marketControllerContainer') return controllerSourceRoom.find(FIND_STRUCTURES)[0];
+        if (id === 'marketSpawn') return marketSpawn;
+        return Game.creeps[id] || null;
+    };
+    Memory.rooms.W1N1.resourceMarket = { reservations: { supply: {}, demand: {} } };
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(controllerSourceRoom);
+    resourceMarket.assignHauler(controllerSourceHauler);
+    assert.strictEqual(controllerSourceHauler.memory.task, undefined, 'hauler should not withdraw energy from the controller buffer container as a general supply');
+
+    const controllerBufferHauler = {
+        name: 'ControllerBufferHauler',
+        room: controllerSourceRoom,
+        memory: { role: 'hauler', homeRoom: 'W1N1' },
+        pos: { x: 24, y: 24, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 24) + Math.abs(pos.y - 24) },
+        store: makeStore({ energy: 100 }, 100),
+        body: [{ type: CARRY }, { type: CARRY }, { type: MOVE }]
+    };
+    Game.creeps = { ControllerBufferHauler: controllerBufferHauler };
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(controllerSourceRoom);
+    resourceMarket.assignHauler(controllerBufferHauler);
+    assert.deepStrictEqual(controllerBufferHauler.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'marketSpawn',
+        resourceType: RESOURCE_ENERGY
+    }, 'loaded hauler should still prioritize spawn before topping up the controller buffer');
+    Game.rooms = { W1N1: marketRoom };
+    Game.getObjectById = (id) => marketObjects[id] || Game.creeps[id] || null;
+
     const nearbyBuilder = {
         name: 'NearbyBuilder',
         id: 'nearbyBuilderId',
@@ -1800,6 +2078,208 @@ async function runBehaviorChecks() {
         targetId: 'marketSpawn',
         resourceType: RESOURCE_ENERGY
     }, 'loaded hauler should prioritize spawn energy demand from resource market');
+
+    const hungrySpawn = {
+        id: 'hungrySpawn',
+        structureType: STRUCTURE_SPAWN,
+        pos: { x: 20, y: 20, roomName: 'W1N1' },
+        store: makeStore({ energy: 0 }, 300)
+    };
+    const hugeStorageSink = {
+        id: 'hugeStorageSink',
+        structureType: STRUCTURE_STORAGE,
+        pos: { x: 10, y: 10, roomName: 'W1N1' },
+        store: makeStore({ energy: 1000 }, 1000000)
+    };
+    const hungryRoom = {
+        name: 'W1N1',
+        controller,
+        storage: hugeStorageSink,
+        find: (type, opts = {}) => {
+            let results = [];
+            if (type === FIND_DROPPED_RESOURCES) results = [];
+            if (type === FIND_MY_STRUCTURES) results = [hungrySpawn, hugeStorageSink];
+            if (type === FIND_STRUCTURES) results = [hungrySpawn, hugeStorageSink];
+            if (opts.filter) return results.filter(opts.filter);
+            return results;
+        }
+    };
+    const hungryHauler = {
+        name: 'HungryHauler',
+        room: hungryRoom,
+        memory: { role: 'hauler', homeRoom: 'W1N1' },
+        pos: { x: 11, y: 10, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 11) + Math.abs(pos.y - 10) },
+        store: makeStore({ energy: 100 }, 100),
+        body: [{ type: CARRY }, { type: CARRY }, { type: MOVE }]
+    };
+    Game.rooms = { W1N1: hungryRoom };
+    Game.creeps = { HungryHauler: hungryHauler };
+    Game.getObjectById = (id) => {
+        if (id === 'hungrySpawn') return hungrySpawn;
+        if (id === 'hugeStorageSink') return hugeStorageSink;
+        return Game.creeps[id] || null;
+    };
+    Memory.rooms.W1N1.resourceMarket = { reservations: { supply: {}, demand: {} } };
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(hungryRoom);
+    resourceMarket.assignHauler(hungryHauler);
+    assert.deepStrictEqual(hungryHauler.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'hungrySpawn',
+        resourceType: RESOURCE_ENERGY
+    }, 'loaded energy hauler should refill spawn before large storage balance demand');
+
+    const rescueStorage = {
+        id: 'rescueStorage',
+        structureType: STRUCTURE_STORAGE,
+        pos: { x: 10, y: 10, roomName: 'W1N1' },
+        store: makeStore({ energy: 2000 }, 5000)
+    };
+    const rescueSpawnMarket = {
+        id: 'rescueSpawnMarket',
+        structureType: STRUCTURE_SPAWN,
+        pos: { x: 12, y: 10, roomName: 'W1N1' },
+        store: makeStore({ energy: 100 }, 300)
+    };
+    const rescueMarketRoom = {
+        name: 'W1N1',
+        controller,
+        storage: rescueStorage,
+        find: (type, opts = {}) => {
+            let results = [];
+            if (type === FIND_DROPPED_RESOURCES) results = [];
+            if (type === FIND_MY_STRUCTURES) results = [rescueSpawnMarket, rescueStorage];
+            if (type === FIND_STRUCTURES) results = [rescueSpawnMarket, rescueStorage];
+            if (opts.filter) return results.filter(opts.filter);
+            return results;
+        }
+    };
+    const rescueEnergyHauler = {
+        name: 'RescueEnergyHauler',
+        room: rescueMarketRoom,
+        memory: { role: 'hauler', homeRoom: 'W1N1' },
+        pos: { x: 11, y: 10, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 11) + Math.abs(pos.y - 10) },
+        store: makeStore({}, 100),
+        body: [{ type: CARRY }, { type: CARRY }, { type: MOVE }]
+    };
+    Game.rooms = { W1N1: rescueMarketRoom };
+    Game.creeps = { RescueEnergyHauler: rescueEnergyHauler };
+    Game.getObjectById = (id) => {
+        if (id === 'rescueStorage') return rescueStorage;
+        if (id === 'rescueSpawnMarket') return rescueSpawnMarket;
+        return Game.creeps[id] || null;
+    };
+    global.RoomPhase = { W1N1: { logisticsMode: 'hauler', storageRescueActive: true, energyPosture: 'spawn_rescue' } };
+    Memory.rooms.W1N1.resourceMarket = { reservations: { supply: {}, demand: {} } };
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(rescueMarketRoom);
+    resourceMarket.assignHauler(rescueEnergyHauler);
+    assert.deepStrictEqual(rescueEnergyHauler.memory.task, {
+        type: 'WITHDRAW',
+        targetId: 'rescueStorage',
+        resourceType: RESOURCE_ENERGY,
+        amount: 100
+    }, 'empty hauler should draw from storage to refill spawn while storage rescue is active');
+
+    const partiallyUnloadedHauler = {
+        name: 'PartiallyUnloadedHauler',
+        room: rescueMarketRoom,
+        memory: { role: 'hauler', homeRoom: 'W1N1' },
+        pos: { x: 13, y: 10, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 13) + Math.abs(pos.y - 10) },
+        store: makeStore({ energy: 200 }, 250),
+        body: [{ type: CARRY }, { type: CARRY }, { type: CARRY }, { type: CARRY }, { type: CARRY }, { type: MOVE }]
+    };
+    Game.creeps = { PartiallyUnloadedHauler: partiallyUnloadedHauler };
+    Memory.rooms.W1N1.resourceMarket = { reservations: { supply: {}, demand: {} } };
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(rescueMarketRoom);
+    resourceMarket.assignHauler(partiallyUnloadedHauler);
+    assert.deepStrictEqual(partiallyUnloadedHauler.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'rescueSpawnMarket',
+        resourceType: RESOURCE_ENERGY
+    }, 'partially unloaded hauler should continue delivering carried energy before returning to top off');
+
+    const normalEnergyHauler = {
+        name: 'NormalEnergyHauler',
+        room: rescueMarketRoom,
+        memory: { role: 'hauler', homeRoom: 'W1N1' },
+        pos: { x: 11, y: 10, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 11) + Math.abs(pos.y - 10) },
+        store: makeStore({}, 100),
+        body: [{ type: CARRY }, { type: CARRY }, { type: MOVE }]
+    };
+    Game.creeps = { NormalEnergyHauler: normalEnergyHauler };
+    global.RoomPhase = { W1N1: { logisticsMode: 'hauler', storageRescueActive: false, energyPosture: 'normal' } };
+    Memory.rooms.W1N1.resourceMarket = { reservations: { supply: {}, demand: {} } };
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(rescueMarketRoom);
+    resourceMarket.assignHauler(normalEnergyHauler);
+    assert.strictEqual(normalEnergyHauler.memory.task, undefined, 'empty hauler should not continually drain storage for ordinary spawn top-off outside rescue');
+
+    const preciseStorage = {
+        id: 'preciseStorage',
+        structureType: STRUCTURE_STORAGE,
+        pos: { x: 10, y: 10, roomName: 'W1N1' },
+        store: makeStore({ U: 300 }, 1000)
+    };
+    const preciseLab = {
+        id: 'preciseLab',
+        structureType: STRUCTURE_LAB,
+        pos: { x: 15, y: 10, roomName: 'W1N1' },
+        store: makeStore({}, 500)
+    };
+    const preciseHauler = {
+        name: 'PreciseHauler',
+        room: { name: 'W1N1' },
+        memory: { role: 'hauler', homeRoom: 'W1N1' },
+        pos: { x: 11, y: 10, roomName: 'W1N1', getRangeTo: (pos) => Math.abs(pos.x - 11) + Math.abs(pos.y - 10) },
+        store: makeStore({}, 100),
+        body: [{ type: CARRY }, { type: CARRY }, { type: MOVE }]
+    };
+    global.ResourceMarket = {
+        W1N1: {
+            roomName: 'W1N1',
+            supplies: [{
+                id: 'supply:preciseStorage:U',
+                roomName: 'W1N1',
+                kind: 'withdraw',
+                targetId: 'preciseStorage',
+                resourceType: RESOURCE_UTRIUM,
+                amount: 300,
+                priority: 65
+            }],
+            demands: [{
+                id: 'demand:preciseLab:U',
+                roomName: 'W1N1',
+                targetId: 'preciseLab',
+                resourceType: RESOURCE_UTRIUM,
+                amount: 7,
+                priority: 85,
+                purpose: 'lab_input',
+                demandType: 'worker',
+                deliveryMode: 'haul',
+                producer: 'test'
+            }],
+            reservations: { supply: {}, demand: {} },
+            logistics: { haulerThroughput: 0, workDemand: 0 },
+            supplyMode: 'hauler_supply',
+            stats: resourceMarket.createEmptyStats()
+        }
+    };
+    Game.rooms = { W1N1: { name: 'W1N1', controller, storage: preciseStorage, find: () => [] } };
+    Game.creeps = { PreciseHauler: preciseHauler };
+    Game.getObjectById = (id) => {
+        if (id === 'preciseStorage') return preciseStorage;
+        if (id === 'preciseLab') return preciseLab;
+        return Game.creeps[id] || null;
+    };
+    resourceMarket.assignHauler(preciseHauler);
+    assert.deepStrictEqual(preciseHauler.memory.task, {
+        type: 'WITHDRAW',
+        targetId: 'preciseStorage',
+        resourceType: RESOURCE_UTRIUM,
+        amount: 7
+    }, 'empty hauler should only withdraw the remaining amount for precise small demands');
 
     const fallbackEnergyHauler = {
         name: 'FallbackEnergyHauler',
@@ -2815,6 +3295,42 @@ async function runBehaviorChecks() {
     service.assignMiningTask(plannedMiner);
     assert.deepStrictEqual(plannedMiner.memory.miningPos, cityPlan.sources.source1.primaryMiningPos, 'miner should prefer cityPlan source mining position');
 
+    const originalPrimaryMiningPos = cityPlan.sources.source1.primaryMiningPos;
+    const originalContainerPos = cityPlan.sources.source1.containerPos;
+    const sourceContainerPos = { x: 9, y: 10, roomName: 'W1N1' };
+    Memory.rooms.W1N1.cityPlan.sources.source1.primaryMiningPos = { x: 9, y: 8, roomName: 'W1N1' };
+    Memory.rooms.W1N1.cityPlan.sources.source1.containerPos = sourceContainerPos;
+    const cityRoomWithContainer = {
+        ...cityRoom,
+        find: (type) => {
+            if (type === FIND_MY_SPAWNS) return [spawnForPlan];
+            if (type === FIND_SOURCES) return [sourceForPlan];
+            if (type === FIND_CONSTRUCTION_SITES) return [];
+            if (type === FIND_STRUCTURES) {
+                return [
+                    spawnForPlan,
+                    {
+                        id: 'sourceContainer1',
+                        structureType: STRUCTURE_CONTAINER,
+                        pos: sourceContainerPos
+                    }
+                ];
+            }
+            return [];
+        }
+    };
+    const containerMiner = {
+        name: 'MinerOnContainer',
+        room: cityRoomWithContainer,
+        memory: { role: 'miner', homeRoom: 'W1N1', sourceId: 'source1' },
+        pos: { inRangeTo: () => false },
+        store: { getFreeCapacity: () => 0 }
+    };
+    service.assignMiningTask(containerMiner);
+    assert.deepStrictEqual(containerMiner.memory.miningPos, sourceContainerPos, 'miner should prioritize the planned source container position when the container is already built');
+    Memory.rooms.W1N1.cityPlan.sources.source1.primaryMiningPos = originalPrimaryMiningPos;
+    Memory.rooms.W1N1.cityPlan.sources.source1.containerPos = originalContainerPos;
+
     const plannedUpgrader = {
         room: cityRoom,
         memory: { role: 'upgrader', homeRoom: 'W1N1' },
@@ -3064,7 +3580,109 @@ async function runBehaviorChecks() {
         isDirty: false
     };
     roadPlanner.analyze();
-    assert.strictEqual(analyzedRoadSites.length, 1, 'road planner should refill missing road construction sites between full planning cycles');
+    assert.ok(analyzedRoadSites.length >= 1, 'road planner should refill missing road construction sites between full planning cycles');
+    assert.ok(analyzedRoadSites.some((site) => site.x === 13 && site.y === 13), 'road planner should still preserve and refill the stored road network');
+
+    const dynamicRoadSites = [];
+    global.RoomPosition = class RoomPosition {
+        constructor(x, y, roomName) {
+            this.x = x;
+            this.y = y;
+            this.roomName = roomName;
+        }
+        createConstructionSite(structureType) {
+            dynamicRoadSites.push({ x: this.x, y: this.y, roomName: this.roomName, structureType });
+            return OK;
+        }
+    };
+    Game.time = 777;
+    Memory.rooms.W1N1.cityPlan = {
+        roadAnchors: [
+            { x: 10, y: 10, roomName: 'W1N1' },
+            { x: 18, y: 18, roomName: 'W1N1' }
+        ]
+    };
+    Memory.rooms.W1N1.roadNetwork = ['13,13'];
+    Memory.rooms.W1N1.roadNetworkVersion = 2;
+    global.RoomCache.W1N1 = {
+        centerPos: new RoomPosition(10, 10, 'W1N1'),
+        sources: [],
+        controller: null,
+        isDirty: false
+    };
+    Game.rooms = {
+        W1N1: {
+            name: 'W1N1',
+            controller: { my: true },
+            find: () => []
+        }
+    };
+    Game.map = {
+        getRoomTerrain: () => ({
+            get: () => 0
+        })
+    };
+    PathFinder.search = (origin, goal) => {
+        if (goal.pos.x === 18 && goal.pos.y === 18) {
+            return { incomplete: false, path: [{ x: 14, y: 14 }, { x: 15, y: 15 }, { x: 16, y: 16 }] };
+        }
+        return { incomplete: false, path: [{ x: 13, y: 13 }] };
+    };
+    roadPlanner.analyze();
+    assert.ok(Memory.rooms.W1N1.roadNetwork.includes('14,14'), 'road planner should rebuild the road network when city road anchors change');
+    assert.ok(dynamicRoadSites.some((site) => site.x === 14 && site.y === 14), 'road planner should place roads for newly added city anchors after replanning');
+
+    const retirementService = new CreepRetirementService('CreepRetirement');
+    const stableStorage = {
+        id: 'storage-retire',
+        pos: { x: 25, y: 25, roomName: 'W1N1' },
+        store: {
+            getUsedCapacity: (resourceType) => resourceType === RESOURCE_ENERGY ? 5000 : 0,
+            getFreeCapacity: () => 5000
+        }
+    };
+    const idleBuilder = {
+        name: 'IdleBuilder',
+        room: {
+            name: 'W1N1',
+            storage: stableStorage,
+            terminal: null
+        },
+        memory: {
+            role: 'builder',
+            homeRoom: 'W1N1',
+            idleTicks: 120
+        },
+        store: {
+            getUsedCapacity: (resourceType) => resourceType === RESOURCE_ENERGY ? 100 : 0
+        },
+        suicideCalled: false,
+        suicide() {
+            this.suicideCalled = true;
+            return OK;
+        }
+    };
+    global.RoomPhase = {
+        W1N1: {
+            energyPosture: 'normal'
+        }
+    };
+    Game.creeps = {
+        MinerCore: { memory: { role: 'miner', homeRoom: 'W1N1' } },
+        HaulerCore: { memory: { role: 'hauler', homeRoom: 'W1N1' } },
+        UpgraderCore: { memory: { role: 'upgrader', homeRoom: 'W1N1' } },
+        BuilderCore: idleBuilder
+    };
+    retirementService.analyze();
+    assert.deepStrictEqual(idleBuilder.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'storage-retire',
+        resourceType: RESOURCE_ENERGY
+    }, 'retirement service should unload carried resources before retiring idle surplus workers');
+    idleBuilder.store.getUsedCapacity = () => 0;
+    idleBuilder.memory.task = null;
+    retirementService.analyze();
+    assert.strictEqual(idleBuilder.suicideCalled, true, 'retirement service should suicide idle surplus workers after they unload');
 }
 
 runBehaviorChecks()

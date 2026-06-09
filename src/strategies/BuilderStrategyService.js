@@ -47,6 +47,12 @@ const CRITICAL_ROAD_BONUS = {
     default: 1600
 };
 
+const ROAD_NETWORK_RECOVERY_BONUS = {
+    storage: 3200,
+    terminal: 1800,
+    default: 0
+};
+
 const CRITICAL_CONTAINER_BONUS = {
     bootstrap: 2600,
     early: 2200,
@@ -168,7 +174,7 @@ class BuilderStrategyService extends BaseService {
         const distance = this.rangeBetween(creep, site);
         const assignedBuilders = this.countAssignedBuilders(site.id);
         const completion = site.progressTotal > 0 ? (site.progress || 0) / site.progressTotal : 0;
-        const criticalRoadBonus = this.isCriticalRoadSite(creep.room.name, site) ? this.phaseBonus(CRITICAL_ROAD_BONUS, phase) : 0;
+        const criticalRoadBonus = this.getCriticalRoadBonus(creep.room, site, phase);
         const criticalContainerBonus = this.isCriticalContainerSite(creep.room.name, site) ? this.phaseBonus(CRITICAL_CONTAINER_BONUS, phase) : 0;
         return priority + criticalRoadBonus + criticalContainerBonus - distance * 25 - assignedBuilders * 100 + completion * 50;
     }
@@ -209,6 +215,16 @@ class BuilderStrategyService extends BaseService {
         return count;
     }
 
+    getCriticalRoadBonus(room, site, phase) {
+        if (!this.isCriticalRoadSite(room.name, site)) return 0;
+        const baseBonus = this.phaseBonus(CRITICAL_ROAD_BONUS, phase);
+        const recoveryCap = this.phaseBonus(ROAD_NETWORK_RECOVERY_BONUS, phase);
+        if (recoveryCap <= 0) return baseBonus;
+
+        const completionRatio = this.getRoadNetworkCompletion(room.name, room);
+        return baseBonus + Math.round((1 - completionRatio) * recoveryCap);
+    }
+
     isCriticalRoadSite(roomName, site) {
         if (!site || site.structureType !== STRUCTURE_ROAD || !site.pos) return false;
         const roomMemory = Memory.rooms && Memory.rooms[roomName];
@@ -237,6 +253,23 @@ class BuilderStrategyService extends BaseService {
             left.x === right.x &&
             left.y === right.y &&
             left.roomName === right.roomName;
+    }
+
+    getRoadNetworkCompletion(roomName, room) {
+        const roomMemory = Memory.rooms && Memory.rooms[roomName];
+        const roadNetwork = roomMemory && Array.isArray(roomMemory.roadNetwork) ? roomMemory.roadNetwork : [];
+        if (roadNetwork.length === 0 || !room || typeof room.find !== 'function') return 1;
+
+        const builtRoads = room.find(FIND_STRUCTURES, {
+            filter: (structure) => structure.structureType === STRUCTURE_ROAD && structure.pos
+        });
+        const builtRoadSet = new Set(builtRoads.map((road) => `${road.pos.x},${road.pos.y}`));
+
+        let completed = 0;
+        for (const coord of roadNetwork) {
+            if (builtRoadSet.has(coord)) completed++;
+        }
+        return completed / roadNetwork.length;
     }
 
     assignEnergyTask(creep, purpose) {

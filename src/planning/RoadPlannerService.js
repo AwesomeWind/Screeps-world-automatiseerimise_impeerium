@@ -2,7 +2,7 @@ import BaseService from '../core/BaseService.js';
 import MemoryConfig from '../config/MemoryConfig.js';
 import { parsedCoreBlueprint } from './BaseBlueprint.js';
 
-const ROAD_NETWORK_VERSION = 2;
+const ROAD_NETWORK_VERSION = 3;
 
 class RoadPlannerService extends BaseService {
     analyze() {
@@ -14,30 +14,41 @@ class RoadPlannerService extends BaseService {
             const cache = global.RoomCache && global.RoomCache[roomName];
             if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
             const roomMemory = Memory.rooms[roomName];
+            const roadSignature = this.roadPlanSignature(room, cache, roomMemory.cityPlan);
 
             if (roomMemory.roadNetworkVersion !== ROAD_NETWORK_VERSION) {
                 roomMemory.roadNetwork = null;
             }
 
-            if (!roomMemory.roadNetwork || Game.time % 500 === 0) {
-                if (!cache || !cache.centerPos) continue;
-                roomMemory.roadNetwork = this.planRoads(room, cache);
+            if (!roomMemory.roadNetwork ||
+                roomMemory.roadPlanSignature !== roadSignature ||
+                Game.time % 500 === 0) {
+                if (!cache && !this.getCenterPos(roomMemory.cityPlan)) continue;
+                roomMemory.roadNetwork = this.planRoads(room, cache, roomMemory.cityPlan);
                 roomMemory.roadNetworkVersion = ROAD_NETWORK_VERSION;
+                roomMemory.roadPlanSignature = roadSignature;
             }
 
             if (roomMemory.roadNetwork) this.placeRoadSites(room, roomMemory.roadNetwork);
         }
     }
 
-    planRoads(room, cache) {
+    planRoads(room, cache, cityPlan = null) {
         const roadTiles = [];
-        const targets = cache.sources.concat(cache.controller ? [cache.controller] : []);
-        const costMatrix = this.buildCostMatrix(room, cache);
+        const centerPos = this.getCenterPos(cityPlan) || (cache && cache.centerPos);
+        if (!centerPos) return roadTiles;
+        const targets = this.collectTargets(room, cache, cityPlan, centerPos);
+        const costMatrix = this.buildCostMatrix(room, cache, centerPos);
+
+        for (const pos of this.coreRoads(cityPlan)) {
+            if (this.isBuildableRoadPos(room, pos, costMatrix)) roadTiles.push(`${pos.x},${pos.y}`);
+        }
 
         for (const id of targets) {
-            const target = Game.getObjectById(id);
+            const target = this.resolveTarget(id);
             if (!target) continue;
-            const result = PathFinder.search(cache.centerPos, { pos: target.pos, range: 1 }, {
+            const range = this.targetRange(target, centerPos);
+            const result = PathFinder.search(centerPos, { pos: target.pos, range }, {
                 plainCost: 2,
                 swampCost: 5,
                 roomCallback: (roomName) => roomName === room.name ? costMatrix : false
@@ -54,7 +65,73 @@ class RoadPlannerService extends BaseService {
         return Array.from(new Set(roadTiles));
     }
 
-    buildCostMatrix(room, cache) {
+    collectTargets(room, cache, cityPlan, centerPos) {
+        const targets = [];
+        const seen = {};
+        const legacyTargets = cache ? (cache.sources || []).concat(cache.controller ? [cache.controller] : []) : [];
+        for (const id of legacyTargets) {
+            seen[`id:${id}`] = true;
+            targets.push(id);
+        }
+
+        const anchors = cityPlan && cityPlan.roadAnchors ? cityPlan.roadAnchors : [];
+        for (const anchor of anchors) {
+            if (!anchor || this.samePos(anchor, centerPos)) continue;
+            const key = `pos:${anchor.roomName}:${anchor.x},${anchor.y}`;
+            if (seen[key]) continue;
+            seen[key] = true;
+            targets.push({ pos: anchor });
+        }
+
+        return targets;
+    }
+
+    resolveTarget(targetRef) {
+        if (!targetRef) return null;
+        if (typeof targetRef === 'string') return Game.getObjectById(targetRef);
+        if (targetRef.pos) return targetRef;
+        return null;
+    }
+
+    targetRange(target, centerPos) {
+        if (!target || !target.pos) return 1;
+        return this.samePos(target.pos, centerPos) ? 0 : 1;
+    }
+
+    coreRoads(cityPlan) {
+        return cityPlan && cityPlan.coreRoads ? cityPlan.coreRoads : [];
+    }
+
+    getCenterPos(cityPlan) {
+        return cityPlan && cityPlan.center ? cityPlan.center : null;
+    }
+
+    roadPlanSignature(room, cache, cityPlan) {
+        const centerPos = this.getCenterPos(cityPlan) || (cache && cache.centerPos);
+        const anchors = cityPlan && cityPlan.roadAnchors ? cityPlan.roadAnchors : [];
+        const coreRoads = cityPlan && cityPlan.coreRoads ? cityPlan.coreRoads : [];
+        const legacyTargets = cache ? (cache.sources || []).concat(cache.controller ? [cache.controller] : []) : [];
+        return JSON.stringify({
+            version: ROAD_NETWORK_VERSION,
+            roomName: room.name,
+            center: this.serializePos(centerPos),
+            anchors: anchors.map((pos) => this.serializePos(pos)).sort(),
+            coreRoads: coreRoads.map((pos) => this.serializePos(pos)).sort(),
+            targets: legacyTargets.slice().sort()
+        });
+    }
+
+    samePos(a, b) {
+        if (!a || !b) return false;
+        return a.x === b.x && a.y === b.y && a.roomName === b.roomName;
+    }
+
+    serializePos(pos) {
+        if (!pos) return 'null';
+        return `${pos.roomName}:${pos.x},${pos.y}`;
+    }
+
+    buildCostMatrix(room, cache, centerPos) {
         const matrix = new PathFinder.CostMatrix();
         const terrain = Game.map.getRoomTerrain(room.name);
 
@@ -70,7 +147,7 @@ class RoadPlannerService extends BaseService {
             this.applyStructureCost(matrix, structure);
         }
 
-        this.applyBlueprintBlockers(matrix, cache.centerPos);
+        this.applyBlueprintBlockers(matrix, centerPos || (cache && cache.centerPos));
 
         return matrix;
     }
@@ -85,6 +162,7 @@ class RoadPlannerService extends BaseService {
     }
 
     applyBlueprintBlockers(matrix, centerPos) {
+        if (!centerPos) return;
         const blockedTypes = [
             STRUCTURE_SPAWN,
             STRUCTURE_EXTENSION,

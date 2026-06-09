@@ -2,6 +2,8 @@ import BaseService from '../core/BaseService.js';
 import EventBus from '../core/EventBus.js';
 import BodyBuilder from '../core/BodyBuilder.js';
 
+const REPLACEMENT_LEAD_TICKS = 50;
+
 class SpawnBureauService extends BaseService {
     analyze() {
         global.SpawnBureau = {};
@@ -45,6 +47,7 @@ class SpawnBureauService extends BaseService {
         const cache = global.RoomCache && global.RoomCache[room.name];
         const sources = cache && cache.sources ? cache.sources : [];
         if (this.shouldWaitForBootstrapHauler(room)) return;
+        const recoveryMode = this.isMinerRecoveryMode(room, state);
 
         for (const sourceId of sources) {
             const source = Game.getObjectById(sourceId);
@@ -59,10 +62,11 @@ class SpawnBureauService extends BaseService {
             this.addIntent(room, state, {
                 role: 'miner',
                 quotaKey,
-                priority: this.countRole(room.name, 'miner', state) === 0 ? 90 : 80,
-                bodyProfile: 'miner',
+                priority: recoveryMode ? 120 : (this.countRole(room.name, 'miner', state) === 0 ? 90 : 80),
+                bodyProfile: recoveryMode ? 'emergency_miner' : 'miner',
+                energyCapacity: recoveryMode ? room.energyAvailable : undefined,
                 memory: { role: 'miner', homeRoom: room.name, sourceId },
-                reason: 'source_uncovered'
+                reason: recoveryMode ? 'miner_recovery' : 'source_uncovered'
             });
         }
     }
@@ -84,7 +88,7 @@ class SpawnBureauService extends BaseService {
 
     addUpgraderIntent(room, state) {
         if (this.countRole(room.name, 'miner', state) === 0 || this.countRole(room.name, 'hauler', state) === 0) return;
-        const desired = room.storage ? 2 : 1;
+        const desired = this.desiredUpgraders(room);
         const current = this.countRole(room.name, 'upgrader', state);
         if (current >= desired) return;
 
@@ -184,7 +188,7 @@ class SpawnBureauService extends BaseService {
         const bodySpec = BodyBuilder.build(intent.role, room, {
             phase: roomPhase.phase,
             bodyProfile: intent.bodyProfile,
-            energyCapacity: room.energyCapacityAvailable || room.energyAvailable || 0
+            energyCapacity: intent.energyCapacity || room.energyCapacityAvailable || room.energyAvailable || 0
         });
         if (!bodySpec.body || bodySpec.body.length === 0) {
             state.blockedDemands.push({
@@ -212,6 +216,14 @@ class SpawnBureauService extends BaseService {
             return 'stationary_upgrader';
         }
         return 'upgrader';
+    }
+
+    desiredUpgraders(room) {
+        if (!room) return 1;
+        if (this.hasPlannedControllerContainer(room.name) || this.hasControllerContainer(room)) {
+            return 1;
+        }
+        return room.storage ? 2 : 1;
     }
 
     hasPlannedControllerContainer(roomName) {
@@ -308,10 +320,16 @@ class SpawnBureauService extends BaseService {
             this.countRole(room.name, 'builder') === 0;
     }
 
+    isMinerRecoveryMode(room, state) {
+        if (!room || this.countRole(room.name, 'miner', state) > 0) return false;
+        return (room.energyAvailable || 0) >= BODYPART_COST[WORK] + BODYPART_COST[MOVE];
+    }
+
     countRole(roomName, role, state) {
         let count = 0;
         for (const name in Game.creeps) {
             const creep = Game.creeps[name];
+            if (this.isRetiringCreep(creep)) continue;
             if (creep.memory.role === role && this.creepHomeRoom(creep) === roomName) count++;
         }
         if (typeof Memory !== 'undefined' && Memory.creeps) {
@@ -340,6 +358,7 @@ class SpawnBureauService extends BaseService {
         let count = 0;
         for (const name in Game.creeps) {
             const creep = Game.creeps[name];
+            if (this.isRetiringCreep(creep)) continue;
             if (this.creepHomeRoom(creep) !== roomName) continue;
             if (this.quotaKeyForMemory(creep.memory, roomName) === quotaKey) count++;
         }
@@ -368,6 +387,7 @@ class SpawnBureauService extends BaseService {
         let workParts = 0;
         for (const name in Game.creeps) {
             const creep = Game.creeps[name];
+            if (this.isRetiringCreep(creep)) continue;
             if (creep.memory.role !== 'miner') continue;
             if (this.creepHomeRoom(creep) !== roomName) continue;
             if (creep.memory.sourceId !== sourceId) continue;
@@ -397,6 +417,13 @@ class SpawnBureauService extends BaseService {
         if (!body) return 1;
         const count = body.filter((part) => part === partType || part.type === partType).length;
         return count || 1;
+    }
+
+    isRetiringCreep(creep) {
+        if (!creep || creep.ticksToLive === undefined) return false;
+        const bodyLength = creep.body ? creep.body.length : 0;
+        const spawnTime = typeof CREEP_SPAWN_TIME === 'undefined' ? 3 : CREEP_SPAWN_TIME;
+        return creep.ticksToLive <= bodyLength * spawnTime + REPLACEMENT_LEAD_TICKS;
     }
 
     quotaKeyForMemory(memory, fallbackRoomName) {

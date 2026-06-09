@@ -6,6 +6,7 @@ import RoomCacheService from './services/RoomCacheService.js';
 import RoomPhaseService from './services/RoomPhaseService.js';
 import SpawnBureauService from './services/SpawnBureauService.js';
 import SpawnService from './services/SpawnService.js';
+import CreepRetirementService from './services/CreepRetirementService.js';
 import TaskGuardService from './services/TaskGuardService.js';
 import ResourceMarketService from './services/ResourceMarketService.js';
 import SecurityService from './services/SecurityService.js';
@@ -50,6 +51,7 @@ function createServices() {
         new HaulerStrategyService('HaulerStrategy'),
         new UpgraderStrategyService('UpgraderStrategy'),
         new DefenderStrategyService('DefenderStrategy'),
+        new CreepRetirementService('CreepRetirement'),
         new TowerDefenseService('TowerDefense'),
         new CityPlannerService('CityPlanner'),
         new DefensePlannerService('DefensePlanner'),
