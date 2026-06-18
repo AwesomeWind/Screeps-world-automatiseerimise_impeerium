@@ -1,6 +1,9 @@
 import BaseService from '../core/BaseService.js';
 import EventBus from '../core/EventBus.js';
 import BodyBuilder from '../core/BodyBuilder.js';
+import { getSourceOutputPolicy } from '../planning/CityAssetPolicy.js';
+import { getControllerContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
+import { shouldUseStrictSourceRuntime } from '../planning/RuntimeReadiness.js';
 
 const REPLACEMENT_LEAD_TICKS = 50;
 
@@ -63,7 +66,7 @@ class SpawnBureauService extends BaseService {
                 role: 'miner',
                 quotaKey,
                 priority: recoveryMode ? 120 : (this.countRole(room.name, 'miner', state) === 0 ? 90 : 80),
-                bodyProfile: recoveryMode ? 'emergency_miner' : 'miner',
+                bodyProfile: recoveryMode ? 'emergency_miner' : this.minerBodyProfile(room.name, sourceId),
                 energyCapacity: recoveryMode ? room.energyAvailable : undefined,
                 memory: { role: 'miner', homeRoom: room.name, sourceId },
                 reason: recoveryMode ? 'miner_recovery' : 'source_uncovered'
@@ -226,13 +229,25 @@ class SpawnBureauService extends BaseService {
         return room.storage ? 2 : 1;
     }
 
-    hasPlannedControllerContainer(roomName) {
-        return typeof Memory !== 'undefined' &&
+    minerBodyProfile(roomName, sourceId) {
+        const roomMemory = typeof Memory !== 'undefined' &&
             Memory.rooms &&
             Memory.rooms[roomName] &&
-            Memory.rooms[roomName].cityPlan &&
-            Memory.rooms[roomName].cityPlan.controller &&
-            Memory.rooms[roomName].cityPlan.controller.containerPos;
+            Memory.rooms[roomName];
+        const cityPlan = roomMemory && roomMemory.cityPlan;
+        const strictRuntimePolicy = shouldUseStrictSourceRuntime(roomMemory);
+        return getSourceOutputPolicy(cityPlan, sourceId, {
+            sourceRuntimeAllowLegacyFallback: !strictRuntimePolicy
+        }).bodyProfile;
+    }
+
+    hasPlannedControllerContainer(roomName) {
+        const cityPlan = typeof Memory !== 'undefined' &&
+            Memory.rooms &&
+            Memory.rooms[roomName] &&
+            Memory.rooms[roomName].cityPlan;
+        const controllerContainerAsset = getControllerContainerAsset(cityPlan, { allowLegacyFallback: false });
+        return !!(controllerContainerAsset && controllerContainerAsset.pos);
     }
 
     hasControllerContainer(room) {
@@ -249,7 +264,6 @@ class SpawnBureauService extends BaseService {
         }
         return false;
     }
-
     builderBodyProfile(room) {
         const roomPhase = this.roomPhase(room);
         if (roomPhase.hasStorage || roomPhase.phase === 'storage' || roomPhase.phase === 'terminal' || roomPhase.phase === 'empire') {

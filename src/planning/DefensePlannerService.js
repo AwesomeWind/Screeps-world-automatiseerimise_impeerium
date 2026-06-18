@@ -1,6 +1,7 @@
 import BaseService from '../core/BaseService.js';
 import MemoryConfig from '../config/MemoryConfig.js';
 import { parsedCoreBlueprint } from './BaseBlueprint.js';
+import { getControllerContainerAsset, getSourceContainerAsset } from './CityPlanLegacyAdapter.js';
 
 const DEFENSE_PLAN_VERSION = 1;
 
@@ -17,6 +18,7 @@ class DefensePlannerService extends BaseService {
             if (!roomMemory.cityPlan) continue;
 
             roomMemory.cityPlan.defense = this.buildDefensePlan(room, roomMemory.cityPlan);
+            this.syncDefensePlannedStructures(roomMemory.cityPlan, roomMemory.cityPlan.defense);
             this.placeDefenseSites(room, roomMemory.cityPlan.defense);
         }
     }
@@ -88,14 +90,17 @@ class DefensePlannerService extends BaseService {
 
         if (room.storage && room.storage.pos) assets.push(this.assetEntry(room.storage.pos, 'storage', 98));
 
-        if (cityPlan.controller && cityPlan.controller.containerPos) {
-            assets.push(this.assetEntry(cityPlan.controller.containerPos, 'controller_container', 80));
+        const controllerContainerAsset = getControllerContainerAsset(cityPlan);
+        if (controllerContainerAsset && controllerContainerAsset.pos) {
+            assets.push(this.assetEntry(controllerContainerAsset.pos, 'controller_container', 80));
         }
 
         if (mode !== 'core_fortress' && cityPlan.sources) {
             for (const sourceId in cityPlan.sources) {
-                const plan = cityPlan.sources[sourceId];
-                if (plan.containerPos) assets.push(this.assetEntry(plan.containerPos, 'source_container', 70));
+                const sourceContainerAsset = getSourceContainerAsset(cityPlan, sourceId);
+                if (sourceContainerAsset && sourceContainerAsset.pos) {
+                    assets.push(this.assetEntry(sourceContainerAsset.pos, 'source_container', 70));
+                }
             }
         }
 
@@ -225,6 +230,74 @@ class DefensePlannerService extends BaseService {
         };
         for (const entry of towers.concat(ramparts, walls, gates)) add(entry.pos);
         return positions;
+    }
+
+    syncDefensePlannedStructures(cityPlan, defensePlan) {
+        if (!cityPlan) return;
+        const existing = Array.isArray(cityPlan.plannedStructures) ? cityPlan.plannedStructures : [];
+        const existingDefense = existing.filter((entry) => {
+            return entry.group === 'defense' &&
+                (entry.role === 'defense_rampart' || entry.role === 'defense_gate' || entry.role === 'defense_wall');
+        });
+        const retained = existing.filter((entry) => !existingDefense.includes(entry));
+
+        const dynamicDefenseEntries = [];
+        const activeKeys = new Set();
+        for (let index = 0; index < (defensePlan.ramparts || []).length; index++) {
+            const rampart = defensePlan.ramparts[index];
+            activeKeys.add(`defense_rampart:${rampart.pos.x},${rampart.pos.y}`);
+            dynamicDefenseEntries.push({
+                id: `defense:rampart:${index}`,
+                role: 'defense_rampart',
+                structureType: STRUCTURE_RAMPART,
+                pos: rampart.pos,
+                phase: 'defense_shell',
+                group: 'defense',
+                lifecycle: { state: 'planned', activeFromRcl: rampart.minRcl || 2 }
+            });
+        }
+        for (let index = 0; index < (defensePlan.gates || []).length; index++) {
+            const gate = defensePlan.gates[index];
+            activeKeys.add(`defense_gate:${gate.pos.x},${gate.pos.y}`);
+            dynamicDefenseEntries.push({
+                id: `defense:gate:${index}`,
+                role: 'defense_gate',
+                structureType: STRUCTURE_RAMPART,
+                pos: gate.pos,
+                phase: 'defense_shell',
+                group: 'defense',
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            });
+        }
+        for (let index = 0; index < (defensePlan.walls || []).length; index++) {
+            const wall = defensePlan.walls[index];
+            activeKeys.add(`defense_wall:${wall.pos.x},${wall.pos.y}`);
+            dynamicDefenseEntries.push({
+                id: `defense:wall:${index}`,
+                role: 'defense_wall',
+                structureType: STRUCTURE_WALL,
+                pos: wall.pos,
+                phase: 'defense_shell',
+                group: 'defense',
+                lifecycle: { state: 'planned', activeFromRcl: 7 }
+            });
+        }
+
+        for (const entry of existingDefense) {
+            if (!entry || !entry.pos) continue;
+            const key = `${entry.role}:${entry.pos.x},${entry.pos.y}`;
+            if (activeKeys.has(key)) continue;
+            dynamicDefenseEntries.push({
+                ...entry,
+                lifecycle: {
+                    ...(entry.lifecycle || {}),
+                    state: 'low_priority',
+                    activeFromRcl: entry.lifecycle && entry.lifecycle.activeFromRcl !== undefined ? entry.lifecycle.activeFromRcl : 2
+                }
+            });
+        }
+
+        cityPlan.plannedStructures = retained.concat(dynamicDefenseEntries);
     }
 
     hasStructureOrSite(room, pos, structureType) {

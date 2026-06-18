@@ -15,20 +15,25 @@ class RoadPlannerService extends BaseService {
             if (!Memory.rooms[roomName]) Memory.rooms[roomName] = {};
             const roomMemory = Memory.rooms[roomName];
             const roadSignature = this.roadPlanSignature(room, cache, roomMemory.cityPlan);
+            const hasPlanningContext = !!((cache && cache.centerPos) || this.getCenterPos(roomMemory.cityPlan));
+            const storedRoadNetwork = Array.isArray(roomMemory.roadNetwork) ? roomMemory.roadNetwork : null;
 
-            if (roomMemory.roadNetworkVersion !== ROAD_NETWORK_VERSION) {
-                roomMemory.roadNetwork = null;
-            }
+            const needsVersionRefresh = roomMemory.roadNetworkVersion !== ROAD_NETWORK_VERSION;
 
-            if (!roomMemory.roadNetwork ||
+            if ((!roomMemory.roadNetwork ||
+                needsVersionRefresh ||
                 roomMemory.roadPlanSignature !== roadSignature ||
-                Game.time % 500 === 0) {
-                if (!cache && !this.getCenterPos(roomMemory.cityPlan)) continue;
-                roomMemory.roadNetwork = this.planRoads(room, cache, roomMemory.cityPlan);
+                Game.time % 500 === 0)) {
+                if (!hasPlanningContext) continue;
+                const plannedRoadNetwork = this.planRoads(room, cache, roomMemory.cityPlan);
+                roomMemory.roadNetwork = plannedRoadNetwork && plannedRoadNetwork.length > 0 ?
+                    plannedRoadNetwork :
+                    (storedRoadNetwork || plannedRoadNetwork);
                 roomMemory.roadNetworkVersion = ROAD_NETWORK_VERSION;
                 roomMemory.roadPlanSignature = roadSignature;
             }
 
+            this.syncRoadPlannedStructures(roomMemory.cityPlan, roomMemory.roadNetwork, roomMemory.cityPlan && roomMemory.cityPlan.coreRoads);
             if (roomMemory.roadNetwork) this.placeRoadSites(room, roomMemory.roadNetwork);
         }
     }
@@ -199,6 +204,61 @@ class RoadPlannerService extends BaseService {
                 if (global.RoomCache && global.RoomCache[room.name]) global.RoomCache[room.name].isDirty = true;
             }
         }
+    }
+
+    syncRoadPlannedStructures(cityPlan, roadNetwork, coreRoads) {
+        if (!cityPlan || !Array.isArray(roadNetwork)) return;
+        if (!Array.isArray(cityPlan.plannedStructures)) cityPlan.plannedStructures = [];
+        const coreSet = new Set((coreRoads || []).map((pos) => `${pos.x},${pos.y}`));
+        const existingRoads = cityPlan.plannedStructures.filter((entry) => entry.role === 'logistics_road');
+        const retained = cityPlan.plannedStructures.filter((entry) => entry.role !== 'logistics_road');
+        const logisticsRoads = [];
+        const activeSet = new Set();
+
+        for (const coord of roadNetwork) {
+            if (coreSet.has(coord)) continue;
+            const parts = coord.split(',');
+            activeSet.add(coord);
+            logisticsRoads.push({
+                id: `road:logistics:${coord}`,
+                role: 'logistics_road',
+                structureType: STRUCTURE_ROAD,
+                pos: {
+                    x: Number(parts[0]),
+                    y: Number(parts[1]),
+                    roomName: cityPlan.center && cityPlan.center.roomName
+                },
+                phase: 'logistics_link',
+                group: 'infrastructure',
+                lifecycle: {
+                    state: 'active',
+                    activeFromRcl: 3,
+                    lastPlannedAt: Game.time
+                }
+            });
+        }
+
+        for (const entry of existingRoads) {
+            if (!entry || !entry.pos) continue;
+            const coord = `${entry.pos.x},${entry.pos.y}`;
+            if (activeSet.has(coord) || coreSet.has(coord)) continue;
+            logisticsRoads.push({
+                ...entry,
+                lifecycle: {
+                    ...(entry.lifecycle || {}),
+                    state: 'low_priority',
+                    activeFromRcl: entry.lifecycle && entry.lifecycle.activeFromRcl !== undefined ? entry.lifecycle.activeFromRcl : 3,
+                    lastPlannedAt: entry.lifecycle && entry.lifecycle.lastPlannedAt !== undefined ? entry.lifecycle.lastPlannedAt : Game.time,
+                    lowPrioritySince: entry.lifecycle && entry.lifecycle.lowPrioritySince !== undefined ? entry.lifecycle.lowPrioritySince : Game.time
+                }
+            });
+        }
+
+        cityPlan.plannedStructures = retained.concat(logisticsRoads);
+        if (!cityPlan.assetGroups) cityPlan.assetGroups = {};
+        cityPlan.assetGroups.infrastructure = cityPlan.plannedStructures
+            .filter((entry) => entry.group === 'infrastructure')
+            .map((entry) => entry.id);
     }
 }
 

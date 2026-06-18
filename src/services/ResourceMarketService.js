@@ -2,6 +2,9 @@ import BaseService from '../core/BaseService.js';
 import EventBus from '../core/EventBus.js';
 import TaskTypes from '../core/TaskTypes.js';
 import { assignTask } from '../core/TaskMetadata.js';
+import { getLogisticsPolicy as getAssetLogisticsPolicy } from '../planning/CityAssetPolicy.js';
+import { getControllerContainerAsset, isSourceContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
+import { findPlannedStructureAtPos, getPlannedRole, getStructureLifecycle } from '../planning/CityPlanHelpers.js';
 
 const DEFAULT_PRIORITY = 50;
 const WAIT_SUPPLY = 'WAIT_SUPPLY';
@@ -825,7 +828,9 @@ class ResourceMarketService extends BaseService {
         const structures = room.find(FIND_STRUCTURES);
         for (const structure of structures) {
             if (!structure.store) continue;
-            if (this.isSupplyStructure(structure) && !this.isControllerContainer(room, structure)) {
+            if (this.isSupplyStructure(structure) &&
+                !this.isControllerContainer(room, structure) &&
+                !this.shouldSkipSourceContainerSupply(room, structure)) {
                 this.addStoreSupplies(room.name, market, structure);
             }
             if (this.isDemandStructure(structure)) this.addStoreDemand(room.name, market, structure);
@@ -946,6 +951,8 @@ class ResourceMarketService extends BaseService {
     scanControllerBufferDemands(room, market) {
         const container = this.findControllerContainer(room);
         if (!container || !container.store || !container.store.getUsedCapacity) return;
+        const logisticsPolicy = this.getLogisticsPolicy(room, container);
+        if (!logisticsPolicy.shouldDemand || logisticsPolicy.demandMode !== 'buffer') return;
 
         const currentAmount = container.store.getUsedCapacity(RESOURCE_ENERGY);
         if (currentAmount >= CONTROLLER_BUFFER_TARGET) return;
@@ -958,7 +965,7 @@ class ResourceMarketService extends BaseService {
             currentAmount,
             minAmount: CONTROLLER_BUFFER_MIN,
             targetAmount: CONTROLLER_BUFFER_TARGET,
-            priority: currentAmount < CONTROLLER_BUFFER_MIN ? 85 : 55,
+            priority: logisticsPolicy.demandPriority || (currentAmount < CONTROLLER_BUFFER_MIN ? 85 : 55),
             purpose: 'controller_buffer',
             demandType: 'buffer',
             deliveryMode: 'haul',
@@ -967,6 +974,8 @@ class ResourceMarketService extends BaseService {
     }
 
     addStoreSupplies(roomName, market, structure) {
+        const room = Game.rooms && Game.rooms[roomName];
+        const logisticsPolicy = this.getLogisticsPolicy(room, structure);
         for (const resourceType of this.getStoredResourceTypes(structure.store)) {
             const amount = structure.store.getUsedCapacity(resourceType);
             if (amount <= 0) continue;
@@ -977,12 +986,23 @@ class ResourceMarketService extends BaseService {
                 targetId: structure.id,
                 resourceType,
                 amount,
-                priority: resourceType === RESOURCE_ENERGY ? 45 : 65
+                priority: this.supplyPriorityForStructure(resourceType, logisticsPolicy)
             });
         }
     }
 
+    supplyPriorityForStructure(resourceType, logisticsPolicy = null) {
+        if (resourceType !== RESOURCE_ENERGY) return 65;
+        if (logisticsPolicy && logisticsPolicy.supplyPriority !== undefined) return logisticsPolicy.supplyPriority;
+        return 45;
+    }
+
     addStoreDemand(roomName, market, structure) {
+        const room = Game.rooms && Game.rooms[roomName];
+        const cityPlan = room && Memory.rooms && Memory.rooms[roomName] ? Memory.rooms[roomName].cityPlan : null;
+        if (cityPlan && structure.structureType === STRUCTURE_CONTAINER) {
+            if (this.isControllerContainer(room, structure) || isSourceContainerAsset(cityPlan, structure, null, { allowLegacyFallback: false })) return;
+        }
         const free = structure.store.getFreeCapacity(RESOURCE_ENERGY);
         if (free <= 0) return;
         const currentAmount = structure.store.getUsedCapacity ? structure.store.getUsedCapacity(RESOURCE_ENERGY) : 0;
@@ -1208,11 +1228,11 @@ class ResourceMarketService extends BaseService {
     }
 
     findControllerContainer(room) {
-        const plannedPos = Memory.rooms &&
+        const cityPlan = Memory.rooms &&
             Memory.rooms[room.name] &&
-            Memory.rooms[room.name].cityPlan &&
-            Memory.rooms[room.name].cityPlan.controller &&
-            Memory.rooms[room.name].cityPlan.controller.containerPos;
+            Memory.rooms[room.name].cityPlan;
+        const controllerContainerAsset = getControllerContainerAsset(cityPlan || {}, { allowLegacyFallback: false });
+        const plannedPos = controllerContainerAsset && controllerContainerAsset.pos;
         if (!plannedPos || !room.find) return null;
 
         const structures = room.find(FIND_STRUCTURES, {
@@ -1225,12 +1245,65 @@ class ResourceMarketService extends BaseService {
 
     isControllerContainer(room, structure) {
         if (!room || !structure || structure.structureType !== STRUCTURE_CONTAINER) return false;
-        const plannedPos = Memory.rooms &&
+        const cityPlan = Memory.rooms &&
             Memory.rooms[room.name] &&
-            Memory.rooms[room.name].cityPlan &&
-            Memory.rooms[room.name].cityPlan.controller &&
-            Memory.rooms[room.name].cityPlan.controller.containerPos;
-        return this.samePos(structure.pos, plannedPos);
+            Memory.rooms[room.name].cityPlan;
+        const controllerContainerAsset = getControllerContainerAsset(cityPlan || {}, { allowLegacyFallback: false });
+        return !!(controllerContainerAsset && this.samePos(controllerContainerAsset.pos, structure.pos));
+    }
+
+    getSourceContainerLifecycle(room, structure) {
+        if (!room || !structure || structure.structureType !== STRUCTURE_CONTAINER) return null;
+        const cityPlan = Memory.rooms &&
+            Memory.rooms[room.name] &&
+            Memory.rooms[room.name].cityPlan;
+        if (!cityPlan) return null;
+        const plannedStructure = findPlannedStructureAtPos(cityPlan, structure.pos, STRUCTURE_CONTAINER);
+        if (!plannedStructure || plannedStructure.role !== 'source_container') return null;
+        return getStructureLifecycle(cityPlan, plannedStructure).state;
+    }
+
+    getControllerContainerLifecycle(room, structure) {
+        if (!room || !structure || structure.structureType !== STRUCTURE_CONTAINER) return null;
+        const cityPlan = Memory.rooms &&
+            Memory.rooms[room.name] &&
+            Memory.rooms[room.name].cityPlan;
+        if (!cityPlan) return null;
+        const plannedStructure = findPlannedStructureAtPos(cityPlan, structure.pos, STRUCTURE_CONTAINER);
+        if (!plannedStructure || plannedStructure.role !== 'controller_container') return null;
+        return getStructureLifecycle(cityPlan, plannedStructure).state;
+    }
+
+    shouldSkipSourceContainerSupply(room, structure) {
+        const logisticsPolicy = this.getLogisticsPolicy(room, structure);
+        return !logisticsPolicy.shouldSupply;
+    }
+
+    getPlannedRoleForStructure(room, structure) {
+        if (!room || !structure) return null;
+        const cityPlan = Memory.rooms &&
+            Memory.rooms[room.name] &&
+            Memory.rooms[room.name].cityPlan;
+        if (!cityPlan) return null;
+        return getPlannedRole(cityPlan, structure);
+    }
+
+    getLogisticsPolicy(room, structure) {
+        if (!room || !structure) return { shouldSupply: false, shouldDemand: false };
+        const cityPlan = Memory.rooms &&
+            Memory.rooms[room.name] &&
+            Memory.rooms[room.name].cityPlan;
+        if (!cityPlan) return getAssetLogisticsPolicy({}, structure);
+        const plannedRole = getPlannedRole(cityPlan, structure);
+        if (plannedRole) return getAssetLogisticsPolicy(cityPlan, structure);
+        if (structure.structureType === STRUCTURE_CONTAINER && this.isControllerContainer(room, structure)) {
+            return getAssetLogisticsPolicy(cityPlan, {
+                ...structure,
+                role: 'controller_container',
+                lifecycle: { state: 'active', activeFromRcl: 1 }
+            });
+        }
+        return getAssetLogisticsPolicy(cityPlan, structure);
     }
 
     samePos(left, right) {

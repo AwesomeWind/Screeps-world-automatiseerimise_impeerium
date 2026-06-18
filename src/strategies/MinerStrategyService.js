@@ -1,6 +1,10 @@
 import BaseService from '../core/BaseService.js';
 import TaskTypes from '../core/TaskTypes.js';
 import { assignTask } from '../core/TaskMetadata.js';
+import { getSourceOutputPolicy } from '../planning/CityAssetPolicy.js';
+import { shouldUseStrictSourceRuntime } from '../planning/RuntimeReadiness.js';
+import { getSourceMiningWorkPosition } from '../planning/CityWorkPositionPolicy.js';
+import { getSourceContainerAsset, getSourceLinkAsset } from '../planning/CityPlanLegacyAdapter.js';
 
 class MinerStrategyService extends BaseService {
     init() {
@@ -111,6 +115,18 @@ class MinerStrategyService extends BaseService {
                 pos: creep.memory.miningPos,
                 range: 0
             });
+            return;
+        }
+
+        const linkTask = this.createLinkTransferTask(creep);
+        if (linkTask) {
+            assignTask(creep, linkTask);
+            return;
+        }
+
+        const containerFallbackTask = this.createContainerFallbackTask(creep);
+        if (containerFallbackTask) {
+            assignTask(creep, containerFallbackTask);
             return;
         }
 
@@ -251,13 +267,88 @@ class MinerStrategyService extends BaseService {
     }
 
     getPlannedMiningPos(roomName, sourceId) {
-        if (typeof Memory === 'undefined') return null;
-        const plan = Memory.rooms &&
-            Memory.rooms[roomName] &&
-            Memory.rooms[roomName].cityPlan &&
-            Memory.rooms[roomName].cityPlan.sources &&
-            Memory.rooms[roomName].cityPlan.sources[sourceId];
-        return plan ? plan.primaryMiningPos : null;
+        const cityPlan = this.getRoomCityPlan(roomName);
+        return getSourceMiningWorkPosition(cityPlan, sourceId);
+    }
+
+    createLinkTransferTask(creep) {
+        if (!creep || !creep.store || creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) return null;
+        const sourceId = creep.memory && creep.memory.sourceId;
+        if (!sourceId) return null;
+        if (!this.sourceUsesLinkOutput(creep.room.name, sourceId)) return null;
+        const sourceLink = this.findPlannedSourceLink(creep.room, sourceId);
+        if (!sourceLink || !sourceLink.store || !sourceLink.store.getFreeCapacity) return null;
+        if (sourceLink.store.getFreeCapacity(RESOURCE_ENERGY) <= 0) return null;
+        if (!creep.pos || !creep.pos.inRangeTo || !creep.pos.inRangeTo(sourceLink.pos, 1)) return null;
+        return {
+            type: TaskTypes.TRANSFER,
+            targetId: sourceLink.id,
+            resourceType: RESOURCE_ENERGY
+        };
+    }
+
+    createContainerFallbackTask(creep) {
+        if (!creep || !creep.store || creep.store.getUsedCapacity(RESOURCE_ENERGY) <= 0) return null;
+        const sourceId = creep.memory && creep.memory.sourceId;
+        if (!sourceId) return null;
+        if (!this.sourceUsesLinkOutput(creep.room.name, sourceId)) return null;
+        const sourceLink = this.findPlannedSourceLink(creep.room, sourceId);
+        if (!sourceLink || !sourceLink.store || !sourceLink.store.getFreeCapacity || sourceLink.store.getFreeCapacity(RESOURCE_ENERGY) > 0) return null;
+
+        const container = this.findPlannedSourceContainer(creep.room, sourceId, creep);
+        if (!container || !container.store || !container.store.getFreeCapacity) return null;
+        if (container.store.getFreeCapacity(RESOURCE_ENERGY) <= 0) return null;
+        if (!creep.pos || !creep.pos.inRangeTo || !creep.pos.inRangeTo(container.pos, 0)) return null;
+        return {
+            type: TaskTypes.TRANSFER,
+            targetId: container.id,
+            resourceType: RESOURCE_ENERGY
+        };
+    }
+
+    sourceUsesLinkOutput(roomName, sourceId) {
+        return this.getSourceOutputPolicyForRoom(roomName, sourceId).usesLinkOutput;
+    }
+
+    findPlannedSourceLink(room, sourceId) {
+        if (!room || !room.find) return null;
+        const cityPlan = this.getRoomCityPlan(room.name);
+        if (!cityPlan) return null;
+        if (!this.getSourceOutputPolicyForRoom(room.name, sourceId).usesLinkOutput) return null;
+
+        const sourceLinkAsset = getSourceLinkAsset(cityPlan, sourceId, { allowLegacyFallback: false });
+        const plannedPos = sourceLinkAsset && sourceLinkAsset.pos;
+        if (!plannedPos) return null;
+
+        const structures = room.find(FIND_STRUCTURES, {
+            filter: (structure) => {
+                return structure.structureType === STRUCTURE_LINK &&
+                    structure.pos &&
+                    this.samePos(structure.pos, plannedPos);
+            }
+        });
+        if (structures[0]) return structures[0];
+
+        const allStructures = room.find(FIND_STRUCTURES) || [];
+        const fallback = allStructures.find((structure) => {
+            return structure.structureType === STRUCTURE_LINK &&
+                structure.pos &&
+                this.samePos(structure.pos, plannedPos);
+        });
+        if (fallback) return fallback;
+
+        const direct = sourceLinkAsset && sourceLinkAsset.id ? Game.getObjectById(sourceLinkAsset.id) : null;
+        if (direct && direct.structureType === STRUCTURE_LINK) return direct;
+
+        const source = Game.getObjectById(sourceId);
+        if (source && source.pos) {
+            return allStructures.find((structure) => {
+                return structure.structureType === STRUCTURE_LINK &&
+                    structure.pos &&
+                    this.getRange(structure.pos, source.pos) <= 2;
+            }) || null;
+        }
+        return null;
     }
 
     getPreferredMiningPositions(room, sourceId) {
@@ -276,13 +367,27 @@ class MinerStrategyService extends BaseService {
     }
 
     getPlannedSourceContainerPos(roomName, sourceId) {
-        if (typeof Memory === 'undefined') return null;
-        const plan = Memory.rooms &&
+        const cityPlan = this.getRoomCityPlan(roomName);
+        const sourceContainerAsset = getSourceContainerAsset(cityPlan, sourceId, { allowLegacyFallback: false });
+        return sourceContainerAsset ? sourceContainerAsset.pos : null;
+    }
+
+    getRoomCityPlan(roomName) {
+        return Memory.rooms &&
             Memory.rooms[roomName] &&
-            Memory.rooms[roomName].cityPlan &&
-            Memory.rooms[roomName].cityPlan.sources &&
-            Memory.rooms[roomName].cityPlan.sources[sourceId];
-        return plan ? plan.containerPos : null;
+            Memory.rooms[roomName].cityPlan;
+    }
+
+    getRoomMemory(roomName) {
+        return Memory.rooms &&
+            Memory.rooms[roomName];
+    }
+
+    getSourceOutputPolicyForRoom(roomName, sourceId) {
+        const roomMemory = this.getRoomMemory(roomName);
+        return getSourceOutputPolicy(roomMemory && roomMemory.cityPlan, sourceId, {
+            sourceRuntimeAllowLegacyFallback: !shouldUseStrictSourceRuntime(roomMemory)
+        });
     }
 
     getBuiltSourceContainerPos(room, sourceId) {
@@ -296,6 +401,25 @@ class MinerStrategyService extends BaseService {
             }
         });
         return structures.length > 0 ? plannedContainerPos : null;
+    }
+
+    findPlannedSourceContainer(room, sourceId, creep = null) {
+        const plannedContainerPos = this.getPlannedSourceContainerPos(room.name, sourceId);
+        if (!room || !room.find || !plannedContainerPos) return null;
+        const structures = room.find(FIND_STRUCTURES, {
+            filter: (structure) => {
+                return structure.structureType === STRUCTURE_CONTAINER &&
+                    structure.pos &&
+                    this.samePos(structure.pos, plannedContainerPos);
+            }
+        });
+        if (structures[0]) return structures[0];
+        const allStructures = room.find(FIND_STRUCTURES) || [];
+        return allStructures.find((structure) => {
+            return structure.structureType === STRUCTURE_CONTAINER &&
+                structure.pos &&
+                this.samePos(structure.pos, plannedContainerPos);
+        }) || null;
     }
 
     samePos(a, b) {

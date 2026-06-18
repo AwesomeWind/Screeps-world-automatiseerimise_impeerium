@@ -77,6 +77,7 @@ class RepairerStrategyService extends BaseService {
 
     isRepairableTarget(target) {
         if (!this.canRepair(target)) return false;
+        if (target.lifecycleState === 'retiring' || target.lifecycleState === 'retired_ready') return false;
         const structure = Game.getObjectById(target.id);
         if (!structure || structure.hits === undefined) return false;
         const targetHits = target.targetHits === undefined ? structure.hitsMax : target.targetHits;

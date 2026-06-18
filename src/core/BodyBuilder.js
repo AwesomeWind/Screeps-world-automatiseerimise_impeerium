@@ -264,6 +264,18 @@ function resolveSpec(role, room, context, capacity) {
         };
     }
 
+    if (profile === 'link_miner') {
+        return {
+            base: [WORK, CARRY, MOVE],
+            steps: [
+                { parts: [WORK], typeLimits: { [WORK]: 4 } },
+                { parts: [MOVE], typeLimits: { [MOVE]: 2 } },
+                { parts: [WORK], typeLimits: { [WORK]: 5 } },
+                { parts: [CARRY], typeLimits: { [CARRY]: 2 } }
+            ]
+        };
+    }
+
     if (profile === 'emergency_hauler') {
         return {
             base: [CARRY, MOVE],

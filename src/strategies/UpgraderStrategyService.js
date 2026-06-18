@@ -1,7 +1,10 @@
 import BaseService from '../core/BaseService.js';
 import TaskTypes from '../core/TaskTypes.js';
 import { assignTask } from '../core/TaskMetadata.js';
+import { getControllerUpgradeWorkPosition } from '../planning/CityWorkPositionPolicy.js';
 import { planWorkerEnergyTask } from '../services/ResourceMarketService.js';
+import { getStructureLifecycle } from '../planning/CityPlanHelpers.js';
+import { getControllerContainerAsset, getControllerLinkAsset } from '../planning/CityPlanLegacyAdapter.js';
 
 class UpgraderStrategyService extends BaseService {
     analyze() {
@@ -48,10 +51,40 @@ class UpgraderStrategyService extends BaseService {
     assignUpgraderTask(creep) {
         if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
             const controllerContainer = this.findControllerContainer(creep.room);
-            if (controllerContainer && controllerContainer.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
+            const controllerContainerLifecycle = this.getControllerContainerLifecycle(creep.room, controllerContainer);
+            const preferControllerLink = controllerContainerLifecycle === 'link_primary' ||
+                controllerContainerLifecycle === 'retiring' ||
+                controllerContainerLifecycle === 'retired_ready';
+            const allowControllerContainer = controllerContainerLifecycle !== 'retired_ready';
+            const controllerLink = this.findControllerLink(creep.room);
+
+            if (preferControllerLink &&
+                controllerLink &&
+                controllerLink.store &&
+                controllerLink.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
+                assignTask(creep, {
+                    type: TaskTypes.WITHDRAW,
+                    targetId: controllerLink.id,
+                    resourceType: RESOURCE_ENERGY
+                });
+                return;
+            }
+
+            if (allowControllerContainer &&
+                controllerContainer &&
+                controllerContainer.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
                 assignTask(creep, {
                     type: TaskTypes.WITHDRAW,
                     targetId: controllerContainer.id,
+                    resourceType: RESOURCE_ENERGY
+                });
+                return;
+            }
+
+            if (controllerLink && controllerLink.store && controllerLink.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
+                assignTask(creep, {
+                    type: TaskTypes.WITHDRAW,
+                    targetId: controllerLink.id,
                     resourceType: RESOURCE_ENERGY
                 });
                 return;
@@ -114,21 +147,10 @@ class UpgraderStrategyService extends BaseService {
     }
 
     getPlannedUpgradePos(roomName) {
-        if (typeof Memory === 'undefined') return null;
-        const plan = Memory.rooms &&
+        const cityPlan = Memory.rooms &&
             Memory.rooms[roomName] &&
-            Memory.rooms[roomName].cityPlan &&
-            Memory.rooms[roomName].cityPlan.controller;
-        return plan ? plan.primaryUpgradePos : null;
-    }
-
-    getPlannedControllerContainerPos(roomName) {
-        if (typeof Memory === 'undefined') return null;
-        const plan = Memory.rooms &&
-            Memory.rooms[roomName] &&
-            Memory.rooms[roomName].cityPlan &&
-            Memory.rooms[roomName].cityPlan.controller;
-        return plan ? plan.containerPos : null;
+            Memory.rooms[roomName].cityPlan;
+        return getControllerUpgradeWorkPosition(cityPlan);
     }
 
     findControllerContainer(room) {
@@ -138,13 +160,16 @@ class UpgraderStrategyService extends BaseService {
         });
         if (containers.length === 0) return null;
 
-        const plannedPos = this.getPlannedControllerContainerPos(room.name);
-        if (plannedPos) {
+        const cityPlan = Memory.rooms &&
+            Memory.rooms[room.name] &&
+            Memory.rooms[room.name].cityPlan;
+        const controllerContainerAsset = getControllerContainerAsset(cityPlan);
+        if (controllerContainerAsset && controllerContainerAsset.pos) {
             const plannedContainer = containers.find((structure) => {
                 return structure.pos &&
-                    structure.pos.x === plannedPos.x &&
-                    structure.pos.y === plannedPos.y &&
-                    structure.pos.roomName === plannedPos.roomName;
+                    structure.pos.x === controllerContainerAsset.pos.x &&
+                    structure.pos.y === controllerContainerAsset.pos.y &&
+                    structure.pos.roomName === controllerContainerAsset.pos.roomName;
             });
             if (plannedContainer) return plannedContainer;
         }
@@ -156,6 +181,44 @@ class UpgraderStrategyService extends BaseService {
             return rangeA - rangeB;
         });
         return sorted[0] || null;
+    }
+
+    findControllerLink(room) {
+        if (!room || !room.find) return null;
+        const links = room.find(FIND_STRUCTURES, {
+            filter: (structure) => structure.structureType === STRUCTURE_LINK
+        });
+        if (links.length === 0) return null;
+
+        const cityPlan = Memory.rooms &&
+            Memory.rooms[room.name] &&
+            Memory.rooms[room.name].cityPlan;
+        const controllerLinkAsset = getControllerLinkAsset(cityPlan, { allowLegacyFallback: false });
+        if (controllerLinkAsset && controllerLinkAsset.pos) {
+            const plannedLink = links.find((structure) => {
+                return structure.pos &&
+                    structure.pos.x === controllerLinkAsset.pos.x &&
+                    structure.pos.y === controllerLinkAsset.pos.y &&
+                    structure.pos.roomName === controllerLinkAsset.pos.roomName;
+            });
+            if (plannedLink) return plannedLink;
+        }
+        return null;
+    }
+
+    getControllerContainerLifecycle(room, controllerContainer) {
+        if (!room || !controllerContainer) return 'active';
+        const cityPlan = Memory.rooms &&
+            Memory.rooms[room.name] &&
+            Memory.rooms[room.name].cityPlan;
+        if (!cityPlan) return 'active';
+        const controllerContainerAsset = getControllerContainerAsset(cityPlan);
+        if (!controllerContainerAsset || !controllerContainerAsset.pos || controllerContainerAsset.role !== 'controller_container') return 'active';
+        const sameContainer = controllerContainerAsset.pos.x === controllerContainer.pos.x &&
+            controllerContainerAsset.pos.y === controllerContainer.pos.y &&
+            controllerContainerAsset.pos.roomName === controllerContainer.pos.roomName;
+        if (!sameContainer) return 'active';
+        return getStructureLifecycle(cityPlan, controllerContainerAsset).state;
     }
 
 }

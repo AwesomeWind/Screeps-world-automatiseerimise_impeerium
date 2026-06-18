@@ -3,12 +3,16 @@ import TaskTypes from '../core/TaskTypes.js';
 import WorkPositionCoordinator from '../core/WorkPositionCoordinator.js';
 import { assignTask } from '../core/TaskMetadata.js';
 import { planWorkerEnergyTask } from '../services/ResourceMarketService.js';
+import { getBuildPolicy } from '../planning/CityAssetPolicy.js';
+import { isControllerContainerAsset, isSourceContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
+import { findPlannedStructureAtPos, getStructureLifecycle } from '../planning/CityPlanHelpers.js';
 
 const PHASE_CONSTRUCTION_PRIORITY = {
     bootstrap: {
         [STRUCTURE_SPAWN]: 10000,
         [STRUCTURE_EXTENSION]: 9500,
         [STRUCTURE_CONTAINER]: 7000,
+        [STRUCTURE_LINK]: 7600,
         [STRUCTURE_STORAGE]: 5500,
         [STRUCTURE_TOWER]: 6000,
         default: 5500
@@ -17,6 +21,7 @@ const PHASE_CONSTRUCTION_PRIORITY = {
         [STRUCTURE_SPAWN]: 10000,
         [STRUCTURE_EXTENSION]: 9500,
         [STRUCTURE_CONTAINER]: 7200,
+        [STRUCTURE_LINK]: 7800,
         [STRUCTURE_STORAGE]: 6000,
         [STRUCTURE_TOWER]: 7000,
         default: 5800
@@ -24,6 +29,7 @@ const PHASE_CONSTRUCTION_PRIORITY = {
     storage: {
         [STRUCTURE_SPAWN]: 10000,
         [STRUCTURE_EXTENSION]: 9500,
+        [STRUCTURE_LINK]: 9000,
         [STRUCTURE_STORAGE]: 9200,
         [STRUCTURE_TOWER]: 8800,
         [STRUCTURE_CONTAINER]: 7600,
@@ -32,6 +38,7 @@ const PHASE_CONSTRUCTION_PRIORITY = {
     terminal: {
         [STRUCTURE_SPAWN]: 10000,
         [STRUCTURE_EXTENSION]: 9500,
+        [STRUCTURE_LINK]: 9100,
         [STRUCTURE_TOWER]: 9000,
         [STRUCTURE_STORAGE]: 9000,
         [STRUCTURE_CONTAINER]: 7600,
@@ -59,6 +66,32 @@ const CRITICAL_CONTAINER_BONUS = {
     storage: 1200,
     terminal: 800,
     default: 1500
+};
+
+const PLANNED_GROUP_BONUS = {
+    bootstrap: {
+        logistics: 400,
+        industry: -100
+    },
+    storage: {
+        logistics: 500,
+        industry: 100
+    },
+    terminal: {
+        logistics: 700,
+        industry: 350
+    },
+    default: {
+        logistics: 300,
+        industry: 0
+    }
+};
+
+const PLANNED_ROLE_BONUS = {
+    hub_link: 350,
+    hub_terminal: 250,
+    hub_lab: 180,
+    mineral_extractor: 50
 };
 
 class BuilderStrategyService extends BaseService {
@@ -176,7 +209,9 @@ class BuilderStrategyService extends BaseService {
         const completion = site.progressTotal > 0 ? (site.progress || 0) / site.progressTotal : 0;
         const criticalRoadBonus = this.getCriticalRoadBonus(creep.room, site, phase);
         const criticalContainerBonus = this.isCriticalContainerSite(creep.room.name, site) ? this.phaseBonus(CRITICAL_CONTAINER_BONUS, phase) : 0;
-        return priority + criticalRoadBonus + criticalContainerBonus - distance * 25 - assignedBuilders * 100 + completion * 50;
+        const plannedStructureBonus = this.getPlannedStructureBonus(creep.room.name, site, phase);
+        const lifecyclePenalty = this.getLifecyclePenalty(creep.room.name, site);
+        return priority + criticalRoadBonus + criticalContainerBonus + plannedStructureBonus + lifecyclePenalty - distance * 25 - assignedBuilders * 100 + completion * 50;
     }
 
     getRoomPhase(roomName) {
@@ -239,13 +274,43 @@ class BuilderStrategyService extends BaseService {
             Memory.rooms[roomName].cityPlan;
         if (!cityPlan) return false;
 
-        if (cityPlan.controller && this.samePos(site.pos, cityPlan.controller.containerPos)) return true;
-        if (cityPlan.sources) {
-            for (const sourceId in cityPlan.sources) {
-                if (this.samePos(site.pos, cityPlan.sources[sourceId].containerPos)) return true;
-            }
+        const plannedStructure = findPlannedStructureAtPos(cityPlan, site.pos, STRUCTURE_CONTAINER);
+        if (plannedStructure && (plannedStructure.role === 'source_container' || plannedStructure.role === 'controller_container')) {
+            return true;
         }
-        return false;
+        return isControllerContainerAsset(cityPlan, site) || isSourceContainerAsset(cityPlan, site, null, { allowLegacyFallback: false });
+    }
+
+    getPlannedStructureBonus(roomName, site, phase) {
+        if (!site || !site.pos) return 0;
+        const cityPlan = Memory.rooms &&
+            Memory.rooms[roomName] &&
+            Memory.rooms[roomName].cityPlan;
+        if (!cityPlan) return 0;
+
+        const plannedStructure = findPlannedStructureAtPos(cityPlan, site.pos, site.structureType);
+        if (!plannedStructure) return 0;
+
+        const phaseBonuses = PLANNED_GROUP_BONUS[phase] || PLANNED_GROUP_BONUS.default;
+        const groupBonus = plannedStructure.group && phaseBonuses[plannedStructure.group] ? phaseBonuses[plannedStructure.group] : 0;
+        const roleBonus = plannedStructure.role && PLANNED_ROLE_BONUS[plannedStructure.role] ? PLANNED_ROLE_BONUS[plannedStructure.role] : 0;
+        const buildPolicy = getBuildPolicy(cityPlan, plannedStructure);
+        return groupBonus + roleBonus + (buildPolicy.priorityModifier || 0);
+    }
+
+    getLifecyclePenalty(roomName, site) {
+        if (!site || !site.pos) return 0;
+        const cityPlan = Memory.rooms &&
+            Memory.rooms[roomName] &&
+            Memory.rooms[roomName].cityPlan;
+        if (!cityPlan) return 0;
+        const plannedStructure = findPlannedStructureAtPos(cityPlan, site.pos, site.structureType);
+        if (!plannedStructure) return 0;
+        const buildPolicy = getBuildPolicy(cityPlan, plannedStructure);
+        if (buildPolicy.buildable === false) return -5000;
+        const lifecycle = getStructureLifecycle(cityPlan, plannedStructure);
+        if (lifecycle.state === 'low_priority') return Math.min(0, buildPolicy.priorityModifier || -600);
+        return 0;
     }
 
     samePos(left, right) {

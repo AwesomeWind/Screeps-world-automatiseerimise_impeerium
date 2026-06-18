@@ -37,6 +37,9 @@ const expectedFiles = [
     'src/services/SpawnBureauService.js',
     'src/services/SpawnService.js',
     'src/services/CreepRetirementService.js',
+    'src/services/LinkService.js',
+    'src/services/StructureLifecycleService.js',
+    'src/services/CityPlanDebugService.js',
     'src/services/TaskGuardService.js',
     'src/services/LogisticsService.js',
     'src/services/ResourceMarketService.js',
@@ -55,6 +58,15 @@ const expectedFiles = [
     'src/strategies/UpgraderStrategyService.js',
     'src/strategies/DefenderStrategyService.js',
     'src/planning/BaseBlueprint.js',
+    'src/planning/CityAssetPolicy.js',
+    'src/planning/CityPlanDebug.js',
+    'src/planning/CityPlanLegacyAdapter.js',
+    'src/planning/CityPlanMigration.js',
+    'src/planning/CityPlanSchema.js',
+    'src/planning/RuntimeReadiness.js',
+    'src/planning/CityWorkPositionPolicy.js',
+    'src/planning/SourceRuntimeState.js',
+    'src/planning/CityPlanHelpers.js',
     'src/planning/CityPlannerService.js',
     'src/planning/DefensePlannerService.js',
     'src/planning/MaintenancePlannerService.js',
@@ -75,8 +87,129 @@ assertContains(read('src/services/ResourceMarketService.js'), 'planWorkerEnergyT
 assertContains(read('src/strategies/BuilderStrategyService.js'), 'requestResource', 'builder strategy should consume generic resource requests');
 assertNotContains(read('src/strategies/BuilderStrategyService.js'), 'assignRepairerTask', 'builder strategy should not own repairer task assignment');
 assertContains(read('src/strategies/UpgraderStrategyService.js'), 'requestResource', 'upgrader strategy should consume generic resource requests');
+assertNotContains(read('src/strategies/UpgraderStrategyService.js'), 'getPlannedControllerContainerPos', 'upgrader strategy should not keep legacy controller-container position helpers');
+assertNotContains(read('src/strategies/UpgraderStrategyService.js'), 'getPlannedControllerLinkPos', 'upgrader strategy should not keep legacy controller-link position helpers');
+assertNotContains(read('src/strategies/UpgraderStrategyService.js'), 'return plan ? plan.primaryUpgradePos : null;', 'upgrader strategy should resolve planned upgrade work positions through city work position policy instead of direct legacy controller plan reads');
+assertNotContains(read('src/strategies/MinerStrategyService.js'), 'sourcePlan.linkPos', 'miner strategy should resolve source links through the legacy adapter instead of direct source plan positions');
+assertNotContains(read('src/strategies/MinerStrategyService.js'), 'return plan ? plan.containerPos : null;', 'miner strategy should resolve source containers through the legacy adapter instead of direct source plan positions');
+assertNotContains(read('src/strategies/MinerStrategyService.js'), "plan && plan.preferredOutputRole === 'source_link'", 'miner strategy should derive source link output mode through source output policy instead of direct source plan checks');
+assertNotContains(read('src/strategies/MinerStrategyService.js'), 'return plan ? plan.primaryMiningPos : null;', 'miner strategy should resolve planned mining work positions through city work position policy instead of direct legacy source plan reads');
+assertNotContains(read('src/strategies/MinerStrategyService.js'), 'getSourcePlan(roomName, sourceId)', 'miner strategy should not keep unused legacy source plan helpers once policy-based reads are in place');
+assertNotContains(read('src/services/SpawnBureauService.js'), 'sourcePlan.preferredOutputRole === \'source_link\' && sourcePlan.linkPos', 'spawn bureau should not derive link-miner output mode directly from legacy source plan positions');
+assertNotContains(read('src/services/SpawnBureauService.js'), 'cityPlan.controller.containerPos', 'spawn bureau should resolve controller container presence through the legacy adapter instead of direct legacy controller plan reads');
+assertNotContains(read('src/services/SpawnBureauService.js'), 'sourcePlan(roomName, sourceId)', 'spawn bureau should not keep unused legacy source plan helpers once policy-based reads are in place');
 assertContains(read('src/strategies/RepairerStrategyService.js'), 'requestResource', 'repairer strategy should consume generic resource requests');
 assertContains(read('src/strategies/HaulerStrategyService.js'), 'assignHauler', 'hauler strategy should delegate task assignment to resource market');
+assertNotContains(read('src/services/LinkService.js'), 'cityPlan.controller.linkPos', 'link service should resolve controller links through the legacy adapter instead of direct legacy position reads');
+assertNotContains(read('src/services/LinkService.js'), 'cityPlan.sources[sourceId].linkPos', 'link service should resolve source links through the legacy adapter instead of direct legacy position reads');
+assertNotContains(read('src/services/LinkService.js'), "sourcePlan.preferredOutputRole !== 'source_link'", 'link service should derive source output mode through source output policy instead of direct source plan checks');
+assertNotContains(read('src/services/LinkService.js'), 'for (const sourceId in cityPlan.sources)', 'link service should enumerate source ids through shared source runtime state helpers');
+assertNotContains(read('src/services/LinkService.js'), "preferredOutputRole: 'source_link'", 'link service should not directly patch source runtime output role when promoting link-primary sources');
+assertNotContains(read('src/services/LinkService.js'), "deliveryMode: 'link_primary'", 'link service should not directly patch source runtime delivery mode when promoting link-primary sources');
+assertNotContains(read('src/services/LinkService.js'), 'promoteSourceToLinkPrimary(', 'link service should route link-primary promotion through the shared source runtime transition helper');
+assertContains(read('src/services/LinkService.js'), 'SOURCE_RUNTIME_EVENTS.LINK_NETWORK_ONLINE', 'link service should use named source runtime events instead of inline event strings');
+assertContains(read('src/services/LinkService.js'), 'allowDirectPromotion: true', 'link service should allow compatible direct link-primary promotion when the network is already online');
+assertNotContains(read('src/services/LinkService.js'), "deliveryMode || 'transition'", 'link service should not hand-roll transition runtime modes from deliveryMode strings');
+assertContains(read('src/services/LinkService.js'), 'SOURCE_RUNTIME_MODES.LINK_TRANSITION', 'link service should use shared runtime mode constants when mirroring source runtime into link network state');
+assertContains(read('src/services/LinkService.js'), 'SOURCE_RUNTIME_MODES.LINK_PRIMARY', 'link service should use shared runtime mode constants for link-primary source state');
+assertContains(read('src/services/LinkService.js'), "from '../planning/RuntimeReadiness.js'", 'link service should reuse the shared runtime readiness helper');
+assertNotContains(read('src/services/LinkService.js'), '    shouldUseStrictSourceRuntime(roomMemory) {', 'link service should not keep a duplicated strict source-runtime readiness helper');
+assertContains(read('src/services/LinkService.js'), 'resolveControllerContainerAsset(cityPlan, { allowLegacyFallback: false })', 'link service should use strict controller-container resolution for its first execution-layer fallback disable');
+assertContains(read('src/services/SpawnBureauService.js'), 'getControllerContainerAsset(cityPlan, { allowLegacyFallback: false })', 'spawn bureau should use strict controller-container reads during controller_container strict rollout');
+assertContains(read('src/services/SpawnBureauService.js'), "from '../planning/RuntimeReadiness.js'", 'spawn bureau should reuse the shared runtime readiness helper');
+assertNotContains(read('src/services/SpawnBureauService.js'), '    shouldUseStrictSourceRuntime(roomMemory) {', 'spawn bureau should not keep a duplicated strict source-runtime readiness helper');
+assertContains(read('src/planning/MaintenancePlannerService.js'), 'getControllerContainerAsset(cityPlan, { allowLegacyFallback: false })', 'maintenance planner should use strict controller-container reads during controller_container strict rollout');
+assertContains(read('src/planning/MaintenancePlannerService.js'), 'getSourceContainerAsset(cityPlan, sourceId, { allowLegacyFallback: false })', 'maintenance planner should use strict source-container reads during source_container maintenance rollout');
+assertContains(read('src/services/ResourceMarketService.js'), 'getControllerContainerAsset(cityPlan || {}, { allowLegacyFallback: false })', 'resource market should use strict controller-container reads during controller_container strict rollout');
+assertContains(read('src/services/ResourceMarketService.js'), 'isSourceContainerAsset(cityPlan, structure, null, { allowLegacyFallback: false })', 'resource market should use strict source-container reads during source_container resource-market rollout');
+assertContains(read('src/strategies/BuilderStrategyService.js'), 'isSourceContainerAsset(cityPlan, site, null, { allowLegacyFallback: false })', 'builder strategy should use strict source-container reads during source_container builder rollout');
+assertContains(read('src/strategies/MinerStrategyService.js'), 'getSourceContainerAsset(cityPlan, sourceId, { allowLegacyFallback: false })', 'miner strategy should use strict source-container reads during source_container miner rollout');
+assertContains(read('src/strategies/MinerStrategyService.js'), "from '../planning/RuntimeReadiness.js'", 'miner strategy should reuse the shared runtime readiness helper');
+assertNotContains(read('src/strategies/MinerStrategyService.js'), '    shouldUseStrictSourceRuntime(roomMemory) {', 'miner strategy should not keep a duplicated strict source-runtime readiness helper');
+assertContains(read('src/strategies/UpgraderStrategyService.js'), 'getControllerUpgradeWorkPosition(cityPlan)', 'upgrader strategy should use canonical-only controller upgrade work-position reads once policy fallback is removed');
+assertContains(read('src/strategies/MinerStrategyService.js'), 'getSourceMiningWorkPosition(cityPlan, sourceId)', 'miner strategy should use canonical-only source mining work-position reads once policy fallback is removed');
+assertContains(read('src/services/LinkService.js'), 'getControllerLinkAsset(cityPlan, { allowLegacyFallback: false })', 'link service should use strict controller-link reads during controller_link strict rollout');
+assertContains(read('src/strategies/UpgraderStrategyService.js'), 'getControllerLinkAsset(cityPlan, { allowLegacyFallback: false })', 'upgrader strategy should use strict controller-link reads during controller_link strict rollout');
+assertContains(read('src/services/StructureLifecycleService.js'), 'getControllerLinkAsset(cityPlan, { allowLegacyFallback: false })', 'structure lifecycle should use strict controller-link reads during controller_link strict rollout');
+assertContains(read('src/services/StructureLifecycleService.js'), "from '../planning/RuntimeReadiness.js'", 'structure lifecycle should reuse the shared runtime readiness helper');
+assertNotContains(read('src/services/StructureLifecycleService.js'), '    shouldUseStrictSourceRuntime(roomMemory) {', 'structure lifecycle should not keep a duplicated strict source-runtime readiness helper');
+assertContains(read('src/services/LinkService.js'), 'resolveSourceContainerAsset(cityPlan, sourceId, { allowLegacyFallback: false })', 'link service should use strict source-container resolution for the first source_container execution rollout');
+assertNotContains(read('src/services/StructureLifecycleService.js'), "sourcePlan.deliveryMode !== 'link_primary'", 'structure lifecycle service should derive source runtime state through source output policy instead of direct source plan checks');
+assertNotContains(read('src/services/StructureLifecycleService.js'), 'for (const sourceId in cityPlan.sources)', 'structure lifecycle service should enumerate source ids through shared source runtime state helpers');
+assertNotContains(read('src/services/StructureLifecycleService.js'), 'cityPlan.controller.linkPos', 'structure lifecycle service should resolve controller links through the legacy adapter instead of direct legacy position reads');
+assertNotContains(read('src/services/StructureLifecycleService.js'), 'cityPlan.sources[sourceId].linkPos', 'structure lifecycle service should resolve source links through the legacy adapter instead of direct legacy position reads');
+assertContains(read('src/services/StructureLifecycleService.js'), 'SOURCE_RUNTIME_MODES.LINK_PRIMARY', 'structure lifecycle service should compare mirrored link-network source state through shared runtime mode constants');
+assertNotContains(read('src/planning/CityAssetPolicy.js'), 'cityPlan.sources && cityPlan.sources[sourceId]', 'city asset policy should read source runtime state through shared source runtime helpers');
+assertContains(read('src/planning/CityPlanMigration.js'), 'sourcePlan.containerPos', 'city plan migration should remain the compat-only source-container coordinate import boundary');
+assertContains(read('src/planning/CityPlanMigration.js'), 'cityPlan.controller && cityPlan.controller.linkPos', 'city plan migration should remain the compat-only controller-link coordinate import boundary');
+assertContains(read('src/planning/CityPlanLegacyAdapter.js'), 'legacySource && legacySource.containerPos', 'legacy adapter should remain the compat-only source-container fallback boundary');
+assertContains(read('src/planning/CityPlanLegacyAdapter.js'), 'cityPlan.controller && cityPlan.controller.linkPos', 'legacy adapter should remain the compat-only controller-link fallback boundary');
+assertContains(read('src/planning/CityPlanMigration.js'), 'sourcePlan.primaryMiningPos', 'city plan migration should remain the compat-only source mining-position import boundary');
+assertContains(read('src/planning/CityPlanMigration.js'), 'cityPlan.controller.primaryUpgradePos', 'city plan migration should remain the compat-only controller upgrade-position import boundary');
+assertNotContains(read('src/planning/CityWorkPositionPolicy.js'), 'legacySourcePlan && legacySourcePlan.primaryMiningPos', 'city work position policy should no longer read legacy source mining-position compatibility storage after migration-only convergence');
+assertNotContains(read('src/planning/CityWorkPositionPolicy.js'), 'cityPlan.controller && cityPlan.controller.primaryUpgradePos', 'city work position policy should no longer read legacy controller upgrade-position compatibility storage after migration-only convergence');
+assertNotContains(read('src/planning/DefensePlannerService.js'), 'primaryMiningPos', 'defense planner should not read legacy work-position coordinates directly');
+assertNotContains(read('src/planning/DefensePlannerService.js'), 'primaryUpgradePos', 'defense planner should not read legacy work-position coordinates directly');
+assertNotContains(read('src/planning/DefensePlannerService.js'), 'containerPos', 'defense planner should no longer read legacy asset-position coordinates directly');
+assertNotContains(read('src/planning/DefensePlannerService.js'), 'linkPos', 'defense planner should no longer read legacy asset-position coordinates directly');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'CityWorkPositionPolicy', 'legacy read audit should describe the city work position convergence entrypoint');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'workPositions', 'legacy read audit should describe the workPositions model');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'schema/debug coverage for `workPositions` is complete', 'legacy read audit should reflect that work position schema/debug coverage is complete');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'Legacy `primaryMiningPos / primaryUpgradePos` now remain only as migration input for canonical `workPositions` regeneration.', 'legacy read audit should confine legacy work-position storage to migration input only');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'compatibility read ownership for work positions now belongs to `CityPlanMigration` only', 'legacy read audit should record that work-position compatibility reads have been reduced to migration only');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), '`MinerStrategyService` is now the second strict work-position consumer and no longer uses legacy-only source mining positions when canonical `workPositions.sources[sourceId].mining.primary` is absent.', 'legacy read audit should record the miner strict work-position rollout');
+assertNotContains(read('docs/city-planning-legacy-read-audit.md'), 'decide when `CityWorkPositionPolicy` and migration no longer need legacy `primaryMiningPos / primaryUpgradePos` fallback support', 'legacy read audit should no longer describe work-position fallback scope as an unstructured future question after V3.7a boundary hardening');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'Remaining compatibility storage is limited to:', 'legacy read audit should state that new plans no longer publish legacy asset-position storage');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'migrated legacy room memory', 'legacy read audit should confine legacy asset-position storage to migrated room memory and compat tooling');
+assertNotContains(read('docs/city-planning-legacy-read-audit.md'), 'decide when planning producers can stop writing `containerPos / linkPos` as legacy asset-position compatibility output', 'legacy read audit should no longer treat planner legacy asset-position output removal as pending work');
+assertNotContains(read('docs/city-planning-legacy-read-audit.md'), 'legacy asset-position compatibility cleanup planning', 'legacy read audit should no longer describe asset-position cleanup as a future planning step after planner output removal');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'no longer need to read `cityPlan.controller.containerPos` directly', 'legacy read audit should reflect the spawn bureau controller compatibility convergence');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'Runtime state storage is still legacy-backed, but write intent is now routed through a semantic helper', 'legacy read audit should describe semantic source runtime writes');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'transitionSourceRuntimeState(cityPlan, sourceId, event)', 'legacy read audit should describe the event-based source runtime transition entrypoint');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'source runtime boundary is established', 'legacy read audit should describe source runtime boundary hardening progress');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'consumer tightening', 'legacy read audit should describe the remaining work as consumer tightening instead of raw runtime-field convergence');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'CityPlan v3 Readiness', 'legacy read audit should define the readiness checklist before schema migration work starts');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'canonical models', 'legacy read audit should list canonical models for the v3 target');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'legacy compatibility storage', 'legacy read audit should list compatibility storage that remains before v3 migration');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'v3.0', 'legacy read audit should define staged v3 rollout guidance');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'preserving legacy compatibility storage', 'legacy read audit should state that v3.0 migration preserves compatibility storage');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'v3.1', 'legacy read audit should define the v3.1 observability phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'observe fallback usage through debug summaries', 'legacy read audit should require fallback observation before disabling compatibility paths');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.2a', 'legacy read audit should define the first fallback-disable planning phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'readyForFallbackDisable === true', 'legacy read audit should define the readiness gate for disabling fallback');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'three consecutive debug updates', 'legacy read audit should require a stable observation window before disabling fallback');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'rollback criteria', 'legacy read audit should define rollback criteria before execution-layer fallback is tightened');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.2b', 'legacy read audit should define the adapter strict-mode implementation phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'allowLegacyFallback', 'legacy read audit should define the resolver option that separates strict and compat reads');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.2d', 'legacy read audit should define the unified controller_container strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'controller_container strict rollout', 'legacy read audit should describe the unified controller_container strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.2e', 'legacy read audit should define the controller_link strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'controller_link strict rollout', 'legacy read audit should describe the unified controller_link strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.2f', 'legacy read audit should define the source_container rollout planning phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'source_container strict rollout plan', 'legacy read audit should describe the source_container rollout planning phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'LinkService.setSourceContainerLifecycle()', 'legacy read audit should identify the low-risk source_container strict consumer');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'MinerStrategyService', 'legacy read audit should identify miner strategy as a deferred source_container strict consumer');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'BuilderStrategyService', 'legacy read audit should identify builder strategy as a deferred source_container strict consumer');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.2g', 'legacy read audit should define the first source_container strict execution rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'source_container first strict consumer', 'legacy read audit should describe the first source_container strict execution rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.2h', 'legacy read audit should define the source_container maintenance strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'source_container maintenance strict rollout', 'legacy read audit should describe the source_container maintenance strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.2i', 'legacy read audit should define the source_container resource-market strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'source_container resource-market strict rollout', 'legacy read audit should describe the source_container resource-market strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.2j', 'legacy read audit should define the source_container builder strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'source_container builder strict rollout', 'legacy read audit should describe the source_container builder strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.2k', 'legacy read audit should define the source_container miner strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'source_container miner strict rollout', 'legacy read audit should describe the source_container miner strict rollout phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.2l', 'legacy read audit should define the source_link strict rollout planning phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'source_link strict rollout plan', 'legacy read audit should describe the source_link rollout planning phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'CityAssetPolicy.getSourceOutputPolicy()', 'legacy read audit should identify source output policy as the highest-risk source_link strict consumer');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.3a', 'legacy read audit should define the source runtime canonical model planning phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'source runtime canonical model plan', 'legacy read audit should describe the source runtime canonical model planning phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'cityPlan.sourceRuntime', 'legacy read audit should identify canonical source runtime storage for the next phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'SourceRuntimeState.resolveSourceRuntimeMode', 'legacy read audit should keep runtimeMode as a derived value in the next phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'default strict source-runtime reads', 'legacy read audit should record that source output policy now defaults to strict runtime reads');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'RuntimeReadiness.shouldUseStrictSourceRuntime', 'legacy read audit should record the shared runtime readiness helper used by execution services');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'compat-only boundary hardening and legacy fallback observation cleanup', 'legacy read audit should state that the next phase is compat-only boundary hardening after planner asset-position output removal');
 
 const main = read('src/main.js');
 for (const phase of ['init();', 'analyze();', 'EventBus.dispatch();', 'run();', 'cleanup();']) {
@@ -92,6 +225,9 @@ assertContains(main, 'RoomPhaseService', 'main should include room phase service
 assertContains(main, 'SpawnBureauService', 'main should include spawn bureau service');
 assertContains(main, 'TaskGuardService', 'main should include task guard service');
 assertContains(main, 'CreepRetirementService', 'main should include creep retirement service');
+assertContains(main, 'LinkService', 'main should include link service');
+assertContains(main, 'StructureLifecycleService', 'main should include structure lifecycle service');
+assertContains(main, 'CityPlanDebugService', 'main should include city plan debug service');
 assertContains(main, 'ResourceMarketService', 'main should include resource market service');
 assertContains(main, 'DefensePlannerService', 'main should include defense planner service');
 assertContains(main, 'MaintenancePlannerService', 'main should include maintenance planner service');
@@ -102,6 +238,9 @@ assert.ok(main.indexOf("new RoomPhaseService('RoomPhase')") < main.indexOf("new 
 assert.ok(main.indexOf("new SecurityService('Security')") < main.indexOf("new SpawnBureauService('SpawnBureau')"), 'security bridge should run before spawn bureau');
 assert.ok(main.indexOf("new SpawnBureauService('SpawnBureau')") < main.indexOf("new SpawnService('Spawn')"), 'spawn bureau should publish before spawn service executes');
 assert.ok(main.indexOf("new TaskGuardService('TaskGuard')") < main.indexOf("new ResourceMarketService('ResourceMarket')"), 'task guard should run before resource market and role strategies');
+assert.ok(main.indexOf("new ResourceMarketService('ResourceMarket')") < main.indexOf("new LinkService('Link')"), 'link service should run after the market and role strategies have settled room state');
+assert.ok(main.indexOf("new LinkService('Link')") < main.indexOf("new StructureLifecycleService('StructureLifecycle')"), 'structure lifecycle should observe link state after the link service updates room lifecycle');
+assert.ok(main.indexOf("new StructureLifecycleService('StructureLifecycle')") < main.indexOf("new CityPlanDebugService('CityPlanDebug')"), 'city plan debug should observe lifecycle state after structure lifecycle updates the room');
 assert.ok(main.indexOf("new UpgraderStrategyService('UpgraderStrategy')") < main.indexOf("new CreepRetirementService('CreepRetirement')"), 'retirement should evaluate after role strategies assign useful work');
 assert.ok(main.indexOf("new CityPlannerService('CityPlanner')") < main.indexOf("new DefensePlannerService('DefensePlanner')"), 'city planner should populate the city plan before defense planner reads it');
 
@@ -147,12 +286,19 @@ async function runBehaviorChecks() {
     global.FIND_MY_SPAWNS = 6;
     global.FIND_HOSTILE_CREEPS = 7;
     global.FIND_MY_CREEPS = 8;
+    global.FIND_MINERALS = 9;
     global.STRUCTURE_SPAWN = 'spawn';
     global.STRUCTURE_EXTENSION = 'extension';
     global.STRUCTURE_TOWER = 'tower';
     global.STRUCTURE_STORAGE = 'storage';
+    global.STRUCTURE_LINK = 'link';
     global.STRUCTURE_TERMINAL = 'terminal';
     global.STRUCTURE_LAB = 'lab';
+    global.STRUCTURE_FACTORY = 'factory';
+    global.STRUCTURE_OBSERVER = 'observer';
+    global.STRUCTURE_POWER_SPAWN = 'powerSpawn';
+    global.STRUCTURE_NUKER = 'nuker';
+    global.STRUCTURE_EXTRACTOR = 'extractor';
     global.STRUCTURE_ROAD = 'road';
     global.STRUCTURE_CONTAINER = 'container';
     global.STRUCTURE_WALL = 'constructedWall';
@@ -187,6 +333,9 @@ async function runBehaviorChecks() {
     const { default: SpawnBureauService } = await import('../services/SpawnBureauService.js');
     const { default: SpawnService } = await import('../services/SpawnService.js');
     const { default: CreepRetirementService } = await import('../services/CreepRetirementService.js');
+    const { default: LinkService } = await import('../services/LinkService.js');
+    const { default: StructureLifecycleService } = await import('../services/StructureLifecycleService.js');
+    const { default: CityPlanDebugService } = await import('../services/CityPlanDebugService.js');
     const { default: TaskGuard } = await import('../core/TaskGuard.js');
     const { default: ResourceMarketService } = await import('../services/ResourceMarketService.js');
     const { default: TaskGuardService } = await import('../services/TaskGuardService.js');
@@ -195,6 +344,77 @@ async function runBehaviorChecks() {
     const { default: TowerDefenseService } = await import('../services/TowerDefenseService.js');
     const { default: MemoryConfig } = await import('../config/MemoryConfig.js');
     const { default: CityPlannerService } = await import('../planning/CityPlannerService.js');
+    const {
+        getAssetPolicy,
+        getLogisticsPolicy,
+        getMaintenancePolicy,
+        getBuildPolicy,
+        getSourceOutputPolicy,
+        shouldParticipateInLogistics,
+        shouldRepairAsset,
+        shouldBuildAsset
+    } = await import('../planning/CityAssetPolicy.js');
+    const {
+        resolveControllerContainerAsset,
+        resolveSourceContainerAsset,
+        resolveControllerLinkAsset,
+        resolveSourceLinkAsset,
+        getControllerContainerAsset,
+        getSourceContainerAsset,
+        getControllerLinkAsset,
+        getSourceLinkAsset,
+        isControllerContainerAsset,
+        isSourceContainerAsset,
+        isControllerLinkAsset,
+        isSourceLinkAsset
+    } = await import('../planning/CityPlanLegacyAdapter.js');
+    const {
+        CITY_PLAN_SCHEMA_VERSION,
+        validateCityPlan,
+        transitionAssetLifecycle
+    } = await import('../planning/CityPlanSchema.js');
+    const {
+        migrateCityPlan,
+        migrateCityPlanToCurrent
+    } = await import('../planning/CityPlanMigration.js');
+    const {
+        buildCityPlanDebug,
+        recordLifecycleTransitionFailure
+    } = await import('../planning/CityPlanDebug.js');
+    const {
+        getSourceRuntimeState,
+        setSourceRuntimeState,
+        getSourceIds,
+        SOURCE_OUTPUT_ROLES,
+        SOURCE_DELIVERY_MODES,
+        SOURCE_RUNTIME_MODES,
+        SOURCE_RUNTIME_EVENTS,
+        promoteSourceToLinkPrimary,
+        setSourceLinkOutputTransition,
+        setSourceContainerOutput,
+        transitionSourceRuntimeState
+    } = await import('../planning/SourceRuntimeState.js');
+    const {
+        getCityWorkPositions,
+        getSourceMiningWorkPosition,
+        getControllerUpgradeWorkPosition
+    } = await import('../planning/CityWorkPositionPolicy.js');
+    const {
+        shouldUseStrictSourceRuntime
+    } = await import('../planning/RuntimeReadiness.js');
+    const {
+        getActivePlannedStructure,
+        getPlannedStructuresByRole,
+        getPlannedStructuresByPhase,
+        getPlannedStructuresByGroup,
+        findPlannedStructureForObject,
+        getPlannedRole,
+        getPlannedGroup,
+        getPlannedLifecycleState,
+        isLifecycleState,
+        getHubPlan,
+        getStructureLifecycle
+    } = await import('../planning/CityPlanHelpers.js');
     const { default: DefensePlannerService } = await import('../planning/DefensePlannerService.js');
     const { default: MaintenancePlannerService } = await import('../planning/MaintenancePlannerService.js');
     const { default: RoadPlannerService } = await import('../planning/RoadPlannerService.js');
@@ -224,6 +444,12 @@ async function runBehaviorChecks() {
         energyCapacityAvailable: 550
     }, { phase: 'early' });
     assert.deepStrictEqual(earlyMinerLowEnergy.body, earlyMinerHighEnergy.body, 'same phase miner body should not change with current available energy');
+    const linkMinerBody = BodyBuilder.build('miner', {
+        energyAvailable: 550,
+        energyCapacityAvailable: 550
+    }, { bodyProfile: 'link_miner' });
+    assert.ok(linkMinerBody.capacity.carryParts >= 1, 'link miner profile should reserve carry parts for source link transfer');
+    assert.ok(linkMinerBody.capacity.workParts >= 2, 'link miner profile should still keep meaningful work throughput');
 
     const largeHaulerBody = BodyBuilder.build('hauler', {
         energyAvailable: 500,
@@ -694,6 +920,489 @@ async function runBehaviorChecks() {
     const assignedSource = service.pickSource(miner);
     assert.strictEqual(assignedSource, 'source2', 'miner source assignment should prefer the less-covered source');
 
+    Memory.rooms = {
+        W1N1: {
+            cityPlan: {
+                sources: {
+                    source1: {
+                        primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' },
+                        linkPos: { x: 10, y: 11, roomName: 'W1N1' },
+                        preferredOutputRole: 'source_link'
+                    }
+                },
+                plannedStructures: [{
+                    id: 'source1:link',
+                    role: 'source_link',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 10, y: 11, roomName: 'W1N1' },
+                    scope: { sourceId: 'source1' },
+                    lifecycle: { state: 'planned', activeFromRcl: 5 }
+                }]
+            }
+        }
+    };
+    const linkMiningRoom = {
+        name: 'W1N1',
+        find: (type, opts = {}) => {
+            let results = [];
+            if (type === FIND_STRUCTURES) {
+                results = [{
+                    id: 'sourceLink1',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 10, y: 11, roomName: 'W1N1' },
+                    store: {
+                        getFreeCapacity: () => 700,
+                        getUsedCapacity: () => 0
+                    }
+                }];
+            }
+            if (type === FIND_HOSTILE_CREEPS) results = [];
+            if (opts.filter) return results.filter(opts.filter);
+            return results;
+        }
+    };
+    const linkMiner = {
+        name: 'LinkMiner',
+        room: linkMiningRoom,
+        memory: {
+            role: 'miner',
+            homeRoom: 'W1N1',
+            sourceId: 'source1',
+            miningPos: { x: 9, y: 10, roomName: 'W1N1' }
+        },
+        pos: {
+            x: 9,
+            y: 10,
+            roomName: 'W1N1',
+            inRangeTo: (target, range) => {
+                const pos = target.pos || target;
+                return Math.max(Math.abs(pos.x - 9), Math.abs(pos.y - 10)) <= range;
+            }
+        },
+        store: {
+            getFreeCapacity: () => 0,
+            getUsedCapacity: () => 50
+        }
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'source1') return { id, pos: { x: 10, y: 10, roomName: 'W1N1' } };
+        if (id === 'sourceLink1') return linkMiningRoom.find(FIND_STRUCTURES)[0];
+        return null;
+    };
+    Memory.rooms.W1N1.cityPlan.sourceRuntime = {
+        sources: {
+            source1: {
+                preferredOutputRole: 'source_link',
+                deliveryMode: 'link_primary'
+            }
+        }
+    };
+    service.assignMiningTask(linkMiner);
+    assert.deepStrictEqual(linkMiner.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'sourceLink1',
+        resourceType: RESOURCE_ENERGY
+    }, 'miner should transfer into the planned source link once link mode is active and the link is available');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' },
+                    linkPos: { x: 10, y: 11, roomName: 'W1N1' },
+                    preferredOutputRole: 'source_link'
+                }
+            },
+            plannedStructures: []
+        }
+    };
+    const legacyOnlyLinkMiner = {
+        name: 'LegacyOnlyLinkMiner',
+        room: linkMiningRoom,
+        memory: {
+            role: 'miner',
+            homeRoom: 'W1N1',
+            sourceId: 'source1',
+            miningPos: { x: 9, y: 10, roomName: 'W1N1' }
+        },
+        pos: {
+            x: 9,
+            y: 10,
+            roomName: 'W1N1',
+            inRangeTo: (target, range) => {
+                const pos = target.pos || target;
+                return Math.max(Math.abs(pos.x - 9), Math.abs(pos.y - 10)) <= range;
+            }
+        },
+        store: {
+            getFreeCapacity: () => 0,
+            getUsedCapacity: () => 50
+        }
+    };
+    service.assignMiningTask(legacyOnlyLinkMiner);
+    assert.deepStrictEqual(legacyOnlyLinkMiner.memory.task, {
+        type: 'HARVEST',
+        targetId: 'source1'
+    }, 'miner should not transfer into legacy-only source links during strict source_link rollout');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sourceRuntime: {
+                sources: {
+                    source1: {
+                        preferredOutputRole: 'source_link',
+                        deliveryMode: 'link_primary'
+                    }
+                }
+            },
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' },
+                    preferredOutputRole: 'source_link'
+                }
+            },
+            plannedStructures: [{
+                id: 'source1:link',
+                role: 'source_link',
+                structureType: STRUCTURE_LINK,
+                pos: { x: 10, y: 11, roomName: 'W1N1' },
+                scope: { sourceId: 'source1' },
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            }]
+        }
+    };
+    const plannedOnlyLinkMiner = {
+        name: 'PlannedOnlyLinkMiner',
+        room: linkMiningRoom,
+        memory: {
+            role: 'miner',
+            homeRoom: 'W1N1',
+            sourceId: 'source1',
+            miningPos: { x: 9, y: 10, roomName: 'W1N1' }
+        },
+        pos: {
+            x: 9,
+            y: 10,
+            roomName: 'W1N1',
+            inRangeTo: (target, range) => {
+                const pos = target.pos || target;
+                return Math.max(Math.abs(pos.x - 9), Math.abs(pos.y - 10)) <= range;
+            }
+        },
+        store: {
+            getFreeCapacity: () => 0,
+            getUsedCapacity: () => 50
+        }
+    };
+    service.assignMiningTask(plannedOnlyLinkMiner);
+    assert.deepStrictEqual(plannedOnlyLinkMiner.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'sourceLink1',
+        resourceType: RESOURCE_ENERGY
+    }, 'miner should transfer into planned source links even when legacy source link positions are absent');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' },
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'link_primary'
+                }
+            },
+            plannedStructures: [{
+                id: 'source1:link',
+                role: 'source_link',
+                structureType: STRUCTURE_LINK,
+                pos: { x: 10, y: 11, roomName: 'W1N1' },
+                scope: { sourceId: 'source1' },
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            }]
+        },
+        cityPlanRuntimeObservation: {
+            readyStreak: 3,
+            readyForRuntimeFallbackDisable: true
+        }
+    };
+    const strictLegacyRuntimeMiner = {
+        name: 'StrictLegacyRuntimeMiner',
+        room: linkMiningRoom,
+        memory: {
+            role: 'miner',
+            homeRoom: 'W1N1',
+            sourceId: 'source1',
+            miningPos: { x: 9, y: 10, roomName: 'W1N1' }
+        },
+        pos: {
+            x: 9,
+            y: 10,
+            roomName: 'W1N1',
+            inRangeTo: (target, range) => {
+                const pos = target.pos || target;
+                return Math.max(Math.abs(pos.x - 9), Math.abs(pos.y - 10)) <= range;
+            }
+        },
+        store: {
+            getFreeCapacity: () => 0,
+            getUsedCapacity: () => 50
+        }
+    };
+    service.assignMiningTask(strictLegacyRuntimeMiner);
+    assert.deepStrictEqual(strictLegacyRuntimeMiner.memory.task, {
+        type: 'HARVEST',
+        targetId: 'source1'
+    }, 'miner should stop link-transfer behavior when only legacy source runtime remains after the strict runtime gate opens');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sourceRuntime: {
+                sources: {
+                    source1: {
+                        preferredOutputRole: 'source_link',
+                        deliveryMode: 'transition'
+                    }
+                }
+            },
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' },
+                    preferredOutputRole: 'source_container',
+                    deliveryMode: 'container'
+                }
+            },
+            plannedStructures: [{
+                id: 'source1:link',
+                role: 'source_link',
+                structureType: STRUCTURE_LINK,
+                pos: { x: 10, y: 11, roomName: 'W1N1' },
+                scope: { sourceId: 'source1' },
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            }]
+        },
+        cityPlanRuntimeObservation: {
+            readyStreak: 3,
+            readyForRuntimeFallbackDisable: true
+        }
+    };
+    const strictCanonicalRuntimeMiner = {
+        name: 'StrictCanonicalRuntimeMiner',
+        room: linkMiningRoom,
+        memory: {
+            role: 'miner',
+            homeRoom: 'W1N1',
+            sourceId: 'source1',
+            miningPos: { x: 9, y: 10, roomName: 'W1N1' }
+        },
+        pos: {
+            x: 9,
+            y: 10,
+            roomName: 'W1N1',
+            inRangeTo: (target, range) => {
+                const pos = target.pos || target;
+                return Math.max(Math.abs(pos.x - 9), Math.abs(pos.y - 10)) <= range;
+            }
+        },
+        store: {
+            getFreeCapacity: () => 0,
+            getUsedCapacity: () => 50
+        }
+    };
+    service.assignMiningTask(strictCanonicalRuntimeMiner);
+    assert.deepStrictEqual(strictCanonicalRuntimeMiner.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'sourceLink1',
+        resourceType: RESOURCE_ENERGY
+    }, 'miner should preserve link-transfer behavior when canonical source runtime remains valid after the strict runtime gate opens');
+    const blockedLinkMiningRoom = {
+        name: 'W1N1',
+        find: (type, opts = {}) => {
+            let results = [];
+            if (type === FIND_STRUCTURES) {
+                results = [{
+                    id: 'sourceLinkFull',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 10, y: 11, roomName: 'W1N1' },
+                    store: {
+                        getFreeCapacity: () => 0,
+                        getUsedCapacity: () => 800
+                    }
+                }, {
+                    id: 'sourceContainerFallback',
+                    structureType: STRUCTURE_CONTAINER,
+                    pos: { x: 9, y: 10, roomName: 'W1N1' },
+                    store: {
+                        getFreeCapacity: () => 1500,
+                        getUsedCapacity: () => 500
+                    }
+                }];
+            }
+            if (type === FIND_HOSTILE_CREEPS) results = [];
+            if (opts.filter) return results.filter(opts.filter);
+            return results;
+        }
+    };
+    const blockedLinkMiner = {
+        name: 'BlockedLinkMiner',
+        room: blockedLinkMiningRoom,
+        memory: {
+            role: 'miner',
+            homeRoom: 'W1N1',
+            sourceId: 'source1',
+            miningPos: { x: 9, y: 10, roomName: 'W1N1' }
+        },
+        pos: {
+            x: 9,
+            y: 10,
+            roomName: 'W1N1',
+            inRangeTo: (target, range) => {
+                const pos = target.pos || target;
+                return Math.max(Math.abs(pos.x - 9), Math.abs(pos.y - 10)) <= range;
+            }
+        },
+        store: {
+            getFreeCapacity: () => 0,
+            getUsedCapacity: () => 50
+        }
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'source1') return { id, pos: { x: 10, y: 10, roomName: 'W1N1' } };
+        if (id === 'sourceLinkFull') return blockedLinkMiningRoom.find(FIND_STRUCTURES)[0];
+        if (id === 'sourceContainerFallback') return blockedLinkMiningRoom.find(FIND_STRUCTURES)[1];
+        return null;
+    };
+    service.assignMiningTask(blockedLinkMiner);
+    assert.deepStrictEqual(blockedLinkMiner.memory.task, {
+        type: 'HARVEST',
+        targetId: 'source1'
+    }, 'miner should not treat legacy-only source containers as canonical fallback targets when the source link is full');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sourceRuntime: {
+                sources: {
+                    source1: {
+                        preferredOutputRole: 'source_link',
+                        deliveryMode: 'link_primary'
+                    }
+                }
+            },
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' },
+                    preferredOutputRole: 'source_link'
+                }
+            },
+            plannedStructures: [
+                {
+                    id: 'source1:link',
+                    role: 'source_link',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 10, y: 11, roomName: 'W1N1' },
+                    scope: { sourceId: 'source1' },
+                    lifecycle: { state: 'planned', activeFromRcl: 5 }
+                },
+                {
+                    id: 'source1:container',
+                    role: 'source_container',
+                    structureType: STRUCTURE_CONTAINER,
+                    pos: { x: 9, y: 10, roomName: 'W1N1' },
+                    scope: { sourceId: 'source1' },
+                    lifecycle: { state: 'active', activeFromRcl: 1 }
+                }
+            ]
+        }
+    };
+    const plannedOnlyBlockedLinkMiner = {
+        name: 'PlannedOnlyBlockedLinkMiner',
+        room: blockedLinkMiningRoom,
+        memory: {
+            role: 'miner',
+            homeRoom: 'W1N1',
+            sourceId: 'source1',
+            miningPos: { x: 9, y: 10, roomName: 'W1N1' }
+        },
+        pos: {
+            x: 9,
+            y: 10,
+            roomName: 'W1N1',
+            inRangeTo: (target, range) => {
+                const pos = target.pos || target;
+                return Math.max(Math.abs(pos.x - 9), Math.abs(pos.y - 10)) <= range;
+            }
+        },
+        store: {
+            getFreeCapacity: () => 0,
+            getUsedCapacity: () => 50
+        }
+    };
+    service.assignMiningTask(plannedOnlyBlockedLinkMiner);
+    assert.deepStrictEqual(plannedOnlyBlockedLinkMiner.memory.task, {
+        type: 'TRANSFER',
+        targetId: 'sourceContainerFallback',
+        resourceType: RESOURCE_ENERGY
+    }, 'miner should fall back to planned source containers when legacy container positions are absent');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' },
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'link_primary'
+                }
+            },
+            plannedStructures: [
+                {
+                    id: 'source1:link',
+                    role: 'source_link',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 10, y: 11, roomName: 'W1N1' },
+                    scope: { sourceId: 'source1' },
+                    lifecycle: { state: 'planned', activeFromRcl: 5 }
+                },
+                {
+                    id: 'source1:container',
+                    role: 'source_container',
+                    structureType: STRUCTURE_CONTAINER,
+                    pos: { x: 9, y: 10, roomName: 'W1N1' },
+                    scope: { sourceId: 'source1' },
+                    lifecycle: { state: 'active', activeFromRcl: 1 }
+                }
+            ]
+        },
+        cityPlanRuntimeObservation: {
+            readyStreak: 3,
+            readyForRuntimeFallbackDisable: true
+        }
+    };
+    const strictLegacyRuntimeBlockedLinkMiner = {
+        name: 'StrictLegacyRuntimeBlockedLinkMiner',
+        room: blockedLinkMiningRoom,
+        memory: {
+            role: 'miner',
+            homeRoom: 'W1N1',
+            sourceId: 'source1',
+            miningPos: { x: 9, y: 10, roomName: 'W1N1' }
+        },
+        pos: {
+            x: 9,
+            y: 10,
+            roomName: 'W1N1',
+            inRangeTo: (target, range) => {
+                const pos = target.pos || target;
+                return Math.max(Math.abs(pos.x - 9), Math.abs(pos.y - 10)) <= range;
+            }
+        },
+        store: {
+            getFreeCapacity: () => 0,
+            getUsedCapacity: () => 50
+        }
+    };
+    service.assignMiningTask(strictLegacyRuntimeBlockedLinkMiner);
+    assert.deepStrictEqual(strictLegacyRuntimeBlockedLinkMiner.memory.task, {
+        type: 'HARVEST',
+        targetId: 'source1'
+    }, 'miner should stop source-container fallback behavior when only legacy source runtime remains after the strict runtime gate opens');
+    Game.getObjectById = (id) => {
+        if (id === 'source1') return { id, pos: { x: 10, y: 10, roomName: 'W1N1' } };
+        if (id === 'source2') return { id, pos: { x: 20, y: 20, roomName: 'W1N1' } };
+        return null;
+    };
+
     EventBus.topics = {};
     Game.rooms = {
         W1N1: {
@@ -716,6 +1425,240 @@ async function runBehaviorChecks() {
         EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'miner' && event.data.memory.sourceId === 'source2');
     assert.ok(uncoveredMinerRequest, 'spawn bureau should cover uncovered sources, not just total miner count');
     assert.ok(!uncoveredMinerRequest.data.body.includes(CARRY), 'stationary miner spawn body should not include carry parts');
+
+    EventBus.topics = {};
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sourceRuntime: {
+                sources: {
+                    source1: {
+                        preferredOutputRole: 'source_link',
+                        deliveryMode: 'transition'
+                    },
+                    source2: {
+                        preferredOutputRole: 'source_container',
+                        deliveryMode: 'container'
+                    }
+                }
+            },
+            sources: {
+                source1: {
+                    preferredOutputRole: 'source_link',
+                    linkPos: { x: 11, y: 10, roomName: 'W1N1' }
+                },
+                source2: {
+                    preferredOutputRole: 'source_container'
+                }
+            }
+        }
+    };
+    Game.rooms.W1N1.find = () => [];
+    spawnBureau.analyze();
+    const linkMinerRequest = EventBus.topics.REQ_SPAWN &&
+        EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'miner' && event.data.memory.sourceId === 'source1');
+    assert.ok(linkMinerRequest && linkMinerRequest.data.body.includes(CARRY), 'spawn bureau should request a carry-capable miner body when the source is planned for source-link output');
+    assert.strictEqual(getSourceOutputPolicy(Memory.rooms.W1N1.cityPlan, 'source1', {
+        sourceRuntimeAllowLegacyFallback: true
+    }).bodyProfile, 'link_miner', 'city asset policy should expose link-miner body selection for source-link output when callers explicitly opt into legacy runtime fallback');
+    EventBus.topics = {};
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sources: {
+                source1: {
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'link_primary',
+                    linkPos: { x: 11, y: 10, roomName: 'W1N1' }
+                },
+                source2: {
+                    preferredOutputRole: 'source_container'
+                }
+            },
+            plannedStructures: [{
+                id: 'source1:link',
+                role: 'source_link',
+                structureType: STRUCTURE_LINK,
+                pos: { x: 11, y: 10, roomName: 'W1N1' },
+                scope: { sourceId: 'source1' },
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            }]
+        },
+        cityPlanRuntimeObservation: {
+            readyStreak: 3,
+            readyForRuntimeFallbackDisable: true
+        }
+    };
+    spawnBureau.analyze();
+    const strictLegacyRuntimeMinerRequest = EventBus.topics.REQ_SPAWN &&
+        EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'miner' && event.data.memory.sourceId === 'source1');
+    assert.ok(strictLegacyRuntimeMinerRequest && !strictLegacyRuntimeMinerRequest.data.body.includes(CARRY), 'spawn bureau should stop requesting link-miner bodies when only legacy source runtime remains after the strict runtime gate opens');
+
+    EventBus.topics = {};
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sourceRuntime: {
+                sources: {
+                    source1: {
+                        preferredOutputRole: 'source_link',
+                        deliveryMode: 'transition'
+                    },
+                    source2: {
+                        preferredOutputRole: 'source_container',
+                        deliveryMode: 'container'
+                    }
+                }
+            },
+            sources: {
+                source1: {
+                    preferredOutputRole: 'source_link'
+                },
+                source2: {
+                    preferredOutputRole: 'source_container'
+                }
+            },
+            plannedStructures: [{
+                id: 'source1:link',
+                role: 'source_link',
+                structureType: STRUCTURE_LINK,
+                pos: { x: 11, y: 10, roomName: 'W1N1' },
+                scope: { sourceId: 'source1' },
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            }]
+        }
+    };
+    spawnBureau.analyze();
+    const plannedOnlyLinkMinerRequest = EventBus.topics.REQ_SPAWN &&
+        EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'miner' && event.data.memory.sourceId === 'source1');
+    assert.ok(plannedOnlyLinkMinerRequest && plannedOnlyLinkMinerRequest.data.body.includes(CARRY), 'spawn bureau should request a carry-capable miner body when only a planned source-link asset exists');
+    assert.strictEqual(getSourceOutputPolicy(Memory.rooms.W1N1.cityPlan, 'source1').outputAssetSource, 'planned', 'city asset policy should report planned source-link assets when deriving source output policy');
+    EventBus.topics = {};
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sourceRuntime: {
+                sources: {
+                    source1: {
+                        preferredOutputRole: 'source_link',
+                        deliveryMode: 'transition'
+                    }
+                }
+            },
+            sources: {
+                source1: {
+                    preferredOutputRole: 'source_container',
+                    deliveryMode: 'container'
+                },
+                source2: {
+                    preferredOutputRole: 'source_container'
+                }
+            },
+            plannedStructures: [{
+                id: 'source1:link',
+                role: 'source_link',
+                structureType: STRUCTURE_LINK,
+                pos: { x: 11, y: 10, roomName: 'W1N1' },
+                scope: { sourceId: 'source1' },
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            }]
+        },
+        cityPlanRuntimeObservation: {
+            readyStreak: 3,
+            readyForRuntimeFallbackDisable: true
+        }
+    };
+    spawnBureau.analyze();
+    const strictCanonicalRuntimeMinerRequest = EventBus.topics.REQ_SPAWN &&
+        EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'miner' && event.data.memory.sourceId === 'source1');
+    assert.ok(strictCanonicalRuntimeMinerRequest && strictCanonicalRuntimeMinerRequest.data.body.includes(CARRY), 'spawn bureau should preserve link-miner bodies when canonical source runtime remains valid after the strict runtime gate opens');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sources: {
+                source1: {
+                    preferredOutputRole: 'source_link',
+                    linkPos: { x: 11, y: 10, roomName: 'W1N1' }
+                }
+            },
+            plannedStructures: []
+        }
+    };
+    const legacyOnlySourceLinkPolicy = getSourceOutputPolicy(Memory.rooms.W1N1.cityPlan, 'source1');
+    assert.strictEqual(legacyOnlySourceLinkPolicy.validRuntimeState, false, 'city asset policy should default to strict source-runtime reads when canonical runtime storage is missing');
+    assert.strictEqual(legacyOnlySourceLinkPolicy.runtimeMode, 'invalid', 'city asset policy should report invalid runtime mode by default when canonical source runtime storage is missing');
+    assert.strictEqual(legacyOnlySourceLinkPolicy.bodyProfile, 'miner', 'city asset policy should fall back to stationary miner bodies by default when only legacy source-link runtime storage exists');
+    assert.strictEqual(legacyOnlySourceLinkPolicy.usesLinkOutput, false, 'city asset policy should disable source-link output by default when only legacy source runtime storage exists');
+    assert.strictEqual(legacyOnlySourceLinkPolicy.outputAssetSource, 'missing', 'city asset policy should not treat legacy-only source-link storage as a canonical output asset during strict rollout');
+    assert.strictEqual(legacyOnlySourceLinkPolicy.outputAssetRole, null, 'city asset policy should clear source-link asset role when only legacy compatibility storage exists');
+    const compatLegacyOnlySourceLinkPolicy = getSourceOutputPolicy(Memory.rooms.W1N1.cityPlan, 'source1', {
+        sourceRuntimeAllowLegacyFallback: true
+    });
+    assert.strictEqual(compatLegacyOnlySourceLinkPolicy.validRuntimeState, true, 'city asset policy should fall back to canonical default runtime semantics when callers explicitly opt into non-strict reads without canonical runtime storage');
+    assert.strictEqual(compatLegacyOnlySourceLinkPolicy.runtimeMode, 'container', 'city asset policy should treat missing canonical runtime storage as container-mode during non-strict fallback after legacy runtime removal');
+    assert.strictEqual(compatLegacyOnlySourceLinkPolicy.bodyProfile, 'miner', 'city asset policy should not preserve legacy source-link runtime semantics once legacy runtime fallback is removed');
+    assert.strictEqual(compatLegacyOnlySourceLinkPolicy.usesLinkOutput, false, 'city asset policy should disable source-link output once legacy runtime fallback is removed');
+    const strictLegacyOnlySourceLinkPolicy = getSourceOutputPolicy(Memory.rooms.W1N1.cityPlan, 'source1', {
+        sourceRuntimeAllowLegacyFallback: false
+    });
+    assert.strictEqual(strictLegacyOnlySourceLinkPolicy.validRuntimeState, false, 'city asset policy should surface invalid runtime state when strict source-runtime reads do not find canonical runtime storage');
+    assert.strictEqual(strictLegacyOnlySourceLinkPolicy.runtimeMode, 'invalid', 'city asset policy should report invalid runtime mode when strict source-runtime reads do not find canonical runtime storage');
+    assert.strictEqual(strictLegacyOnlySourceLinkPolicy.bodyProfile, 'miner', 'city asset policy should fall back to stationary miner bodies when strict source-runtime reads invalidate legacy-only source-link intent');
+    assert.strictEqual(strictLegacyOnlySourceLinkPolicy.usesLinkOutput, false, 'city asset policy should disable source-link output when strict source-runtime reads invalidate legacy-only source-link intent');
+    assert.strictEqual(strictLegacyOnlySourceLinkPolicy.shouldUseLinkMiner, false, 'city asset policy should not request link miners when strict source-runtime reads invalidate source-link intent');
+    assert.strictEqual(strictLegacyOnlySourceLinkPolicy.shouldTransferToSourceLink, false, 'city asset policy should not transfer to source links when strict source-runtime reads invalidate source-link intent');
+    const strictCanonicalSourceLinkPolicy = getSourceOutputPolicy({
+        sourceRuntime: {
+            sources: {
+                source1: {
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'transition'
+                }
+            }
+        },
+        sources: {
+            source1: {
+                preferredOutputRole: 'source_container',
+                deliveryMode: 'container'
+            }
+        },
+        plannedStructures: [{
+            id: 'source1:link',
+            role: 'source_link',
+            structureType: STRUCTURE_LINK,
+            pos: { x: 11, y: 10, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'planned', activeFromRcl: 5 }
+        }]
+    }, 'source1', {
+        sourceRuntimeAllowLegacyFallback: false
+    });
+    assert.strictEqual(strictCanonicalSourceLinkPolicy.validRuntimeState, true, 'city asset policy should keep canonical source-runtime intent valid under strict reads');
+    assert.strictEqual(strictCanonicalSourceLinkPolicy.bodyProfile, 'link_miner', 'city asset policy should preserve canonical link-miner intent under strict source-runtime reads');
+    assert.strictEqual(strictCanonicalSourceLinkPolicy.usesLinkOutput, true, 'city asset policy should preserve canonical source-link output under strict source-runtime reads');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            plannedStructures: [{
+                id: 'controller:container',
+                role: 'controller_container',
+                structureType: STRUCTURE_CONTAINER,
+                pos: { x: 24, y: 25, roomName: 'W1N1' },
+                lifecycle: { state: 'active', activeFromRcl: 1 }
+            }]
+        }
+    };
+    assert.strictEqual(spawnBureau.upgraderBodyProfile(Game.rooms.W1N1), 'stationary_upgrader', 'spawn bureau should prefer stationary upgrader bodies when only a planned controller container asset exists');
+    assert.strictEqual(spawnBureau.desiredUpgraders(Game.rooms.W1N1), 1, 'spawn bureau should cap upgrader count when only a planned controller container asset exists');
+    const previousSpawnRoom = Game.rooms.W1N1;
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            controller: {
+                containerPos: { x: 24, y: 25, roomName: 'W1N1' }
+            }
+        }
+    };
+    Game.rooms.W1N1 = {
+        ...previousSpawnRoom,
+        find: () => []
+    };
+    assert.strictEqual(spawnBureau.upgraderBodyProfile(Game.rooms.W1N1), 'upgrader', 'spawn bureau should not treat legacy-only controller container planning as canonical during strict rollout');
+    assert.strictEqual(spawnBureau.desiredUpgraders(Game.rooms.W1N1), 1, 'spawn bureau should fall back to the default non-stationary upgrader quota when only legacy controller container planning exists');
+    Game.rooms.W1N1 = previousSpawnRoom;
 
     EventBus.topics = {};
     Game.map = {
@@ -1122,6 +2065,40 @@ async function runBehaviorChecks() {
         targetId: 'controller1'
     }, 'loaded upgrader should upgrade controller');
 
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' },
+                linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+            }
+        }
+    };
+    const controllerLink = {
+        id: 'controllerLink1',
+        structureType: STRUCTURE_LINK,
+        pos: { x: 24, y: 24, roomName: 'W1N1' },
+        store: { getUsedCapacity: () => 400 }
+    };
+    const linkBackedUpgraderRoom = {
+        name: 'W1N1',
+        controller,
+        storage: null,
+        find: (type, opts = {}) => {
+            let results = [];
+            if (type === FIND_STRUCTURES) results = [controllerLink];
+            if (opts.filter) return results.filter(opts.filter);
+            return results;
+        }
+    };
+    const linkBackedUpgrader = {
+        room: linkBackedUpgraderRoom,
+        pos: { x: 24, y: 25, roomName: 'W1N1', inRangeTo: (x, y, range) => Math.max(Math.abs(x - 24), Math.abs(y - 25)) <= range },
+        memory: { role: 'upgrader', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 0 }
+    };
+    upgraderService.assignUpgraderTask(linkBackedUpgrader);
+    assert.strictEqual(linkBackedUpgrader.memory.task, undefined, 'upgrader should not withdraw from legacy-only controller links during strict rollout');
+
     const controllerContainer = {
         id: 'controllerContainer1',
         structureType: STRUCTURE_CONTAINER,
@@ -1162,6 +2139,130 @@ async function runBehaviorChecks() {
         targetId: 'controllerContainer1',
         resourceType: RESOURCE_ENERGY
     }, 'upgrader should withdraw from controller container before waiting for hauler supply');
+
+    const controllerLinkBackedContainer = {
+        id: 'controllerContainerLifecycle',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 24, y: 25, roomName: 'W1N1' },
+        store: { getUsedCapacity: () => 150 }
+    };
+    const controllerLifecycleLink = {
+        id: 'controllerLinkLifecycle',
+        structureType: STRUCTURE_LINK,
+        pos: { x: 24, y: 24, roomName: 'W1N1' },
+        store: { getUsedCapacity: () => 400 }
+    };
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' },
+                containerPos: { x: 24, y: 25, roomName: 'W1N1' },
+                linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+            },
+            plannedStructures: [{
+                id: 'controller:container',
+                role: 'controller_container',
+                structureType: STRUCTURE_CONTAINER,
+                pos: { x: 24, y: 25, roomName: 'W1N1' },
+                lifecycle: { state: 'link_primary', activeFromRcl: 1, replacement: 'controller:link' }
+            }]
+        }
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'controller1') return controller;
+        if (id === 'controllerContainerLifecycle') return controllerLinkBackedContainer;
+        if (id === 'controllerLinkLifecycle') return controllerLifecycleLink;
+        return null;
+    };
+    const linkPrimaryUpgrader = {
+        id: 'upgraderLinkPrimary',
+        name: 'UpgraderLinkPrimary',
+        room: {
+            name: 'W1N1',
+            controller,
+            find: (type) => type === FIND_STRUCTURES ? [controllerLinkBackedContainer, controllerLifecycleLink] : []
+        },
+        pos: { inRangeTo: (x, y, range) => x === 24 && y === 25 && range === 0 },
+        memory: { role: 'upgrader', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 0, getFreeCapacity: () => 50 }
+    };
+    upgraderService.assignUpgraderTask(linkPrimaryUpgrader);
+    assert.deepStrictEqual(linkPrimaryUpgrader.memory.task, {
+        type: 'WITHDRAW',
+        targetId: 'controllerContainerLifecycle',
+        resourceType: RESOURCE_ENERGY
+    }, 'upgrader should fall back to controller container when the controller link exists only in legacy compatibility storage during strict rollout');
+
+    const plannedOnlyControllerContainer = {
+        id: 'plannedControllerContainer',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 22, y: 25, roomName: 'W1N1' },
+        store: { getUsedCapacity: () => 150 }
+    };
+    const unplannedCloserControllerContainer = {
+        id: 'decoyControllerContainer',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 24, y: 25, roomName: 'W1N1' },
+        store: { getUsedCapacity: () => 150 }
+    };
+    const plannedOnlyControllerLink = {
+        id: 'plannedControllerLink',
+        structureType: STRUCTURE_LINK,
+        pos: { x: 22, y: 24, roomName: 'W1N1' },
+        store: { getUsedCapacity: () => 500 }
+    };
+    const unplannedCloserControllerLink = {
+        id: 'decoyControllerLink',
+        structureType: STRUCTURE_LINK,
+        pos: { x: 24, y: 24, roomName: 'W1N1' },
+        store: { getUsedCapacity: () => 500 }
+    };
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' }
+            },
+            plannedStructures: [
+                {
+                    id: 'controller:container',
+                    role: 'controller_container',
+                    structureType: STRUCTURE_CONTAINER,
+                    pos: { x: 22, y: 25, roomName: 'W1N1' },
+                    lifecycle: { state: 'link_primary', activeFromRcl: 1, replacement: 'controller:link' }
+                },
+                {
+                    id: 'controller:link',
+                    role: 'controller_link',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 22, y: 24, roomName: 'W1N1' },
+                    lifecycle: { state: 'planned', activeFromRcl: 5 }
+                }
+            ]
+        }
+    };
+    const plannedAssetUpgrader = {
+        id: 'upgraderPlannedAssets',
+        name: 'UpgraderPlannedAssets',
+        room: {
+            name: 'W1N1',
+            controller,
+            find: (type) => type === FIND_STRUCTURES ? [
+                unplannedCloserControllerContainer,
+                plannedOnlyControllerContainer,
+                unplannedCloserControllerLink,
+                plannedOnlyControllerLink
+            ] : []
+        },
+        pos: { inRangeTo: (x, y, range) => x === 24 && y === 25 && range === 0 },
+        memory: { role: 'upgrader', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 0, getFreeCapacity: () => 50 }
+    };
+    upgraderService.assignUpgraderTask(plannedAssetUpgrader);
+    assert.deepStrictEqual(plannedAssetUpgrader.memory.task, {
+        type: 'WITHDRAW',
+        targetId: 'plannedControllerLink',
+        resourceType: RESOURCE_ENERGY
+    }, 'upgrader should resolve controller container and link assets from planned structures even when legacy positions are absent');
 
     controllerContainer.store.getUsedCapacity = () => 0;
     const waitingUpgrader = {
@@ -1504,7 +2605,194 @@ async function runBehaviorChecks() {
         return null;
     };
     builderService.assignBuilderTask(containerPriorityBuilder);
-    assert.strictEqual(containerPriorityBuilder.memory.task.targetId, 'sourceContainerSite', 'early-phase builders should prioritize source and controller containers ahead of ordinary containers');
+    assert.strictEqual(containerPriorityBuilder.memory.task.targetId, 'ordinaryContainerSite', 'builder should not treat legacy-only source container planning as canonical during strict rollout');
+    assert.strictEqual(resolveSourceContainerAsset(Memory.rooms.W1N1.cityPlan, 'source1').source, 'legacy', 'legacy adapter should report legacy source for source container assets when planned structures are absent');
+
+    const plannedStructureOnlyBuilder = {
+        name: 'PlannedStructureOnlyBuilder',
+        room: {
+            name: 'W1N1',
+            controller,
+            find: (type) => type === FIND_CONSTRUCTION_SITES ? [ordinaryContainerSite, sourceContainerSite] : []
+        },
+        pos: { x: 13, y: 13, roomName: 'W1N1', getRangeTo: (pos) => Math.max(Math.abs(pos.x - 13), Math.abs(pos.y - 13)) },
+        memory: { role: 'builder', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 50 }
+    };
+    Game.creeps = { PlannedStructureOnlyBuilder: plannedStructureOnlyBuilder };
+    Memory.rooms.W1N1.cityPlan = {
+        center: { x: 13, y: 13, roomName: 'W1N1' },
+        plannedStructures: [{
+            id: 'source1:container',
+            role: 'source_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 9, y: 10, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'active', activeFromRcl: 1, activeUntilRcl: 5 }
+        }]
+    };
+    builderService.assignBuilderTask(plannedStructureOnlyBuilder);
+    assert.strictEqual(plannedStructureOnlyBuilder.memory.task.targetId, 'sourceContainerSite', 'builder should still identify critical containers through plannedStructures when legacy cityPlan fields are absent');
+    assert.strictEqual(resolveSourceContainerAsset(Memory.rooms.W1N1.cityPlan, 'source1').source, 'planned', 'legacy adapter should report planned source for source container assets');
+
+    const hubLinkSite = {
+        id: 'hubLinkSite',
+        structureType: STRUCTURE_LINK,
+        pos: { x: 16, y: 15, roomName: 'W1N1' },
+        progress: 0,
+        progressTotal: 100
+    };
+    const extractorSite = {
+        id: 'extractorSite',
+        structureType: STRUCTURE_EXTRACTOR,
+        pos: { x: 14, y: 15, roomName: 'W1N1' },
+        progress: 0,
+        progressTotal: 100
+    };
+    Memory.rooms.W1N1.cityPlan = {
+        center: { x: 15, y: 15, roomName: 'W1N1' },
+        plannedStructures: [
+            {
+                id: 'hub:link',
+                role: 'hub_link',
+                structureType: STRUCTURE_LINK,
+                pos: { x: 16, y: 15, roomName: 'W1N1' },
+                phase: 'logistics_link',
+                group: 'logistics',
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            },
+            {
+                id: 'mineral:mineral1:extractor',
+                role: 'mineral_extractor',
+                structureType: STRUCTURE_EXTRACTOR,
+                pos: { x: 14, y: 15, roomName: 'W1N1' },
+                phase: 'industry',
+                group: 'industry',
+                lifecycle: { state: 'planned', activeFromRcl: 6 }
+            }
+        ]
+    };
+    global.RoomPhase.W1N1 = { phase: 'terminal' };
+    global.RoomCache.W1N1 = { constructionSites: ['hubLinkSite', 'extractorSite'] };
+    Game.getObjectById = (id) => {
+        if (id === 'hubLinkSite') return hubLinkSite;
+        if (id === 'extractorSite') return extractorSite;
+        return null;
+    };
+    const v2Builder = {
+        room: {
+            name: 'W1N1',
+            controller,
+            find: (type) => type === FIND_CONSTRUCTION_SITES ? [hubLinkSite, extractorSite] : []
+        },
+        pos: { x: 15, y: 15, roomName: 'W1N1', getRangeTo: (pos) => Math.max(Math.abs(pos.x - 15), Math.abs(pos.y - 15)) },
+        memory: { role: 'builder', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 50 }
+    };
+    builderService.assignBuilderTask(v2Builder);
+    assert.strictEqual(v2Builder.memory.task.targetId, 'hubLinkSite', 'builder should prioritize planned logistics hub link assets over lower-value industry extractor work in terminal phase');
+
+    const genericTerminalSite = {
+        id: 'genericTerminalSite',
+        structureType: STRUCTURE_TERMINAL,
+        pos: { x: 17, y: 15, roomName: 'W1N1' },
+        progress: 0,
+        progressTotal: 100
+    };
+    const hubTerminalSite = {
+        id: 'hubTerminalSite',
+        structureType: STRUCTURE_TERMINAL,
+        pos: { x: 16, y: 15, roomName: 'W1N1' },
+        progress: 0,
+        progressTotal: 100
+    };
+    Memory.rooms.W1N1.cityPlan = {
+        center: { x: 15, y: 15, roomName: 'W1N1' },
+        plannedStructures: [{
+            id: 'hub:terminal',
+            role: 'hub_terminal',
+            structureType: STRUCTURE_TERMINAL,
+            pos: { x: 16, y: 15, roomName: 'W1N1' },
+            phase: 'industry',
+            group: 'industry',
+            lifecycle: { state: 'planned', activeFromRcl: 6 }
+        }]
+    };
+    global.RoomCache.W1N1 = { constructionSites: ['genericTerminalSite', 'hubTerminalSite'] };
+    Game.getObjectById = (id) => {
+        if (id === 'genericTerminalSite') return genericTerminalSite;
+        if (id === 'hubTerminalSite') return hubTerminalSite;
+        return null;
+    };
+    const roleAwareBuilder = {
+        room: {
+            name: 'W1N1',
+            controller,
+            find: (type) => type === FIND_CONSTRUCTION_SITES ? [genericTerminalSite, hubTerminalSite] : []
+        },
+        pos: { x: 15, y: 15, roomName: 'W1N1', getRangeTo: (pos) => Math.max(Math.abs(pos.x - 15), Math.abs(pos.y - 15)) },
+        memory: { role: 'builder', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 50 }
+    };
+    builderService.assignBuilderTask(roleAwareBuilder);
+    assert.strictEqual(roleAwareBuilder.memory.task.targetId, 'hubTerminalSite', 'builder should prefer the planned hub terminal over an unplanned terminal site of the same structure type');
+    assert.strictEqual(getBuildPolicy(Memory.rooms.W1N1.cityPlan, hubTerminalSite).priorityModifier > 0, true, 'city asset policy should elevate planned hub terminal construction');
+    const activeRoadSite = {
+        id: 'activeRoadSite',
+        structureType: STRUCTURE_ROAD,
+        pos: { x: 16, y: 15, roomName: 'W1N1' },
+        progress: 0,
+        progressTotal: 100
+    };
+    const retiringRoadSite = {
+        id: 'retiringRoadSite',
+        structureType: STRUCTURE_ROAD,
+        pos: { x: 17, y: 15, roomName: 'W1N1' },
+        progress: 0,
+        progressTotal: 100
+    };
+    Memory.rooms.W1N1.cityPlan = {
+        center: { x: 15, y: 15, roomName: 'W1N1' },
+        plannedStructures: [
+            {
+                id: 'road:logistics:16,15',
+                role: 'logistics_road',
+                structureType: STRUCTURE_ROAD,
+                pos: { x: 16, y: 15, roomName: 'W1N1' },
+                phase: 'logistics_link',
+                group: 'infrastructure',
+                lifecycle: { state: 'active', activeFromRcl: 3 }
+            },
+            {
+                id: 'road:logistics:17,15',
+                role: 'logistics_road',
+                structureType: STRUCTURE_ROAD,
+                pos: { x: 17, y: 15, roomName: 'W1N1' },
+                phase: 'logistics_link',
+                group: 'infrastructure',
+                lifecycle: { state: 'retiring', activeFromRcl: 3 }
+            }
+        ]
+    };
+    global.RoomCache.W1N1 = { constructionSites: ['activeRoadSite', 'retiringRoadSite'] };
+    Game.getObjectById = (id) => {
+        if (id === 'activeRoadSite') return activeRoadSite;
+        if (id === 'retiringRoadSite') return retiringRoadSite;
+        return null;
+    };
+    const lifecycleAwareBuilder = {
+        room: {
+            name: 'W1N1',
+            controller,
+            find: (type) => type === FIND_CONSTRUCTION_SITES ? [activeRoadSite, retiringRoadSite] : []
+        },
+        pos: { x: 15, y: 15, roomName: 'W1N1', getRangeTo: (pos) => Math.max(Math.abs(pos.x - 15), Math.abs(pos.y - 15)) },
+        memory: { role: 'builder', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 50 }
+    };
+    builderService.assignBuilderTask(lifecycleAwareBuilder);
+    assert.strictEqual(lifecycleAwareBuilder.memory.task.targetId, 'activeRoadSite', 'builder should avoid retiring logistics road sites when an active planned road site is available');
+    assert.strictEqual(getBuildPolicy(Memory.rooms.W1N1.cityPlan, retiringRoadSite).buildable, false, 'city asset policy should block retiring logistics road sites from normal build priority');
 
     assert.deepStrictEqual(TaskGuard.validate({
         memory: { role: 'builder' },
@@ -1846,6 +3134,12 @@ async function runBehaviorChecks() {
         pos: { x: 24, y: 25, roomName: 'W1N1' },
         store: makeStore({ energy: 150 }, 2000)
     };
+    const marketSourceContainer = {
+        id: 'marketSourceContainer',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 11, y: 10, roomName: 'W1N1' },
+        store: makeStore({ energy: 150 }, 2000)
+    };
     const marketDrop = {
         id: 'marketDrop',
         resourceType: RESOURCE_ENERGY,
@@ -1861,7 +3155,7 @@ async function runBehaviorChecks() {
             let results = [];
             if (type === FIND_DROPPED_RESOURCES) results = [marketDrop];
             if (type === FIND_MY_STRUCTURES) results = [marketSpawn, marketStorage, marketTerminal, marketLab];
-            if (type === FIND_STRUCTURES) results = [marketSpawn, marketStorage, marketTerminal, marketLab, marketControllerContainer];
+            if (type === FIND_STRUCTURES) results = [marketSpawn, marketStorage, marketTerminal, marketLab, marketControllerContainer, marketSourceContainer];
             if (opts.filter) return results.filter(opts.filter);
             return results;
         }
@@ -1872,6 +3166,7 @@ async function runBehaviorChecks() {
         marketTerminal,
         marketLab,
         marketControllerContainer,
+        marketSourceContainer,
         marketDrop
     };
     Memory.rooms.W1N1 = {
@@ -1923,9 +3218,36 @@ async function runBehaviorChecks() {
     assert.strictEqual(global.ResourceMarket.W1N1.supplyMode, 'self_supply', 'resource market should keep self supply mode when room phase marks logistics as self supply');
     assert.strictEqual(spawnDemand.targetAmount, 300, 'economy energy demand should record target store amount');
     const controllerBufferDemand = global.ResourceMarket.W1N1.demands.find((demand) => demand.targetId === 'marketControllerContainer' && demand.demandType === 'buffer');
-    assert.ok(controllerBufferDemand, 'resource market should create controller buffer demand from city plan');
-    assert.strictEqual(controllerBufferDemand.demandType, 'buffer', 'controller container should be tracked as buffer demand');
-    assert.strictEqual(controllerBufferDemand.minAmount, 200, 'controller buffer demand should define a refill floor');
+    assert.ok(!controllerBufferDemand, 'resource market should not create controller buffer demand from legacy-only controller container compatibility storage during strict rollout');
+    assert.ok(global.ResourceMarket.W1N1.demands.some((demand) => demand.targetId === 'marketControllerContainer' && demand.purpose === 'storage_balance'), 'resource market should fall back to generic container demand handling when only legacy controller container planning exists during strict rollout');
+    assert.strictEqual(getControllerContainerAsset(Memory.rooms.W1N1.cityPlan).pos.x, 24, 'legacy adapter should fall back to legacy controller container positions when planned assets are absent');
+    assert.strictEqual(resolveControllerContainerAsset(Memory.rooms.W1N1.cityPlan).source, 'legacy', 'legacy adapter should report legacy fallback for controller container assets');
+    Memory.rooms.W1N1.cityPlan.sources = {
+        source1: {
+            containerPos: { x: 11, y: 10, roomName: 'W1N1' }
+        }
+    };
+    resourceMarket.init();
+    resourceMarket.analyze();
+    assert.ok(global.ResourceMarket.W1N1.demands.some((demand) => demand.targetId === 'marketSourceContainer' && demand.purpose === 'storage_balance'), 'resource market should treat legacy-only source containers as generic container demand targets during strict rollout');
+    Memory.rooms.W1N1.cityPlan.plannedStructures = [{
+        id: 'controller:container',
+        role: 'controller_container',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 24, y: 25, roomName: 'W1N1' },
+        lifecycle: { state: 'link_primary', activeFromRcl: 1, replacement: 'controller:link' }
+    }];
+    resourceMarket.init();
+    resourceMarket.analyze();
+    const linkPrimaryControllerDemand = global.ResourceMarket.W1N1.demands.find((demand) => demand.targetId === 'marketControllerContainer' && demand.demandType === 'buffer');
+    assert.ok(linkPrimaryControllerDemand, 'resource market should keep a reduced controller buffer demand during link-primary transition');
+    assert.strictEqual(linkPrimaryControllerDemand.demandType, 'buffer', 'controller container should be tracked as buffer demand once a canonical planned asset exists');
+    assert.strictEqual(linkPrimaryControllerDemand.priority, 35, 'controller buffer demand should be downgraded once controller link is primary');
+    Memory.rooms.W1N1.cityPlan.plannedStructures[0].lifecycle.state = 'retired_ready';
+    resourceMarket.init();
+    resourceMarket.analyze();
+    assert.ok(!global.ResourceMarket.W1N1.demands.some((demand) => demand.targetId === 'marketControllerContainer' && demand.demandType === 'buffer'), 'resource market should stop emitting controller buffer demand once the controller container is retired-ready');
+    delete Memory.rooms.W1N1.cityPlan.plannedStructures;
     resourceMarket.assignHauler(Game.creeps.HaulerA);
     resourceMarket.assignHauler(Game.creeps.HaulerB);
     assert.deepStrictEqual(Game.creeps.HaulerA.memory.task, { type: 'PICKUP', targetId: 'marketDrop' }, 'resource market should assign first empty hauler to picked-up dropped resource');
@@ -1966,7 +3288,89 @@ async function runBehaviorChecks() {
     resourceMarket.init();
     resourceMarket.buildRoomMarket(controllerSourceRoom);
     resourceMarket.assignHauler(controllerSourceHauler);
-    assert.strictEqual(controllerSourceHauler.memory.task, undefined, 'hauler should not withdraw energy from the controller buffer container as a general supply');
+    assert.deepStrictEqual(controllerSourceHauler.memory.task, {
+        type: 'WITHDRAW',
+        targetId: 'marketControllerContainer',
+        resourceType: 'energy',
+        amount: 100
+    }, 'hauler should treat legacy-only controller containers as generic supply sources during strict rollout');
+
+    const retiringSourceContainer = {
+        id: 'retiringSourceContainer',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 11, y: 10, roomName: 'W1N1' },
+        store: makeStore({ energy: 500 }, 2000),
+        hits: 90000,
+        hitsMax: 250000
+    };
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            plannedStructures: [{
+                id: 'source1:container',
+                role: 'source_container',
+                structureType: STRUCTURE_CONTAINER,
+                pos: { x: 11, y: 10, roomName: 'W1N1' },
+                scope: { sourceId: 'source1' },
+                lifecycle: { state: 'retiring', activeFromRcl: 1, activeUntilRcl: 5, replacement: 'source1:link' }
+            }]
+        },
+        resourceMarket: { reservations: { supply: {}, demand: {} } }
+    };
+    const retiringContainerRoom = {
+        name: 'W1N1',
+        controller: { my: true, pos: { x: 25, y: 25, roomName: 'W1N1' } },
+        storage: null,
+        find: (type, opts = {}) => {
+            let results = [];
+            if (type === FIND_DROPPED_RESOURCES) results = [];
+            if (type === FIND_MY_STRUCTURES) results = [marketSpawn];
+            if (type === FIND_STRUCTURES) results = [marketSpawn, retiringSourceContainer];
+            if (opts.filter) return results.filter(opts.filter);
+            return results;
+        }
+    };
+    Game.rooms = { W1N1: retiringContainerRoom };
+    Game.creeps = {};
+    Game.getObjectById = (id) => {
+        if (id === 'marketSpawn') return marketSpawn;
+        if (id === 'retiringSourceContainer') return retiringSourceContainer;
+        return null;
+    };
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(retiringContainerRoom);
+    assert.ok(!global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'retiringSourceContainer'), 'resource market should stop advertising retiring source containers as regular supply');
+    assert.ok(!global.ResourceMarket.W1N1.demands.some((demand) => demand.targetId === 'retiringSourceContainer' && demand.purpose === 'storage_balance'), 'resource market should not treat source containers as generic storage-balance sinks');
+    Memory.rooms.W1N1.cityPlan = {
+        sources: {
+            source1: {
+                containerPos: { x: 11, y: 10, roomName: 'W1N1' }
+            }
+        }
+    };
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(retiringContainerRoom);
+    assert.ok(global.ResourceMarket.W1N1.demands.some((demand) => demand.targetId === 'retiringSourceContainer' && demand.purpose === 'storage_balance'), 'resource market should fall back to generic storage-balance demand when only legacy source container storage exists during strict rollout');
+    Memory.rooms.W1N1.cityPlan.plannedStructures = [{
+        id: 'source1:container',
+        role: 'source_container',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 11, y: 10, roomName: 'W1N1' },
+        scope: { sourceId: 'source1' },
+        lifecycle: { state: 'retiring', activeFromRcl: 1, activeUntilRcl: 5, replacement: 'source1:link' }
+    }];
+    Memory.rooms.W1N1.cityPlan.plannedStructures[0].lifecycle.state = 'link_primary';
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(retiringContainerRoom);
+    const linkPrimarySupply = global.ResourceMarket.W1N1.supplies.find((supply) => supply.targetId === 'retiringSourceContainer');
+    assert.ok(linkPrimarySupply, 'resource market should keep link-primary source containers available as fallback supply');
+    assert.strictEqual(linkPrimarySupply.priority, 20, 'resource market should downgrade link-primary source container pickup priority so dedicated link logistics stay primary');
+    assert.strictEqual(getLogisticsPolicy(Memory.rooms.W1N1.cityPlan, retiringSourceContainer).supplyMode, 'fallback', 'city asset policy should expose source container link-primary supply as fallback logistics');
+    Memory.rooms.W1N1.cityPlan.plannedStructures[0].lifecycle.state = 'retired_ready';
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(retiringContainerRoom);
+    assert.ok(!global.ResourceMarket.W1N1.supplies.some((supply) => supply.targetId === 'retiringSourceContainer'), 'resource market should stop advertising retired-ready source containers as supply');
+    assert.strictEqual(shouldParticipateInLogistics(Memory.rooms.W1N1.cityPlan, retiringSourceContainer), false, 'city asset policy should exclude retired-ready source containers from logistics');
+    Memory.rooms.W1N1.cityPlan.plannedStructures[0].lifecycle.state = 'retiring';
 
     const controllerBufferHauler = {
         name: 'ControllerBufferHauler',
@@ -1985,6 +3389,44 @@ async function runBehaviorChecks() {
         targetId: 'marketSpawn',
         resourceType: RESOURCE_ENERGY
     }, 'loaded hauler should still prioritize spawn before topping up the controller buffer');
+
+    const previousMarketCityPlan = Memory.rooms.W1N1.cityPlan;
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            plannedStructures: [
+                {
+                    id: 'controller:container',
+                    role: 'controller_container',
+                    structureType: STRUCTURE_CONTAINER,
+                    pos: { x: 24, y: 25, roomName: 'W1N1' },
+                    lifecycle: { state: 'active', activeFromRcl: 1 }
+                },
+                {
+                    id: 'hub:terminal',
+                    role: 'hub_terminal',
+                    structureType: STRUCTURE_TERMINAL,
+                    pos: { x: 12, y: 10, roomName: 'W1N1' },
+                    phase: 'industry',
+                    group: 'industry',
+                    lifecycle: { state: 'planned', activeFromRcl: 6 }
+                }
+            ]
+        },
+        resourceMarket: { reservations: { supply: {}, demand: {} } }
+    };
+    resourceMarket.init();
+    resourceMarket.buildRoomMarket(marketRoom);
+    assert.ok(global.ResourceMarket.W1N1.demands.some((demand) => {
+        return demand.targetId === 'marketControllerContainer' &&
+            demand.purpose === 'controller_buffer';
+    }), 'resource market should derive controller buffer demand from planned role even when legacy controller container position is absent');
+    assert.strictEqual(getLogisticsPolicy(Memory.rooms.W1N1.cityPlan, marketControllerContainer).demandMode, 'buffer', 'city asset policy should expose controller containers as buffer demand assets');
+    assert.ok(global.ResourceMarket.W1N1.supplies.some((supply) => {
+        return supply.targetId === 'marketTerminal' &&
+            supply.resourceType === RESOURCE_LEMERGIUM &&
+            supply.priority >= 65;
+    }), 'resource market should keep hub terminal supplies visible through planned role lookup');
+    Memory.rooms.W1N1.cityPlan = previousMarketCityPlan;
     Game.rooms = { W1N1: marketRoom };
     Game.getObjectById = (id) => marketObjects[id] || Game.creeps[id] || null;
 
@@ -3053,12 +4495,21 @@ async function runBehaviorChecks() {
     };
     global.CONTROLLER_STRUCTURES = {
         [STRUCTURE_EXTENSION]: { 4: 20, 6: 40, 8: 60 },
+        [STRUCTURE_LINK]: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 2, 6: 3, 7: 4, 8: 6 },
         [STRUCTURE_TOWER]: { 3: 1, 4: 1, 5: 2, 6: 2, 7: 3, 8: 6 },
-        [STRUCTURE_STORAGE]: { 4: 1, 5: 1, 6: 1, 7: 1, 8: 1 }
+        [STRUCTURE_STORAGE]: { 4: 1, 5: 1, 6: 1, 7: 1, 8: 1 },
+        [STRUCTURE_TERMINAL]: { 6: 1, 7: 1, 8: 1 },
+        [STRUCTURE_LAB]: { 6: 3, 7: 6, 8: 10 },
+        [STRUCTURE_FACTORY]: { 7: 1, 8: 1 },
+        [STRUCTURE_OBSERVER]: { 8: 1 },
+        [STRUCTURE_POWER_SPAWN]: { 8: 1 },
+        [STRUCTURE_NUKER]: { 8: 1 },
+        [STRUCTURE_EXTRACTOR]: { 6: 1, 7: 1, 8: 1 }
     };
     const cityPlanner = new CityPlannerService('CityPlanner');
     const defensePlanner = new DefensePlannerService('DefensePlanner');
     const sourceForPlan = { id: 'source1', pos: { x: 10, y: 10, roomName: 'W1N1' } };
+    const mineralForPlan = { id: 'mineral1', pos: { x: 22, y: 22, roomName: 'W1N1' } };
     const controllerForPlan = { id: 'controller1', my: true, level: 4, pos: { x: 25, y: 25, roomName: 'W1N1' } };
     const spawnForPlan = { id: 'spawn1', pos: { x: 15, y: 15, roomName: 'W1N1' }, structureType: STRUCTURE_SPAWN };
     Game.map = {
@@ -3073,6 +4524,7 @@ async function runBehaviorChecks() {
         find: (type) => {
             if (type === FIND_MY_SPAWNS) return [spawnForPlan];
             if (type === FIND_SOURCES) return [sourceForPlan];
+            if (type === FIND_MINERALS) return [mineralForPlan];
             if (type === FIND_STRUCTURES) return [spawnForPlan];
             if (type === FIND_CONSTRUCTION_SITES) return [];
             return [];
@@ -3083,11 +4535,841 @@ async function runBehaviorChecks() {
     assert.strictEqual(firstCenter.x, 15, 'base center should not drift to storage after it is persisted');
 
     const cityPlan = cityPlanner.buildCityPlan(cityRoom, firstCenter);
-    assert.strictEqual(cityPlan.version, 1, 'city plan should be versioned');
-    assert.ok(cityPlan.sources.source1.primaryMiningPos, 'city plan should include source mining positions');
-    assert.ok(cityPlan.sources.source1.containerPos, 'city plan should include source container position');
-    assert.ok(cityPlan.controller.containerPos, 'city plan should include controller container position');
+    assert.strictEqual(cityPlan.version, 1, 'city plan should keep its internal planner version');
+    assert.strictEqual(cityPlan.schemaVersion, 4, 'city plan should publish schema version 4 for staged city planning');
+    assert.strictEqual(CITY_PLAN_SCHEMA_VERSION, 4, 'city plan schema should publish the current supported schema version');
+    assert.strictEqual(cityPlan.sources.source1.containerPos, undefined, 'city plan should stop publishing legacy source container compatibility storage');
+    assert.strictEqual(cityPlan.controller.containerPos, undefined, 'city plan should stop publishing legacy controller container compatibility storage');
+    assert.deepStrictEqual(cityPlan.sourceRuntime.sources.source1, {
+        preferredOutputRole: 'source_container',
+        deliveryMode: 'container'
+    }, 'city plan should publish canonical source runtime storage for source logistics intent');
+    assert.strictEqual(cityPlan.sources.source1.preferredOutputRole, undefined, 'city plan should stop publishing legacy source runtime output-role compatibility fields');
+    assert.strictEqual(cityPlan.sources.source1.deliveryMode, undefined, 'city plan should stop publishing legacy source runtime delivery-mode compatibility fields');
+    assert.deepStrictEqual(cityPlan.workPositions.sources.source1.mining.primary, { x: 9, y: 10, roomName: 'W1N1' }, 'city plan should publish canonical source mining work positions');
+    assert.deepStrictEqual(cityPlan.workPositions.controller.upgrade.primary, { x: 24, y: 25, roomName: 'W1N1' }, 'city plan should publish canonical controller upgrade work positions');
+    assert.strictEqual(cityPlan.sources.source1.primaryMiningPos, undefined, 'city plan should stop publishing legacy source mining-position compatibility fields');
+    assert.strictEqual(cityPlan.controller.primaryUpgradePos, undefined, 'city plan should stop publishing legacy controller upgrade-position compatibility fields');
     assert.ok(cityPlan.roadAnchors.length >= 2, 'city plan should expose road anchors for source and controller zones');
+    assert.ok(cityPlan.hub && cityPlan.hub.center, 'city plan should publish a hub section for mid and late game planning');
+    assert.ok(cityPlan.phaseGoals && Array.isArray(cityPlan.phaseGoals.bootstrap), 'city plan should publish phase goals for staged consumers');
+    assert.ok(cityPlan.assetGroups && Array.isArray(cityPlan.assetGroups.logistics), 'city plan should publish grouped asset ids');
+    assert.ok(Array.isArray(cityPlan.plannedStructures) && cityPlan.plannedStructures.length > 0, 'city plan should expose planned structures for staged planning consumers');
+    assert.ok(cityPlan.plannedStructures.some((entry) => entry.role === 'source_container' && entry.structureType === STRUCTURE_CONTAINER), 'city plan should publish planned source containers in the compatibility model');
+    assert.ok(cityPlan.plannedStructures.some((entry) => entry.role === 'controller_container' && entry.structureType === STRUCTURE_CONTAINER), 'city plan should publish planned controller containers in the compatibility model');
+    assert.ok(cityPlan.plannedStructures.some((entry) => entry.role === 'core_road' && entry.structureType === STRUCTURE_ROAD), 'city plan should publish planned core roads in the compatibility model');
+    assert.ok(!cityPlan.plannedStructures.some((entry) => entry.role === 'source_link'), 'pre-RCL5 plans should not publish source links yet');
+    const migratedLegacyPlan = migrateCityPlanToCurrent({
+        schemaVersion: 2,
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' },
+                containerPos: { x: 9, y: 10, roomName: 'W1N1' },
+                linkPos: { x: 10, y: 11, roomName: 'W1N1' }
+            }
+        },
+        controller: {
+            primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' },
+            containerPos: { x: 24, y: 25, roomName: 'W1N1' },
+            linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+        }
+    });
+    assert.strictEqual(migratedLegacyPlan.changed, true, 'city plan migration should report changes when migrating a v2 compatibility plan');
+    assert.strictEqual(migratedLegacyPlan.fromVersion, 2, 'city plan migration should report the source schema version');
+    assert.strictEqual(migratedLegacyPlan.toVersion, 4, 'city plan migration should report the target schema version');
+    assert.strictEqual(migratedLegacyPlan.cityPlan.schemaVersion, 4, 'city plan migration should upgrade legacy plans to schema version 4');
+    assert.strictEqual(migratedLegacyPlan.changes.plannedStructuresAdded, 4, 'city plan migration should count regenerated planned structures for v3 observability');
+    assert.strictEqual(migratedLegacyPlan.changes.workPositionsAdded, 2, 'city plan migration should count regenerated work positions for v3 observability');
+    assert.strictEqual(migratedLegacyPlan.changes.runtimeDefaultsAdded, 2, 'city plan migration should count canonical source runtime defaults backfilled for v3 observability');
+    assert.strictEqual(migratedLegacyPlan.changes.sourceRuntimeEntriesAdded, 1, 'city plan migration should count canonical source runtime entries generated during source runtime backfill');
+    assert.strictEqual(migratedLegacyPlan.changes.legacyStoragePreserved, true, 'city plan migration should report that legacy compatibility storage remains preserved in v3.0');
+    assert.deepStrictEqual(migratedLegacyPlan.cityPlan.workPositions.sources.source1.mining.primary, { x: 9, y: 10, roomName: 'W1N1' }, 'city plan migration should regenerate source work positions from legacy source mining coordinates');
+    assert.deepStrictEqual(migratedLegacyPlan.cityPlan.workPositions.controller.upgrade.primary, { x: 24, y: 25, roomName: 'W1N1' }, 'city plan migration should regenerate controller work positions from legacy upgrade coordinates');
+    assert.ok(migratedLegacyPlan.cityPlan.plannedStructures.some((entry) => entry.id === 'source1:container' && entry.role === 'source_container'), 'city plan migration should regenerate source container planned assets from legacy coordinates');
+    assert.ok(migratedLegacyPlan.cityPlan.plannedStructures.some((entry) => entry.id === 'source1:link' && entry.role === 'source_link'), 'city plan migration should regenerate source link planned assets from legacy coordinates');
+    assert.ok(migratedLegacyPlan.cityPlan.plannedStructures.some((entry) => entry.id === 'controller:container' && entry.role === 'controller_container'), 'city plan migration should regenerate controller container planned assets from legacy coordinates');
+    assert.ok(migratedLegacyPlan.cityPlan.plannedStructures.some((entry) => entry.id === 'controller:link' && entry.role === 'controller_link'), 'city plan migration should regenerate controller link planned assets from legacy coordinates');
+    assert.deepStrictEqual(migratedLegacyPlan.cityPlan.sources.source1.containerPos, { x: 9, y: 10, roomName: 'W1N1' }, 'city plan migration should preserve legacy source compatibility storage in v3.0');
+    assert.deepStrictEqual(migratedLegacyPlan.cityPlan.controller.containerPos, { x: 24, y: 25, roomName: 'W1N1' }, 'city plan migration should preserve legacy controller compatibility storage in v3.0');
+    assert.deepStrictEqual(migratedLegacyPlan.cityPlan.sourceRuntime.sources.source1, {
+        preferredOutputRole: 'source_container',
+        deliveryMode: 'container'
+    }, 'city plan migration should generate default canonical source runtime storage when legacy source runtime fields are no longer imported');
+    const migratedDefaultsPlan = migrateCityPlanToCurrent({
+        schemaVersion: 2,
+        sources: {
+            source2: {
+                containerPos: { x: 8, y: 8, roomName: 'W1N1' }
+            }
+        }
+    });
+    assert.strictEqual(migratedDefaultsPlan.cityPlan.sources.source2.preferredOutputRole, undefined, 'city plan migration should not backfill missing source runtime output-role defaults into legacy source compatibility storage');
+    assert.strictEqual(migratedDefaultsPlan.cityPlan.sources.source2.deliveryMode, undefined, 'city plan migration should not backfill missing source runtime delivery-mode defaults into legacy source compatibility storage');
+    assert.strictEqual(migratedDefaultsPlan.changes.runtimeDefaultsAdded, 2, 'city plan migration should report canonical source runtime defaults that were added');
+    assert.deepStrictEqual(migratedDefaultsPlan.cityPlan.sourceRuntime.sources.source2, {
+        preferredOutputRole: 'source_container',
+        deliveryMode: 'container'
+    }, 'city plan migration should materialize defaulted source runtime values only in canonical source runtime storage');
+    const preservedCanonicalPlan = migrateCityPlan({
+        schemaVersion: 2,
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' }
+            }
+        },
+        workPositions: {
+            sources: {
+                source1: {
+                    mining: {
+                        primary: { x: 7, y: 7, roomName: 'W1N1' }
+                    }
+                }
+            }
+        },
+        plannedStructures: [{
+            id: 'source1:container',
+            role: 'source_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 7, y: 7, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'active', activeFromRcl: 1 }
+        }]
+    });
+    assert.deepStrictEqual(preservedCanonicalPlan.cityPlan.workPositions.sources.source1.mining.primary, { x: 7, y: 7, roomName: 'W1N1' }, 'city plan migration should preserve existing canonical work positions');
+    assert.strictEqual(preservedCanonicalPlan.cityPlan.plannedStructures.filter((entry) => entry.id === 'source1:container').length, 1, 'city plan migration should not duplicate existing canonical planned assets');
+    const activeSourceContainer = getActivePlannedStructure(cityPlan, 'source_container', { sourceId: 'source1' });
+    assert.ok(activeSourceContainer && activeSourceContainer.pos, 'city plan helpers should resolve active planned structures by role and scope');
+    assert.strictEqual(getPlannedStructuresByRole(cityPlan, 'controller_container').length, 1, 'city plan helpers should return role-filtered planned structures');
+    assert.ok(getPlannedStructuresByPhase(cityPlan, 'bootstrap').length > 0, 'city plan helpers should expose phase-filtered planned structures');
+    assert.ok(getPlannedStructuresByGroup(cityPlan, 'logistics').length > 0, 'city plan helpers should expose grouped city assets');
+    assert.ok(getHubPlan(cityPlan) && getHubPlan(cityPlan).center, 'city plan helpers should return the hub plan');
+    assert.strictEqual(getStructureLifecycle(cityPlan, activeSourceContainer).state, 'active', 'city plan helpers should expose structure lifecycle metadata');
+    assert.strictEqual(findPlannedStructureForObject(cityPlan, activeSourceContainer).id, activeSourceContainer.id, 'city plan helpers should resolve planned entries from live structures');
+    assert.strictEqual(getPlannedRole(cityPlan, activeSourceContainer), 'source_container', 'city plan helpers should expose planned role lookup for structures');
+    assert.strictEqual(getPlannedGroup(cityPlan, activeSourceContainer), 'logistics', 'city plan helpers should expose planned group lookup for structures');
+    assert.strictEqual(getPlannedLifecycleState(cityPlan, activeSourceContainer), 'active', 'city plan helpers should expose lifecycle state lookup for structures');
+    assert.strictEqual(isLifecycleState(activeSourceContainer, ['active']), true, 'city plan helpers should match lifecycle state on planned entries');
+    assert.deepStrictEqual(validateCityPlan(cityPlan), { valid: true, errors: [] }, 'city plan schema should accept planner output');
+    assert.strictEqual(getControllerContainerAsset(cityPlan).role, 'controller_container', 'legacy adapter should resolve controller container assets from planned structures');
+    assert.strictEqual(getSourceContainerAsset(cityPlan, 'source1').role, 'source_container', 'legacy adapter should resolve source container assets by source id');
+    assert.strictEqual(resolveControllerContainerAsset(cityPlan).source, 'planned', 'legacy adapter should report planned source when planned controller container exists');
+    assert.strictEqual(resolveSourceContainerAsset(cityPlan, 'source1').source, 'planned', 'legacy adapter should report planned source when planned source container exists');
+    assert.strictEqual(resolveSourceContainerAsset({}, 'missing').source, 'none', 'legacy adapter should report none when no source container asset exists');
+    assert.strictEqual(resolveControllerContainerAsset({
+        controller: { containerPos: { x: 24, y: 25, roomName: 'W1N1' } }
+    }, { allowLegacyFallback: false }).source, 'missing', 'legacy adapter strict controller-container resolution should not fall back to legacy coordinates');
+    assert.strictEqual(resolveSourceContainerAsset({
+        sources: {
+            source1: { containerPos: { x: 9, y: 10, roomName: 'W1N1' } }
+        }
+    }, 'source1', { allowLegacyFallback: false }).source, 'missing', 'legacy adapter strict source-container resolution should not fall back to legacy coordinates');
+    assert.strictEqual(resolveControllerLinkAsset({
+        controller: { linkPos: { x: 24, y: 24, roomName: 'W1N1' } }
+    }, { allowLegacyFallback: false }).source, 'missing', 'legacy adapter strict controller-link resolution should not fall back to legacy coordinates');
+    assert.strictEqual(resolveSourceLinkAsset({
+        sources: {
+            source1: { linkPos: { x: 10, y: 11, roomName: 'W1N1' } }
+        }
+    }, 'source1', { allowLegacyFallback: false }).source, 'missing', 'legacy adapter strict source-link resolution should not fall back to legacy coordinates');
+    assert.strictEqual(resolveControllerContainerAsset(cityPlan, { allowLegacyFallback: false }).source, 'planned', 'legacy adapter strict controller-container resolution should still return canonical planned assets');
+    assert.strictEqual(getControllerContainerAsset({
+        controller: { containerPos: { x: 24, y: 25, roomName: 'W1N1' } }
+    }, { allowLegacyFallback: false }), null, 'legacy adapter strict controller-container getter should not expose legacy-only compatibility storage');
+    assert.strictEqual(getControllerLinkAsset({
+        controller: { linkPos: { x: 24, y: 24, roomName: 'W1N1' } }
+    }, { allowLegacyFallback: false }), null, 'legacy adapter strict controller-link getter should not expose legacy-only compatibility storage');
+    assert.strictEqual(getSourceContainerAsset({
+        sources: {
+            source1: { containerPos: { x: 9, y: 10, roomName: 'W1N1' } }
+        }
+    }, 'source1', { allowLegacyFallback: false }), null, 'legacy adapter strict source-container getter should not expose legacy-only compatibility storage');
+    assert.strictEqual(resolveSourceContainerAsset(cityPlan, 'source1', { allowLegacyFallback: false }).source, 'planned', 'legacy adapter strict source-container resolution should still return canonical planned assets');
+    assert.strictEqual(getSourceContainerAsset(cityPlan, 'source1', { allowLegacyFallback: false }).role, 'source_container', 'legacy adapter strict source-container getter should still return canonical planned assets');
+    assert.strictEqual(getAssetPolicy(cityPlan, activeSourceContainer).role, 'source_container', 'city asset policy should resolve planned role for source containers');
+    assert.strictEqual(getLogisticsPolicy(cityPlan, activeSourceContainer).supplyMode, 'active', 'city asset policy should advertise active source containers as normal logistics supply');
+    assert.strictEqual(getMaintenancePolicy(cityPlan, activeSourceContainer).repairMode, 'band', 'city asset policy should expose band repair mode for active source containers');
+    assert.strictEqual(getSourceOutputPolicy(cityPlan, 'source1').bodyProfile, 'miner', 'city asset policy should default source output policy to stationary miner when source-link output is not planned');
+    const transitionSourcePolicy = getSourceOutputPolicy({
+        sourceRuntime: {
+            sources: {
+                source1: {
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'transition'
+                }
+            }
+        },
+        plannedStructures: [{
+            id: 'source1:link',
+            role: 'source_link',
+            structureType: STRUCTURE_LINK,
+            pos: { x: 10, y: 11, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'planned', activeFromRcl: 5 }
+        }]
+    }, 'source1', {
+        sourceLinkOnline: true,
+        controllerLinkOnline: true,
+        normalEnergyPosture: true,
+        stableTicks: 1,
+        retireObservationTicks: 1500
+    });
+    assert.strictEqual(transitionSourcePolicy.usesLinkOutput, true, 'city asset policy should recognize source-link output usage from source runtime state');
+    assert.strictEqual(transitionSourcePolicy.transitioningToLink, true, 'city asset policy should report transition mode before link-primary promotion');
+    assert.strictEqual(transitionSourcePolicy.shouldUseLinkMiner, true, 'city asset policy should request link-miner bodies for link-output sources');
+    const linkPrimarySourcePolicy = getSourceOutputPolicy({
+        sourceRuntime: {
+            sources: {
+                source1: {
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'link_primary'
+                }
+            }
+        },
+        plannedStructures: [{
+            id: 'source1:link',
+            role: 'source_link',
+            structureType: STRUCTURE_LINK,
+            pos: { x: 10, y: 11, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'planned', activeFromRcl: 5 }
+        }]
+    }, 'source1', {
+        sourceLinkOnline: true,
+        controllerLinkOnline: true,
+        normalEnergyPosture: true,
+        stableTicks: 1500,
+        retireObservationTicks: 1500
+    });
+    assert.strictEqual(linkPrimarySourcePolicy.linkPrimary, true, 'city asset policy should report link-primary source runtime state');
+    assert.strictEqual(linkPrimarySourcePolicy.shouldRetireSourceContainer, true, 'city asset policy should flag source containers as retirement candidates after a stable link-primary window');
+    assert.deepStrictEqual(SOURCE_OUTPUT_ROLES, {
+        CONTAINER: 'source_container',
+        LINK: 'source_link'
+    }, 'source runtime state should export canonical output role constants');
+    assert.deepStrictEqual(SOURCE_DELIVERY_MODES, {
+        CONTAINER: 'container',
+        TRANSITION: 'transition',
+        LINK_PRIMARY: 'link_primary'
+    }, 'source runtime state should export canonical delivery mode constants');
+    assert.deepStrictEqual(SOURCE_RUNTIME_MODES, {
+        CONTAINER: 'container',
+        LINK_TRANSITION: 'link_transition',
+        LINK_PRIMARY: 'link_primary',
+        INVALID: 'invalid'
+    }, 'source runtime state should export canonical runtime mode constants');
+    assert.deepStrictEqual(SOURCE_RUNTIME_EVENTS, {
+        LINK_OUTPUT_PLANNED: 'link_output_planned',
+        LINK_NETWORK_ONLINE: 'link_network_online',
+        CONTAINER_OUTPUT_SELECTED: 'container_output_selected'
+    }, 'source runtime state should export canonical event constants');
+    assert.deepStrictEqual(getSourceRuntimeState({}, 'source1'), {
+        sourceId: 'source1',
+        preferredOutputRole: 'source_container',
+        deliveryMode: 'container',
+        runtimeMode: 'container',
+        valid: true,
+        error: null,
+        hasSourcePlan: false
+    }, 'source runtime state helper should provide stable defaults when no source runtime state exists');
+    assert.strictEqual(shouldUseStrictSourceRuntime(null), false, 'runtime readiness helper should keep strict source-runtime reads disabled when observation data is absent');
+    assert.strictEqual(shouldUseStrictSourceRuntime({
+        cityPlanRuntimeObservation: {
+            readyStreak: 2,
+            readyForRuntimeFallbackDisable: true
+        }
+    }), false, 'runtime readiness helper should keep strict source-runtime reads disabled before the readiness streak is satisfied');
+    assert.strictEqual(shouldUseStrictSourceRuntime({
+        cityPlanRuntimeObservation: {
+            readyStreak: 3,
+            readyForRuntimeFallbackDisable: true
+        }
+    }), true, 'runtime readiness helper should enable strict source-runtime reads once the readiness streak is satisfied');
+    assert.deepStrictEqual(getSourceRuntimeState({
+        sources: {
+            sourceCanonical: {
+                preferredOutputRole: 'source_container',
+                deliveryMode: 'container'
+            }
+        },
+        sourceRuntime: {
+            sources: {
+                sourceCanonical: {
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'transition'
+                }
+            }
+        }
+    }, 'sourceCanonical'), {
+        sourceId: 'sourceCanonical',
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'transition',
+        runtimeMode: 'link_transition',
+        valid: true,
+        error: null,
+        hasSourcePlan: true
+    }, 'source runtime state helper should prefer canonical source runtime storage when canonical and legacy runtime values diverge');
+    assert.deepStrictEqual(getSourceRuntimeState({
+        sources: {
+            sourceCanonical: {
+                preferredOutputRole: 'source_container',
+                deliveryMode: 'container'
+            }
+        },
+        sourceRuntime: {
+            sources: {
+                sourceCanonical: {
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'transition'
+                }
+            }
+        }
+    }, 'sourceCanonical', {
+        allowLegacyFallback: false
+    }), {
+        sourceId: 'sourceCanonical',
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'transition',
+        runtimeMode: 'link_transition',
+        valid: true,
+        error: null,
+        hasSourcePlan: true
+    }, 'source runtime state helper should allow strict canonical-only reads when canonical runtime storage exists');
+    assert.deepStrictEqual(getSourceRuntimeState({
+        sources: {
+            sourceLegacyOnly: {
+                preferredOutputRole: 'source_link',
+                deliveryMode: 'link_primary'
+            }
+        }
+    }, 'sourceLegacyOnly'), {
+        sourceId: 'sourceLegacyOnly',
+        preferredOutputRole: 'source_container',
+        deliveryMode: 'container',
+        runtimeMode: 'container',
+        valid: true,
+        error: null,
+        hasSourcePlan: true
+    }, 'source runtime state helper should ignore legacy-only source runtime fields and fall back to default runtime semantics when canonical runtime storage is missing');
+    assert.deepStrictEqual(getSourceRuntimeState({
+        sources: {
+            sourceLegacyOnly: {
+                preferredOutputRole: 'source_link',
+                deliveryMode: 'link_primary'
+            }
+        }
+    }, 'sourceLegacyOnly', {
+        allowLegacyFallback: false
+    }), {
+        sourceId: 'sourceLegacyOnly',
+        preferredOutputRole: null,
+        deliveryMode: null,
+        runtimeMode: 'invalid',
+        valid: false,
+        error: 'missing canonical source runtime state: sourceLegacyOnly',
+        hasSourcePlan: true
+    }, 'source runtime state helper should report missing canonical runtime storage when strict reads are enabled');
+    assert.deepStrictEqual(getSourceRuntimeState({}, 'sourceMissingStrict', {
+        allowLegacyFallback: false
+    }), {
+        sourceId: 'sourceMissingStrict',
+        preferredOutputRole: null,
+        deliveryMode: null,
+        runtimeMode: 'invalid',
+        valid: false,
+        error: 'missing canonical source runtime state: sourceMissingStrict',
+        hasSourcePlan: false
+    }, 'source runtime state helper should not fall back to default runtime values when strict reads are enabled');
+    const sourceRuntimePlan = {
+        sources: {
+            source1: {
+                preferredOutputRole: 'source_container',
+                primaryMiningPos: { x: 11, y: 10, roomName: 'W1N1' }
+            }
+        }
+    };
+    setSourceRuntimeState(sourceRuntimePlan, 'source1', {
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'transition',
+        containerPos: { x: 10, y: 10, roomName: 'W1N1' }
+    });
+    assert.deepStrictEqual(getSourceRuntimeState(sourceRuntimePlan, 'source1'), {
+        sourceId: 'source1',
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'transition',
+        runtimeMode: 'link_transition',
+        valid: true,
+        error: null,
+        hasSourcePlan: true
+    }, 'source runtime state helper should update only runtime-owned fields');
+    assert.strictEqual(sourceRuntimePlan.sources.source1.primaryMiningPos.x, 11, 'source runtime state helper should preserve non-runtime source plan fields');
+    assert.strictEqual(sourceRuntimePlan.sources.source1.containerPos, undefined, 'source runtime state helper should ignore non-runtime patch fields');
+    assert.strictEqual(sourceRuntimePlan.sources.source1.preferredOutputRole, 'source_container', 'source runtime state helper should not rewrite legacy source runtime output-role fields during canonical updates');
+    assert.strictEqual(sourceRuntimePlan.sources.source1.deliveryMode, undefined, 'source runtime state helper should not add legacy source runtime delivery-mode fields during canonical updates');
+    assert.deepStrictEqual(sourceRuntimePlan.sourceRuntime.sources.source1, {
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'transition'
+    }, 'source runtime state helper should persist canonical source runtime storage');
+    const promotedSourceRuntimePlan = {
+        sources: {
+            source1: {
+                preferredOutputRole: 'source_container',
+                deliveryMode: 'transition'
+            }
+        }
+    };
+    promoteSourceToLinkPrimary(promotedSourceRuntimePlan, 'source1');
+    assert.deepStrictEqual(getSourceRuntimeState(promotedSourceRuntimePlan, 'source1'), {
+        sourceId: 'source1',
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'link_primary',
+        runtimeMode: 'link_primary',
+        valid: true,
+        error: null,
+        hasSourcePlan: true
+    }, 'source runtime state helper should expose a semantic promotion helper for link-primary source output');
+    const transitionSourceRuntimePlan = { sources: { source1: { primaryMiningPos: { x: 11, y: 10, roomName: 'W1N1' } } } };
+    setSourceLinkOutputTransition(transitionSourceRuntimePlan, 'source1');
+    assert.deepStrictEqual(getSourceRuntimeState(transitionSourceRuntimePlan, 'source1'), {
+        sourceId: 'source1',
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'transition',
+        runtimeMode: 'link_transition',
+        valid: true,
+        error: null,
+        hasSourcePlan: true
+    }, 'source runtime state helper should expose a semantic transition helper for source-link output');
+    assert.deepStrictEqual(transitionSourceRuntimeState(transitionSourceRuntimePlan, 'source1', SOURCE_RUNTIME_EVENTS.LINK_NETWORK_ONLINE), {
+        changed: true,
+        event: 'link_network_online',
+        from: 'link_transition',
+        to: 'link_primary',
+        state: {
+            sourceId: 'source1',
+            preferredOutputRole: 'source_link',
+            deliveryMode: 'link_primary',
+            runtimeMode: 'link_primary',
+            valid: true,
+            error: null,
+            hasSourcePlan: true
+        },
+        error: null
+    }, 'source runtime state helper should promote transition-mode source output through the shared event-based entrypoint');
+    assert.strictEqual(transitionSourceRuntimePlan.sources.source1.primaryMiningPos.x, 11, 'source runtime transition helper should preserve non-runtime source plan fields');
+    assert.strictEqual(transitionSourceRuntimePlan.sources.source1.preferredOutputRole, undefined, 'source runtime transition helper should leave legacy source runtime output-role fields untouched');
+    assert.strictEqual(transitionSourceRuntimePlan.sources.source1.deliveryMode, undefined, 'source runtime transition helper should leave legacy source runtime delivery-mode fields untouched');
+    assert.deepStrictEqual(transitionSourceRuntimePlan.sourceRuntime.sources.source1, {
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'link_primary'
+    }, 'source runtime transition helper should keep canonical source runtime storage in sync after transitions');
+
+    const containerSourceRuntimePlan = {};
+    setSourceContainerOutput(containerSourceRuntimePlan, 'source2');
+    assert.deepStrictEqual(getSourceRuntimeState(containerSourceRuntimePlan, 'source2'), {
+        sourceId: 'source2',
+        preferredOutputRole: 'source_container',
+        deliveryMode: 'container',
+        runtimeMode: 'container',
+        valid: true,
+        error: null,
+        hasSourcePlan: true
+    }, 'source runtime state helper should expose a semantic helper for container-based source output');
+    assert.deepStrictEqual(transitionSourceRuntimeState(containerSourceRuntimePlan, 'source2', SOURCE_RUNTIME_EVENTS.LINK_OUTPUT_PLANNED), {
+        changed: true,
+        event: 'link_output_planned',
+        from: 'container',
+        to: 'link_transition',
+        state: {
+            sourceId: 'source2',
+            preferredOutputRole: 'source_link',
+            deliveryMode: 'transition',
+            runtimeMode: 'link_transition',
+            valid: true,
+            error: null,
+            hasSourcePlan: true
+        },
+        error: null
+    }, 'source runtime transition helper should move container-based source output into link transition mode through named events');
+    assert.deepStrictEqual(transitionSourceRuntimeState(containerSourceRuntimePlan, 'source2', SOURCE_RUNTIME_EVENTS.CONTAINER_OUTPUT_SELECTED), {
+        changed: true,
+        event: 'container_output_selected',
+        from: 'link_transition',
+        to: 'container',
+        state: {
+            sourceId: 'source2',
+            preferredOutputRole: 'source_container',
+            deliveryMode: 'container',
+            runtimeMode: 'container',
+            valid: true,
+            error: null,
+            hasSourcePlan: true
+        },
+        error: null
+    }, 'source runtime transition helper should restore container-based source output through named events');
+    assert.deepStrictEqual(transitionSourceRuntimeState({}, 'source3', SOURCE_RUNTIME_EVENTS.LINK_NETWORK_ONLINE), {
+        changed: false,
+        event: 'link_network_online',
+        from: 'container',
+        to: 'link_primary',
+        state: {
+            sourceId: 'source3',
+            preferredOutputRole: 'source_container',
+            deliveryMode: 'container',
+            runtimeMode: 'container',
+            valid: true,
+            error: null,
+            hasSourcePlan: false
+        },
+        error: 'illegal source runtime transition: container -> link_primary'
+    }, 'source runtime transition helper should reject direct link-primary promotion without compatibility context');
+    assert.deepStrictEqual(transitionSourceRuntimeState({}, 'source3', SOURCE_RUNTIME_EVENTS.LINK_NETWORK_ONLINE, {
+        allowDirectPromotion: true
+    }), {
+        changed: true,
+        event: 'link_network_online',
+        from: 'container',
+        to: 'link_primary',
+        state: {
+            sourceId: 'source3',
+            preferredOutputRole: 'source_link',
+            deliveryMode: 'link_primary',
+            runtimeMode: 'link_primary',
+            valid: true,
+            error: null,
+            hasSourcePlan: true
+        },
+        error: null
+    }, 'source runtime transition helper should allow direct promotion when compatibility context is explicit');
+    assert.deepStrictEqual(transitionSourceRuntimeState({}, 'source4', 'unknown_event'), {
+        changed: false,
+        event: 'unknown_event',
+        from: 'container',
+        to: null,
+        state: {
+            sourceId: 'source4',
+            preferredOutputRole: 'source_container',
+            deliveryMode: 'container',
+            runtimeMode: 'container',
+            valid: true,
+            error: null,
+            hasSourcePlan: false
+        },
+        error: 'unknown source runtime event: unknown_event'
+    }, 'source runtime transition helper should return the current state for unknown events');
+    assert.deepStrictEqual(getSourceRuntimeState({
+        sources: {
+            source5: {
+                preferredOutputRole: 'source_container',
+                deliveryMode: 'transition'
+            }
+        }
+    }, 'source5'), {
+        sourceId: 'source5',
+        preferredOutputRole: 'source_container',
+        deliveryMode: 'container',
+        runtimeMode: 'container',
+        valid: true,
+        error: null,
+        hasSourcePlan: true
+    }, 'source runtime state helper should ignore invalid legacy-only source runtime combinations and fall back to default runtime semantics');
+    assert.deepStrictEqual(getSourceIds({
+        sources: {
+            source1: {},
+            source2: {}
+        },
+        sourceRuntime: {
+            sources: {
+                source4: {
+                    preferredOutputRole: 'source_container',
+                    deliveryMode: 'container'
+                }
+            }
+        },
+        plannedStructures: [{
+            id: 'source2:link',
+            role: 'source_link',
+            structureType: STRUCTURE_LINK,
+            pos: { x: 12, y: 10, roomName: 'W1N1' },
+            scope: { sourceId: 'source2' },
+            lifecycle: { state: 'planned', activeFromRcl: 5 }
+        }, {
+            id: 'source3:container',
+            role: 'source_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 15, y: 10, roomName: 'W1N1' },
+            scope: { sourceId: 'source3' },
+            lifecycle: { state: 'active', activeFromRcl: 1 }
+        }]
+    }), ['source1', 'source2', 'source4', 'source3'], 'source runtime state helper should merge and deduplicate source ids from runtime state, canonical runtime storage, and planned assets');
+    assert.deepStrictEqual(getCityWorkPositions(cityPlan).sources.source1.mining.primary, { x: 9, y: 10, roomName: 'W1N1' }, 'city work position policy should expose source mining positions from the new workPositions model');
+    assert.deepStrictEqual(getSourceMiningWorkPosition({
+        workPositions: {
+            sources: {
+                source1: {
+                    mining: {
+                        primary: { x: 8, y: 9, roomName: 'W1N1' }
+                    }
+                }
+            }
+        },
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 9, y: 9, roomName: 'W1N1' }
+            }
+        }
+    }, 'source1'), { x: 8, y: 9, roomName: 'W1N1' }, 'city work position policy should prefer the new workPositions source mining position over legacy fields');
+    assert.strictEqual(getSourceMiningWorkPosition({
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 9, y: 9, roomName: 'W1N1' }
+            }
+        }
+    }, 'source1'), null, 'city work position policy should default source mining reads to canonical workPositions only when workPositions are absent');
+    assert.strictEqual(getSourceMiningWorkPosition({
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 9, y: 9, roomName: 'W1N1' }
+            }
+        }
+    }, 'source1', { allowLegacyFallback: true }), null, 'city work position policy should ignore explicit legacy source mining fallback requests once migration owns compatibility import');
+    assert.strictEqual(getSourceMiningWorkPosition({
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 9, y: 9, roomName: 'W1N1' }
+            }
+        }
+    }, 'source1', { allowLegacyFallback: false }), null, 'city work position policy should not expose legacy-only source mining work positions after fallback removal');
+    assert.deepStrictEqual(getControllerUpgradeWorkPosition({
+        workPositions: {
+            controller: {
+                upgrade: {
+                    primary: { x: 22, y: 24, roomName: 'W1N1' }
+                }
+            }
+        },
+        controller: {
+            primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' }
+        }
+    }), { x: 22, y: 24, roomName: 'W1N1' }, 'city work position policy should prefer the new controller upgrade work position over legacy fields');
+    assert.strictEqual(getControllerUpgradeWorkPosition({
+        controller: {
+            primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' }
+        }
+    }), null, 'city work position policy should default controller upgrade reads to canonical workPositions only when workPositions are absent');
+    assert.strictEqual(getControllerUpgradeWorkPosition({
+        controller: {
+            primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' }
+        }
+    }, { allowLegacyFallback: true }), null, 'city work position policy should ignore explicit legacy controller upgrade fallback requests once migration owns compatibility import');
+    assert.strictEqual(getControllerUpgradeWorkPosition({
+        controller: {
+            primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' }
+        }
+    }, { allowLegacyFallback: false }), null, 'city work position policy should not expose legacy-only controller upgrade work positions after fallback removal');
+    const debugSummary = buildCityPlanDebug('W1N1', cityPlan);
+    assert.strictEqual(debugSummary.validation.valid, true, 'city plan debug should include schema validation results');
+    assert.strictEqual(debugSummary.assetCountsByRole.source_container, 1, 'city plan debug should count assets by role');
+    assert.strictEqual(debugSummary.assetCountsByLifecycle.active >= 1, true, 'city plan debug should count assets by lifecycle');
+    assert.strictEqual(debugSummary.workPositions.sourceMiningCount, 1, 'city plan debug should summarize source mining work positions');
+    assert.strictEqual(debugSummary.workPositions.hasControllerUpgrade, true, 'city plan debug should summarize whether a controller upgrade work position exists');
+    assert.strictEqual(debugSummary.sourceRuntime.byMode.container, 1, 'city plan debug should summarize container-mode source runtime states');
+    assert.strictEqual(debugSummary.sourceRuntime.byMode.invalid, 0, 'city plan debug should report zero invalid source runtime states when all source plans are canonical');
+    assert.strictEqual(debugSummary.sourceRuntime.canonical.totalSources, 1, 'city plan debug should report canonical source runtime storage generated by the planner');
+    assert.deepStrictEqual(debugSummary.sourceRuntime.canonical.missingSources, [], 'city plan debug should report no missing canonical source runtime entries for fresh planner output');
+    assert.deepStrictEqual(debugSummary.sourceRuntime.canonical.fallbackSources, [], 'city plan debug should report no runtime fallback sources for fresh planner output');
+    assert.deepStrictEqual(debugSummary.sourceRuntime.canonical.mismatchedSources, [], 'city plan debug should report no canonical mismatch for fresh planner output');
+    assert.strictEqual(debugSummary.legacyFallbackSummary.total, 0, 'city plan debug should summarize zero legacy fallbacks when canonical assets resolve cleanly');
+    assert.strictEqual(debugSummary.v3Readiness.schemaCurrent, true, 'city plan debug should report schema-current status for v3 readiness');
+    assert.strictEqual(debugSummary.v3Readiness.migrationObserved, false, 'city plan debug should report when migration observation has not yet been recorded');
+    assert.strictEqual(debugSummary.v3Readiness.sourceRuntimeCanonicalComplete, true, 'city plan debug should mark fresh planner output as canonical-runtime complete');
+    assert.strictEqual(debugSummary.v3Readiness.sourceRuntimeStorageConsistent, true, 'city plan debug should treat rooms without canonical entries as having no canonical-storage mismatch');
+    assert.strictEqual(debugSummary.v3Readiness.sourceRuntimeFallbackFree, true, 'city plan debug should mark fresh planner output as runtime-fallback-free');
+    assert.strictEqual(debugSummary.v3Readiness.readyForRuntimeFallbackDisable, false, 'city plan debug should still keep runtime fallback disable gated before migration observation is recorded');
+    assert.strictEqual(debugSummary.v3Readiness.readyForFallbackDisable, false, 'city plan debug should not mark rooms ready for fallback disable before migration observation is recorded');
+    const legacyDebugSummary = buildCityPlanDebug('W1N1', {
+        controller: { containerPos: { x: 24, y: 25, roomName: 'W1N1' } },
+        sources: {}
+    });
+    assert.ok(legacyDebugSummary.legacyFallbacks.some((fallback) => fallback.role === 'controller_container' && fallback.source === 'legacy'), 'city plan debug should report legacy asset fallbacks');
+    assert.strictEqual(legacyDebugSummary.legacyFallbackSummary.total, 1, 'city plan debug should summarize legacy fallback totals');
+    assert.strictEqual(legacyDebugSummary.legacyFallbackSummary.byRole.controller_container, 1, 'city plan debug should summarize legacy fallbacks by role');
+    assert.strictEqual(legacyDebugSummary.v3Readiness.legacyFallbackFree, false, 'city plan debug should mark rooms with legacy fallbacks as not fallback-free');
+    assert.strictEqual(legacyDebugSummary.legacyFallbacks[0].source, 'legacy', 'city plan debug should continue observing compat fallback paths during V3.2b');
+    Memory.rooms.W1N1.cityPlanMigration = {
+        updatedAt: 48,
+        fromVersion: 2,
+        toVersion: 4,
+        changed: true,
+        warnings: [],
+        changes: {
+            plannedStructuresAdded: 0,
+            workPositionsAdded: 0,
+            runtimeDefaultsAdded: 0,
+            sourceRuntimeEntriesAdded: 0,
+            legacyStoragePreserved: true
+        }
+    };
+    const invalidRuntimeDebugSummary = buildCityPlanDebug('W1N1', {
+        schemaVersion: 4,
+        sources: {
+            sourceBad: {
+                preferredOutputRole: 'source_container',
+                deliveryMode: 'transition'
+            }
+        },
+        sourceRuntime: {
+            sources: {
+                sourceBad: {
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'transition'
+                }
+            }
+        }
+    });
+    assert.strictEqual(invalidRuntimeDebugSummary.sourceRuntime.byMode.link_transition, 1, 'city plan debug should summarize canonical source runtime modes before legacy runtime fallback is disabled');
+    assert.strictEqual(invalidRuntimeDebugSummary.v3Readiness.sourceRuntimeValid, true, 'city plan debug should treat canonical source runtime combinations as valid even when legacy runtime storage still mismatches');
+    assert.strictEqual(invalidRuntimeDebugSummary.v3Readiness.sourceRuntimeCanonicalComplete, true, 'city plan debug should recognize canonical runtime coverage when source runtime storage exists');
+    assert.strictEqual(invalidRuntimeDebugSummary.v3Readiness.sourceRuntimeStorageConsistent, true, 'city plan debug should stop treating legacy source runtime divergence as a consistency failure once legacy runtime observation is removed');
+    assert.strictEqual(invalidRuntimeDebugSummary.v3Readiness.sourceRuntimeFallbackFree, true, 'city plan debug should treat canonical-covered rooms as runtime-fallback-free');
+    assert.strictEqual(invalidRuntimeDebugSummary.v3Readiness.readyForRuntimeFallbackDisable, true, 'city plan debug should not block runtime fallback disable once canonical source runtime coverage is complete and valid, even when legacy runtime storage diverges');
+    assert.deepStrictEqual(invalidRuntimeDebugSummary.sourceRuntime.canonical.mismatchedSources, [], 'city plan debug should stop surfacing canonical-versus-legacy runtime mismatch once legacy runtime observation is removed');
+    Memory.rooms.W1N1.cityPlanMigration = {
+        updatedAt: 49,
+        fromVersion: 2,
+        toVersion: 4,
+        changed: true,
+        warnings: [],
+        changes: {
+            plannedStructuresAdded: 0,
+            workPositionsAdded: 0,
+            runtimeDefaultsAdded: 0,
+            sourceRuntimeEntriesAdded: 0,
+            legacyStoragePreserved: true
+        }
+    };
+    const readyDebugSummary = buildCityPlanDebug('W1N1', {
+        schemaVersion: CITY_PLAN_SCHEMA_VERSION,
+        plannedStructures: [{
+            id: 'source1:container',
+            role: 'source_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 9, y: 10, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'active' }
+        }],
+        workPositions: {
+            sources: {
+                source1: {
+                    mining: {
+                        primary: { x: 9, y: 10, roomName: 'W1N1' }
+                    }
+                }
+            },
+            controller: {
+                upgrade: {
+                    primary: { x: 24, y: 25, roomName: 'W1N1' }
+                }
+            }
+        },
+        sourceRuntime: {
+            sources: {
+                source1: {
+                    preferredOutputRole: 'source_container',
+                    deliveryMode: 'container'
+                }
+            }
+        },
+        sources: {
+            source1: {
+                preferredOutputRole: 'source_container',
+                deliveryMode: 'container'
+            }
+        }
+    });
+    assert.strictEqual(readyDebugSummary.migration.fromVersion, 2, 'city plan debug should surface the last observed city plan migration summary');
+    assert.strictEqual(readyDebugSummary.v3Readiness.readyForFallbackDisable, true, 'city plan debug should mark rooms ready for fallback disable once migration is observed and no fallback remains');
+    assert.strictEqual(readyDebugSummary.sourceRuntime.canonical.totalSources, 1, 'city plan debug should report canonical source runtime storage coverage');
+    assert.deepStrictEqual(readyDebugSummary.sourceRuntime.canonical.missingSources, [], 'city plan debug should report no missing canonical source runtime entries after migration');
+    assert.deepStrictEqual(readyDebugSummary.sourceRuntime.canonical.fallbackSources, [], 'city plan debug should report no runtime fallback sources after canonical coverage is complete');
+    assert.strictEqual(readyDebugSummary.v3Readiness.sourceRuntimeCanonicalComplete, true, 'city plan debug should mark rooms with full canonical runtime coverage as complete');
+    assert.strictEqual(readyDebugSummary.v3Readiness.sourceRuntimeStorageConsistent, true, 'city plan debug should mark rooms with matching canonical and legacy runtime storage as consistent');
+    assert.strictEqual(readyDebugSummary.v3Readiness.sourceRuntimeFallbackFree, true, 'city plan debug should mark rooms without runtime fallback as fallback-free');
+    assert.strictEqual(readyDebugSummary.v3Readiness.readyForRuntimeFallbackDisable, true, 'city plan debug should mark rooms ready for runtime fallback disable when all runtime gates are satisfied');
+    assert.deepStrictEqual(invalidRuntimeDebugSummary.sourceRuntime.invalidSources, [], 'city plan debug should not surface invalid runtime states when canonical source runtime storage is valid');
+    assert.strictEqual(shouldParticipateInLogistics(cityPlan, activeSourceContainer), true, 'city asset policy should let active source containers participate in logistics');
+    assert.strictEqual(shouldRepairAsset(cityPlan, activeSourceContainer), true, 'city asset policy should allow repairing active source containers');
+    assert.strictEqual(shouldBuildAsset(cityPlan, activeSourceContainer), true, 'city asset policy should keep active planned assets buildable');
+    const invalidCityPlan = {
+        schemaVersion: 2,
+        plannedStructures: [
+            {
+                id: 'dup',
+                role: 'source_container',
+                structureType: STRUCTURE_CONTAINER,
+                pos: { x: 10, y: 10, roomName: 'W1N1' },
+                lifecycle: { state: 'active' }
+            },
+            {
+                id: 'dup',
+                role: 'controller_container',
+                structureType: STRUCTURE_CONTAINER,
+                pos: { x: 11, y: 11, roomName: 'W1N1' },
+                lifecycle: { state: 'unknown_state' }
+            }
+        ]
+    };
+    const invalidCityPlanValidation = validateCityPlan(invalidCityPlan);
+    assert.strictEqual(invalidCityPlanValidation.valid, false, 'city plan schema should reject invalid asset ids and lifecycle states');
+    assert.ok(invalidCityPlanValidation.errors.some((error) => error.includes('duplicate id')), 'city plan schema should report duplicate planned structure ids');
+    assert.ok(invalidCityPlanValidation.errors.some((error) => error.includes('unknown_state')), 'city plan schema should report invalid lifecycle states');
+    const invalidSourceWorkPositionValidation = validateCityPlan({
+        schemaVersion: CITY_PLAN_SCHEMA_VERSION,
+        workPositions: {
+            sources: {
+                source1: {
+                    mining: {
+                        primary: { x: 'bad', y: 10, roomName: 'W1N1' }
+                    }
+                }
+            }
+        },
+        plannedStructures: []
+    });
+    assert.strictEqual(invalidSourceWorkPositionValidation.valid, false, 'city plan schema should reject invalid source mining work positions');
+    assert.ok(invalidSourceWorkPositionValidation.errors.some((error) => error.includes('workPositions.sources.source1.mining.primary has invalid pos')), 'city plan schema should report invalid source mining work position paths');
+    const invalidControllerWorkPositionValidation = validateCityPlan({
+        schemaVersion: CITY_PLAN_SCHEMA_VERSION,
+        workPositions: {
+            controller: {
+                upgrade: {
+                    primary: { x: 24, y: null, roomName: 'W1N1' }
+                }
+            }
+        },
+        plannedStructures: []
+    });
+    assert.strictEqual(invalidControllerWorkPositionValidation.valid, false, 'city plan schema should reject invalid controller upgrade work positions');
+    assert.ok(invalidControllerWorkPositionValidation.errors.some((error) => error.includes('workPositions.controller.upgrade.primary has invalid pos')), 'city plan schema should report invalid controller upgrade work position paths');
+    const transitioningAsset = {
+        id: 'asset:1',
+        role: 'source_container',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 9, y: 10, roomName: 'W1N1' },
+        lifecycle: { state: 'active' }
+    };
+    assert.strictEqual(transitionAssetLifecycle(transitioningAsset, 'retired_ready').valid, false, 'city plan schema should reject illegal lifecycle jumps');
+    const legalTransition = transitionAssetLifecycle(transitioningAsset, 'link_primary');
+    assert.strictEqual(legalTransition.valid, true, 'city plan schema should allow legal lifecycle transitions');
+    assert.strictEqual(legalTransition.asset.lifecycle.state, 'link_primary', 'city plan schema should return the transitioned asset state');
+    const canonicalControllerContainer = getControllerContainerAsset(cityPlan);
+    const canonicalSourceContainer = getSourceContainerAsset(cityPlan, 'source1');
+    assert.strictEqual(isControllerContainerAsset(cityPlan, { structureType: STRUCTURE_CONTAINER, pos: canonicalControllerContainer.pos }), true, 'legacy adapter should recognize controller container structures');
+    assert.strictEqual(isSourceContainerAsset(cityPlan, { structureType: STRUCTURE_CONTAINER, pos: canonicalSourceContainer.pos }, 'source1'), true, 'legacy adapter should recognize source container structures by source id');
+    assert.strictEqual(isSourceContainerAsset({
+        sources: {
+            source1: { containerPos: { x: 9, y: 10, roomName: 'W1N1' } }
+        }
+    }, { structureType: STRUCTURE_CONTAINER, pos: { x: 9, y: 10, roomName: 'W1N1' } }, null, { allowLegacyFallback: false }), false, 'legacy adapter strict source-container helper should not recognize legacy-only source containers');
+    assert.strictEqual(isSourceContainerAsset(cityPlan, { structureType: STRUCTURE_CONTAINER, pos: canonicalSourceContainer.pos }, null, { allowLegacyFallback: false }), true, 'legacy adapter strict source-container helper should still recognize canonical planned source containers');
     const coreDefensePlan = defensePlanner.buildDefensePlan(cityRoom, cityPlan);
     assert.strictEqual(coreDefensePlan.mode, 'core_fortress', 'early defense planning should start in core fortress mode');
     assert.ok(coreDefensePlan.towers.length > 0, 'defense plan should own tower positions');
@@ -3111,6 +5393,21 @@ async function runBehaviorChecks() {
     cityPlanner.placePlannedContainers(cityRoom, cityPlan);
     assert.ok(containerSites.some((site) => site.structureType === STRUCTURE_CONTAINER), 'city planner should create planned container sites');
     assert.ok(!containerSites.some((site) => site.structureType === STRUCTURE_TOWER), 'city planner should no longer place tower sites directly');
+    const plannedStructureOnlyContainerPlan = JSON.parse(JSON.stringify(cityPlan));
+    const canonicalContainerSites = [];
+    global.RoomPosition = class RoomPosition {
+        constructor(x, y, roomName) {
+            this.x = x;
+            this.y = y;
+            this.roomName = roomName;
+        }
+        createConstructionSite(structureType) {
+            canonicalContainerSites.push({ x: this.x, y: this.y, roomName: this.roomName, structureType });
+            return OK;
+        }
+    };
+    cityPlanner.placePlannedContainers(cityRoom, plannedStructureOnlyContainerPlan);
+    assert.ok(canonicalContainerSites.some((site) => site.structureType === STRUCTURE_CONTAINER), 'city planner should place container sites from plannedStructures when legacy container positions are absent');
     global.RoomPosition = previousRoomPosition;
 
     const defenseSites = [];
@@ -3132,6 +5429,19 @@ async function runBehaviorChecks() {
     assert.ok(defenseSites.some((site) => site.structureType === STRUCTURE_TOWER), 'defense planner should place tower sites from the defense build queue');
     assert.ok(defenseSites.some((site) => site.structureType === STRUCTURE_RAMPART), 'defense planner should place rampart sites from the defense build queue');
     assert.ok(defenseSites.length <= Memory.rooms.W1N1.cityPlan.defense.buildLimitPerRun, 'defense planner should throttle site creation per planning pass');
+    assert.ok(Memory.rooms.W1N1.cityPlan.plannedStructures.some((entry) => entry.role === 'defense_rampart' && entry.group === 'defense'), 'defense planner should sync planned rampart assets back into planned structures');
+    Memory.rooms.W1N1.cityPlan.plannedStructures.push({
+        id: 'defense:rampart:stale',
+        role: 'defense_rampart',
+        structureType: STRUCTURE_RAMPART,
+        pos: { x: 30, y: 30, roomName: 'W1N1' },
+        phase: 'defense_shell',
+        group: 'defense',
+        lifecycle: { state: 'active', activeFromRcl: 2 }
+    });
+    defensePlanner.syncDefensePlannedStructures(Memory.rooms.W1N1.cityPlan, Memory.rooms.W1N1.cityPlan.defense);
+    const staleDefenseRampart = Memory.rooms.W1N1.cityPlan.plannedStructures.find((entry) => entry.id === 'defense:rampart:stale');
+    assert.strictEqual(staleDefenseRampart.lifecycle.state, 'low_priority', 'defense planner should downgrade stale defense ramparts that are no longer protected');
     global.RoomPosition = previousRoomPosition;
 
     const assetRoom = {
@@ -3141,6 +5451,7 @@ async function runBehaviorChecks() {
         find: (type) => {
             if (type === FIND_MY_SPAWNS) return [spawnForPlan];
             if (type === FIND_SOURCES) return [sourceForPlan];
+            if (type === FIND_MINERALS) return [mineralForPlan];
             if (type === FIND_STRUCTURES) {
                 return [
                     spawnForPlan,
@@ -3155,9 +5466,423 @@ async function runBehaviorChecks() {
         }
     };
     const assetPlan = cityPlanner.buildCityPlan(assetRoom, firstCenter);
+    assert.strictEqual(assetPlan.sources.source1.linkPos, undefined, 'RCL5+ plans should stop publishing legacy source link compatibility storage');
+    assert.strictEqual(assetPlan.controller.linkPos, undefined, 'RCL5+ plans should stop publishing legacy controller link compatibility storage');
+    assert.deepStrictEqual(assetPlan.sourceRuntime.sources.source1, {
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'transition'
+    }, 'RCL5+ plans should mark source logistics as transitional in canonical source runtime storage before lifecycle switching is active');
+    assert.strictEqual(assetPlan.sources.source1.preferredOutputRole, undefined, 'RCL5+ plans should not publish legacy source runtime output-role compatibility fields');
+    assert.strictEqual(assetPlan.sources.source1.deliveryMode, undefined, 'RCL5+ plans should not publish legacy source runtime delivery-mode compatibility fields');
+    assert.ok(assetPlan.hub && assetPlan.hub.storagePos, 'RCL5+ plans should publish hub storage coordinates');
+    assert.ok(assetPlan.hub && assetPlan.hub.linkPos, 'RCL5+ plans should publish a hub link coordinate once links unlock');
+    assert.ok(assetPlan.plannedStructures.some((entry) => entry.role === 'source_link' && entry.structureType === STRUCTURE_LINK), 'RCL5+ plans should publish source links in planned structures');
+    assert.ok(assetPlan.plannedStructures.some((entry) => entry.role === 'controller_link' && entry.structureType === STRUCTURE_LINK), 'RCL5+ plans should publish controller links in planned structures');
+    assert.ok(assetPlan.plannedStructures.some((entry) => entry.role === 'hub_link' && entry.structureType === STRUCTURE_LINK), 'RCL5+ plans should publish a hub link in planned structures');
+    assert.ok(assetPlan.plannedStructures.some((entry) => entry.role === 'hub_terminal' && entry.structureType === STRUCTURE_TERMINAL), 'RCL6+ plans should publish a terminal asset in planned structures');
+    assert.ok(assetPlan.plannedStructures.some((entry) => entry.role === 'hub_lab' && entry.structureType === STRUCTURE_LAB), 'RCL6+ plans should publish lab assets in planned structures');
+    assert.ok(assetPlan.plannedStructures.some((entry) => entry.role === 'mineral_extractor' && entry.structureType === STRUCTURE_EXTRACTOR), 'RCL6+ plans should publish extractor assets in planned structures');
+    assert.ok(getPlannedStructuresByGroup(assetPlan, 'industry').length > 0, 'city plan helpers should expose grouped industry assets');
+    assert.ok(getPlannedStructuresByPhase(assetPlan, 'industry').length > 0, 'city plan helpers should expose late-phase assets by phase');
+    const canonicalSourceLink = getActivePlannedStructure(assetPlan, 'source_link', { sourceId: 'source1' });
+    const canonicalControllerLink = getActivePlannedStructure(assetPlan, 'controller_link');
+    assert.strictEqual(canonicalSourceLink.lifecycle.activeFromRcl, 5, 'link structures should carry their activation threshold');
+    assert.strictEqual(resolveControllerLinkAsset(assetPlan).source, 'planned', 'legacy adapter should report planned source when planned controller link exists');
+    assert.strictEqual(resolveSourceLinkAsset(assetPlan, 'source1').source, 'planned', 'legacy adapter should report planned source when planned source link exists');
+    assert.strictEqual(isControllerLinkAsset(assetPlan, { structureType: STRUCTURE_LINK, pos: canonicalControllerLink.pos }), true, 'legacy adapter should recognize controller link structures');
+    assert.strictEqual(isSourceLinkAsset(assetPlan, { structureType: STRUCTURE_LINK, pos: canonicalSourceLink.pos }, 'source1'), true, 'legacy adapter should recognize source link structures by source id');
     const assetDefensePlan = defensePlanner.buildDefensePlan(assetRoom, assetPlan);
     assert.strictEqual(assetDefensePlan.mode, 'asset_protection', 'mid-game defense should activate asset protection mode');
     assert.ok(assetDefensePlan.ramparts.some((entry) => entry.reason === 'source_container'), 'asset protection should include source container ramparts');
+    const plannedStructureOnlyAssetPlan = JSON.parse(JSON.stringify(assetPlan));
+    const plannedStructureOnlyAssetDefensePlan = defensePlanner.buildDefensePlan(assetRoom, plannedStructureOnlyAssetPlan);
+    assert.ok(plannedStructureOnlyAssetDefensePlan.ramparts.some((entry) => entry.reason === 'source_container'), 'asset protection should still include source container ramparts when legacy source container positions are absent');
+    assert.ok(plannedStructureOnlyAssetDefensePlan.ramparts.some((entry) => entry.reason === 'controller_container'), 'asset protection should still include controller container ramparts when legacy controller container positions are absent');
+
+    const linkSites = [];
+    global.RoomPosition = class RoomPosition {
+        constructor(x, y, roomName) {
+            this.x = x;
+            this.y = y;
+            this.roomName = roomName;
+        }
+        createConstructionSite(structureType) {
+            linkSites.push({ x: this.x, y: this.y, roomName: this.roomName, structureType });
+            return OK;
+        }
+    };
+    cityPlanner.placePlannedLinks(assetRoom, assetPlan);
+    assert.ok(linkSites.some((site) => site.structureType === STRUCTURE_LINK), 'city planner should place planned link sites once links are unlocked');
+    const plannedStructureOnlyLinkPlan = JSON.parse(JSON.stringify(assetPlan));
+    const canonicalLinkSites = [];
+    global.RoomPosition = class RoomPosition {
+        constructor(x, y, roomName) {
+            this.x = x;
+            this.y = y;
+            this.roomName = roomName;
+        }
+        createConstructionSite(structureType) {
+            canonicalLinkSites.push({ x: this.x, y: this.y, roomName: this.roomName, structureType });
+            return OK;
+        }
+    };
+    cityPlanner.placePlannedLinks(assetRoom, plannedStructureOnlyLinkPlan);
+    assert.ok(canonicalLinkSites.some((site) => site.structureType === STRUCTURE_LINK), 'city planner should place link sites from plannedStructures when legacy link positions are absent');
+    global.RoomPosition = previousRoomPosition;
+
+    const linkService = new LinkService('Link');
+    const sourceLinkStructure = {
+        id: 'sourceLink1',
+        structureType: STRUCTURE_LINK,
+        pos: canonicalSourceLink.pos,
+        store: {
+            getUsedCapacity: () => 600,
+            getFreeCapacity: () => 200
+        },
+        transferEnergy(target) {
+            this.lastTransferTarget = target.id;
+            return OK;
+        }
+    };
+    const controllerLinkStructure = {
+        id: 'controllerLink1',
+        structureType: STRUCTURE_LINK,
+        pos: canonicalControllerLink.pos,
+        store: {
+            getUsedCapacity: () => 100,
+            getFreeCapacity: () => 700
+        }
+    };
+    Memory.rooms.W1N1.cityPlan = {
+        controller: {
+            linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+        },
+        sources: {},
+        plannedStructures: []
+    };
+    Game.rooms = {
+        W1N1: {
+            ...assetRoom,
+            find: (type) => {
+                if (type === FIND_STRUCTURES) {
+                    return assetRoom.find(type).concat([controllerLinkStructure]);
+                }
+                return assetRoom.find(type);
+            }
+        }
+    };
+    linkService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.linkNetwork.controller.linkId, null, 'link service should not treat legacy-only controller links as canonical during strict rollout');
+    Memory.rooms.W1N1.cityPlan = {
+        controller: {
+            linkPos: canonicalControllerLink.pos
+        },
+        sources: {
+            source1: {
+                linkPos: canonicalSourceLink.pos,
+                preferredOutputRole: 'source_link',
+                deliveryMode: 'link_primary'
+            }
+        },
+        plannedStructures: [{
+            id: 'controller:link',
+            role: 'controller_link',
+            structureType: STRUCTURE_LINK,
+            pos: canonicalControllerLink.pos,
+            lifecycle: { state: 'active', activeFromRcl: 5 }
+        }]
+    };
+    delete Memory.rooms.W1N1.linkNetwork;
+    Game.rooms = {
+        W1N1: {
+            ...assetRoom,
+            find: (type) => {
+                if (type === FIND_STRUCTURES) {
+                    return assetRoom.find(type).concat([sourceLinkStructure, controllerLinkStructure]);
+                }
+                return assetRoom.find(type);
+            }
+        }
+    };
+    linkService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.linkNetwork.sources.source1, undefined, 'link service should not treat legacy-only source links as canonical during the first source_link strict rollout');
+    Memory.rooms.W1N1.cityPlan = JSON.parse(JSON.stringify(assetPlan));
+    Memory.rooms.W1N1.cityPlan.sourceRuntime = {
+        sources: {
+            source1: {
+                preferredOutputRole: 'source_link',
+                deliveryMode: 'transition'
+            }
+        }
+    };
+    delete Memory.rooms.W1N1.linkNetwork;
+    Game.rooms = {
+        W1N1: {
+            ...assetRoom,
+            find: (type) => {
+                if (type === FIND_STRUCTURES) {
+                    return assetRoom.find(type).concat([sourceLinkStructure, controllerLinkStructure]);
+                }
+                return assetRoom.find(type);
+            }
+        }
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'source1') return sourceForPlan;
+        if (id === 'sourceLink1') return sourceLinkStructure;
+        if (id === 'controllerLink1') return controllerLinkStructure;
+        return null;
+    };
+    global.RoomPhase = { W1N1: { energyPosture: 'normal' } };
+    linkService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.sources.source1.deliveryMode, undefined, 'link service should not reintroduce legacy source delivery-mode compatibility fields once planner output is canonical-only');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.sources.source1.preferredOutputRole, undefined, 'link service should not reintroduce legacy source output-role compatibility fields once planner output is canonical-only');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlan.sourceRuntime.sources.source1, {
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'link_primary'
+    }, 'link service should promote canonical source runtime storage once source and controller links are online');
+    assert.ok(Memory.rooms.W1N1.linkNetwork, 'link service should publish link network health in room memory');
+    assert.strictEqual(Memory.rooms.W1N1.linkNetwork.sources.source1.mode, 'link_primary', 'link network health should record source link mode');
+    assert.strictEqual(Memory.rooms.W1N1.linkNetwork.sources.source1.linkId, 'sourceLink1', 'link network health should record the active source link id');
+    assert.strictEqual(Memory.rooms.W1N1.linkNetwork.sources.source1.stableTicks, 1, 'link network health should start counting stable link ticks once the path is online');
+    assert.strictEqual(Memory.rooms.W1N1.linkNetwork.controller.linkId, 'controllerLink1', 'link network health should record the controller link id');
+    assert.strictEqual(Memory.rooms.W1N1.linkNetwork.controller.underfilledTicks, 1, 'link network health should track controller link underfill pressure');
+    assert.strictEqual(Memory.rooms.W1N1.linkNetwork.controller.stableTicks, 1, 'link network health should track controller link stability once the controller path is online');
+    const sourceContainerStructure = Memory.rooms.W1N1.cityPlan.plannedStructures.find((entry) => entry.role === 'source_container');
+    const controllerContainerStructure = Memory.rooms.W1N1.cityPlan.plannedStructures.find((entry) => entry.role === 'controller_container');
+    assert.strictEqual(sourceContainerStructure.lifecycle.state, 'link_primary', 'link service should first move the source container lifecycle into link-primary observation before retirement');
+    assert.strictEqual(controllerContainerStructure.lifecycle.state, 'link_primary', 'link service should move the controller container into link-primary observation before retirement');
+    linkService.run();
+    assert.strictEqual(sourceLinkStructure.lastTransferTarget, 'controllerLink1', 'link service should transfer source link energy into the controller link while the controller buffer is underfilled');
+    assert.ok(Memory.rooms.W1N1.linkNetwork.sources.source1.lastTransferAt > 0, 'link network health should remember the last successful source-link transfer');
+    const secondSourceLinkStructure = {
+        id: 'sourceLink2',
+        structureType: STRUCTURE_LINK,
+        pos: { x: 12, y: 10, roomName: 'W1N1' },
+        cooldown: 0,
+        store: {
+            getUsedCapacity: () => 700,
+            getFreeCapacity: () => 100
+        },
+        transferEnergy(target) {
+            this.lastTransferTarget = target.id;
+            return OK;
+        }
+    };
+    Memory.rooms.W1N1.cityPlan.sources.source2 = {
+        linkPos: { x: 12, y: 10, roomName: 'W1N1' },
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'link_primary'
+    };
+    Memory.rooms.W1N1.cityPlan.sourceRuntime.sources.source2 = {
+        preferredOutputRole: 'source_link',
+        deliveryMode: 'link_primary'
+    };
+    Memory.rooms.W1N1.cityPlan.plannedStructures.push({
+        id: 'source2:link',
+        role: 'source_link',
+        structureType: STRUCTURE_LINK,
+        pos: { x: 12, y: 10, roomName: 'W1N1' },
+        scope: { sourceId: 'source2' },
+        lifecycle: { state: 'planned', activeFromRcl: 5 }
+    });
+    sourceLinkStructure.cooldown = 1;
+    sourceLinkStructure.lastTransferTarget = null;
+    Game.rooms.W1N1 = {
+        ...Game.rooms.W1N1,
+        find: (type) => {
+            if (type === FIND_STRUCTURES) {
+                return assetRoom.find(type).concat([sourceLinkStructure, controllerLinkStructure, secondSourceLinkStructure]);
+            }
+            return assetRoom.find(type);
+        }
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'source1') return sourceForPlan;
+        if (id === 'source2') return { id, pos: { x: 12, y: 9, roomName: 'W1N1' } };
+        if (id === 'sourceLink1') return sourceLinkStructure;
+        if (id === 'sourceLink2') return secondSourceLinkStructure;
+        if (id === 'controllerLink1') return controllerLinkStructure;
+        return null;
+    };
+    Memory.rooms.W1N1.linkNetwork.sources.source1.stableTicks = 1499;
+    Memory.rooms.W1N1.linkNetwork.sources.source2 = {
+        mode: 'link_primary',
+        linkId: 'sourceLink2',
+        linkEnergy: 700,
+        stableTicks: 1499,
+        transferFailures: 0,
+        fallbackContainerUsed: false,
+        lastTransferAt: 0
+    };
+    Memory.rooms.W1N1.linkNetwork.controller.stableTicks = 1499;
+    linkService.analyze();
+    assert.strictEqual(sourceContainerStructure.lifecycle.state, 'retiring', 'link service should only retire the source container after the source link has stayed healthy through the observation window');
+    assert.strictEqual(controllerContainerStructure.lifecycle.state, 'retiring', 'link service should only retire the controller container after the controller link has stayed healthy through the observation window');
+    linkService.run();
+    assert.strictEqual(sourceLinkStructure.lastTransferTarget, null, 'link service should not use source links that are cooling down');
+    assert.strictEqual(secondSourceLinkStructure.lastTransferTarget, 'controllerLink1', 'link service should choose another ready source link when the first one is cooling down');
+    sourceContainerStructure.lifecycle.state = 'low_priority';
+    controllerContainerStructure.lifecycle.state = 'low_priority';
+    Memory.rooms.W1N1.linkNetwork.sources.source1.stableTicks = 0;
+    Memory.rooms.W1N1.linkNetwork.controller.stableTicks = 0;
+    sourceLinkStructure.cooldown = 0;
+    secondSourceLinkStructure.lastTransferTarget = null;
+    linkService.analyze();
+    assert.strictEqual(sourceContainerStructure.lifecycle.state, 'low_priority', 'link service should refuse illegal lifecycle rewinds when schema rejects source-container transitions');
+    assert.strictEqual(controllerContainerStructure.lifecycle.state, 'low_priority', 'link service should refuse illegal lifecycle rewinds when schema rejects controller-container transitions');
+    assert.ok(Array.isArray(Memory.rooms.W1N1.cityPlanTransitionFailures), 'link service should record lifecycle transition failures in room memory');
+    assert.ok(Memory.rooms.W1N1.cityPlanTransitionFailures.some((failure) => {
+        return failure.service === 'LinkService' &&
+            failure.role === 'source_container' &&
+            failure.to === 'link_primary';
+    }), 'link service should record rejected source-container lifecycle rewinds for debugging');
+    Memory.rooms.W1N1.cityPlan = {
+        controller: {
+            containerPos: { x: 24, y: 25, roomName: 'W1N1' },
+            linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+        },
+        sources: {},
+        plannedStructures: []
+    };
+    Memory.rooms.W1N1.linkNetwork.controller.stableTicks = 1;
+    const controllerTransitionFailureCount = Memory.rooms.W1N1.cityPlanTransitionFailures.filter((failure) => {
+        return failure.service === 'LinkService' &&
+            failure.role === 'controller_container' &&
+            failure.to === 'link_primary';
+    }).length;
+    linkService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.plannedStructures.length, 0, 'link service should not materialize or mutate legacy-only controller containers when strict resolution is enabled');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanTransitionFailures.filter((failure) => {
+        return failure.service === 'LinkService' &&
+            failure.role === 'controller_container' &&
+            failure.to === 'link_primary';
+    }).length, controllerTransitionFailureCount, 'link service should skip controller-container lifecycle transitions when only legacy compatibility storage exists');
+    Memory.rooms.W1N1.cityPlan = {
+        controller: {},
+        sources: {
+            source1: {
+                containerPos: { x: 10, y: 10, roomName: 'W1N1' },
+                preferredOutputRole: 'source_link',
+                deliveryMode: 'link_primary'
+            }
+        },
+        plannedStructures: []
+    };
+    Memory.rooms.W1N1.linkNetwork.sources.source1 = {
+        mode: 'link_primary',
+        linkId: 'sourceLink1',
+        linkEnergy: 700,
+        stableTicks: 1500,
+        transferFailures: 0,
+        fallbackContainerUsed: false,
+        lastTransferAt: 0
+    };
+    const sourceTransitionFailureCount = Memory.rooms.W1N1.cityPlanTransitionFailures.filter((failure) => {
+        return failure.service === 'LinkService' &&
+            failure.role === 'source_container' &&
+            failure.to === 'link_primary';
+    }).length;
+    linkService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.plannedStructures.length, 0, 'link service should not materialize or mutate legacy-only source containers during the first strict source_container rollout');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanTransitionFailures.filter((failure) => {
+        return failure.service === 'LinkService' &&
+            failure.role === 'source_container' &&
+            failure.to === 'link_primary';
+    }).length, sourceTransitionFailureCount, 'link service should skip source-container lifecycle transitions when only legacy compatibility storage exists');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            controller: {
+                linkPos: assetPlan.controller.linkPos
+            },
+            sourceRuntime: {
+                sources: {}
+            },
+            sources: {
+                source1: {
+                    linkPos: assetPlan.sources.source1.linkPos,
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'link_primary'
+                }
+            },
+            plannedStructures: [{
+                id: 'source1:link',
+                role: 'source_link',
+                structureType: STRUCTURE_LINK,
+                pos: assetPlan.sources.source1.linkPos,
+                scope: { sourceId: 'source1' },
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            }, {
+                id: 'controller:link',
+                role: 'controller_link',
+                structureType: STRUCTURE_LINK,
+                pos: assetPlan.controller.linkPos,
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            }]
+        },
+        cityPlanRuntimeObservation: {
+            readyStreak: 2,
+            readyForRuntimeFallbackDisable: false
+        }
+    };
+    delete Memory.rooms.W1N1.linkNetwork;
+    sourceLinkStructure.lastTransferTarget = null;
+    Game.rooms = {
+        W1N1: {
+            ...assetRoom,
+            find: (type) => {
+                if (type === FIND_STRUCTURES) {
+                    return assetRoom.find(type).concat([sourceLinkStructure, controllerLinkStructure]);
+                }
+                return assetRoom.find(type);
+            }
+        }
+    };
+    linkService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.linkNetwork.sources.source1, undefined, 'link service should stop treating legacy-only source runtime storage as link output even before the runtime fallback-disable streak is satisfied');
+    linkService.run();
+    assert.strictEqual(sourceLinkStructure.lastTransferTarget, null, 'link service should stop source-link transfers when only legacy source runtime storage exists, even before the runtime fallback-disable streak is satisfied');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            controller: {
+                linkPos: assetPlan.controller.linkPos
+            },
+            sourceRuntime: {
+                sources: {}
+            },
+            sources: {
+                source1: {
+                    linkPos: assetPlan.sources.source1.linkPos,
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'link_primary'
+                }
+            },
+            plannedStructures: [{
+                id: 'source1:link',
+                role: 'source_link',
+                structureType: STRUCTURE_LINK,
+                pos: assetPlan.sources.source1.linkPos,
+                scope: { sourceId: 'source1' },
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            }, {
+                id: 'controller:link',
+                role: 'controller_link',
+                structureType: STRUCTURE_LINK,
+                pos: assetPlan.controller.linkPos,
+                lifecycle: { state: 'planned', activeFromRcl: 5 }
+            }]
+        },
+        cityPlanRuntimeObservation: {
+            readyStreak: 3,
+            readyForRuntimeFallbackDisable: true
+        }
+    };
+    delete Memory.rooms.W1N1.linkNetwork;
+    sourceLinkStructure.lastTransferTarget = null;
+    linkService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.linkNetwork.sources.source1, undefined, 'link service should stop treating legacy-only source runtime storage as link output once the runtime fallback-disable streak is satisfied');
+    linkService.run();
+    assert.strictEqual(sourceLinkStructure.lastTransferTarget, null, 'link service should stop source-link transfers for legacy-only source runtime storage once strict runtime reads are enabled');
 
     const territorialRoom = {
         name: 'W1N1',
@@ -3190,6 +5915,9 @@ async function runBehaviorChecks() {
         { id: 'mainRoad', structureType: STRUCTURE_ROAD, hits: 1200, hitsMax: 5000, pos: { x: 16, y: 15, roomName: 'W1N1' } },
         { id: 'healthyRoad', structureType: STRUCTURE_ROAD, hits: 3400, hitsMax: 5000, pos: { x: 16, y: 16, roomName: 'W1N1' } },
         { id: 'sourceContainer1', structureType: STRUCTURE_CONTAINER, hits: 90000, hitsMax: 250000, pos: { x: 9, y: 10, roomName: 'W1N1' }, store: { getUsedCapacity: () => 500 } },
+        { id: 'controllerContainer1', structureType: STRUCTURE_CONTAINER, hits: 90000, hitsMax: 250000, pos: { x: 24, y: 25, roomName: 'W1N1' }, store: { getUsedCapacity: () => 500 } },
+        { id: 'terminal1', structureType: STRUCTURE_TERMINAL, hits: 2000, hitsMax: 3000, pos: { x: 20, y: 20, roomName: 'W1N1' }, store: { getUsedCapacity: () => 1000 } },
+        { id: 'extractor1', structureType: STRUCTURE_EXTRACTOR, hits: 300, hitsMax: 500, pos: { x: 22, y: 22, roomName: 'W1N1' } },
         { id: 'rampartEmergency', structureType: STRUCTURE_RAMPART, hits: 800, hitsMax: 300000000, pos: { x: 17, y: 15, roomName: 'W1N1' } },
         { id: 'wallRoutine', structureType: STRUCTURE_WALL, hits: 3000, hitsMax: 300000000, pos: { x: 18, y: 15, roomName: 'W1N1' } }
     ];
@@ -3233,6 +5961,228 @@ async function runBehaviorChecks() {
     assert.ok(maintenancePlan.targets.some((target) => target.id === 'rampartEmergency' && target.executor === 'tower'), 'maintenance plan should route emergency rampart repair to towers');
     assert.ok(maintenancePlan.targets.some((target) => target.id === 'wallRoutine' && target.repairClass === 'defense'), 'maintenance plan should include walls with defense targets');
     assert.strictEqual(maintenancePlan.targets[0].id, 'rampartEmergency', 'maintenance plan should sort urgent defense emergencies first');
+
+    const compatibilityMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        plannedStructures: [
+            {
+                id: 'source1:container',
+                role: 'source_container',
+                structureType: STRUCTURE_CONTAINER,
+                pos: { x: 9, y: 10, roomName: 'W1N1' },
+                scope: { sourceId: 'source1' },
+                lifecycle: { state: 'active', activeFromRcl: 1, activeUntilRcl: 5 }
+            },
+            {
+                id: 'controller:container',
+                role: 'controller_container',
+                structureType: STRUCTURE_CONTAINER,
+                pos: { x: 24, y: 25, roomName: 'W1N1' },
+                lifecycle: { state: 'active', activeFromRcl: 1 }
+            }
+        ]
+    });
+    assert.ok(compatibilityMaintenancePlan.targets.some((target) => {
+        return target.id === 'sourceContainer1' &&
+            target.reason === 'source_container' &&
+            target.repairClass === 'decay';
+    }), 'maintenance planner should classify source containers through plannedStructures when legacy cityPlan fields are absent');
+    assert.strictEqual(getSourceContainerAsset({
+        sources: {
+            source1: { containerPos: { x: 9, y: 10, roomName: 'W1N1' } }
+        }
+    }, 'source1').pos.x, 9, 'legacy adapter should fall back to legacy source container positions when planned assets are absent');
+    const legacyOnlySourceMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        sources: {
+            source1: {
+                containerPos: { x: 9, y: 10, roomName: 'W1N1' }
+            }
+        }
+    });
+    assert.ok(!legacyOnlySourceMaintenancePlan.targets.some((target) => {
+        return target.id === 'sourceContainer1' &&
+            (target.reason === 'source_container' || target.reason === 'source_container_link_primary');
+    }), 'maintenance planner should not classify legacy-only source containers as canonical source_container assets during strict rollout');
+    const retiringMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        plannedStructures: [{
+            id: 'source1:container',
+            role: 'source_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 9, y: 10, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'retiring', activeFromRcl: 1, activeUntilRcl: 5, replacement: 'source1:link' }
+        }]
+    });
+    assert.ok(retiringMaintenancePlan.targets.some((target) => {
+        return target.id === 'sourceContainer1' &&
+            target.reason === 'source_container_retiring' &&
+            target.targetHits === 225000 &&
+            target.repairBelow === 162500;
+    }), 'maintenance planner should downgrade retiring source containers instead of keeping them on the active high-priority repair band');
+    const linkPrimaryMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        plannedStructures: [{
+            id: 'source1:container',
+            role: 'source_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 9, y: 10, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'link_primary', activeFromRcl: 1, activeUntilRcl: 5, replacement: 'source1:link' }
+        }]
+    });
+    assert.ok(linkPrimaryMaintenancePlan.targets.some((target) => {
+        return target.id === 'sourceContainer1' &&
+            target.reason === 'source_container_link_primary' &&
+            target.targetHits === 230000 &&
+            target.repairBelow === 175000;
+    }), 'maintenance planner should keep link-primary source containers on a lighter fallback repair band');
+    assert.strictEqual(getMaintenancePolicy({
+        plannedStructures: [{
+            id: 'source1:container',
+            role: 'source_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 9, y: 10, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'link_primary', activeFromRcl: 1, activeUntilRcl: 5, replacement: 'source1:link' }
+        }]
+    }, maintenanceStructures.find((structure) => structure.id === 'sourceContainer1')).targetRatio, 0.92, 'city asset policy should expose lighter repair ratios for link-primary source containers');
+    const retiredReadyMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        plannedStructures: [{
+            id: 'source1:container',
+            role: 'source_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 9, y: 10, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'retired_ready', activeFromRcl: 1, activeUntilRcl: 5, replacement: 'source1:link' }
+        }]
+    });
+    assert.ok(!retiredReadyMaintenancePlan.targets.some((target) => target.id === 'sourceContainer1'), 'maintenance planner should stop repairing retired-ready source containers');
+    const linkPrimaryControllerMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        plannedStructures: [{
+            id: 'controller:container',
+            role: 'controller_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 24, y: 25, roomName: 'W1N1' },
+            lifecycle: { state: 'link_primary', activeFromRcl: 1, replacement: 'controller:link' }
+        }]
+    });
+    assert.ok(linkPrimaryControllerMaintenancePlan.targets.some((target) => {
+        return target.id === 'controllerContainer1' &&
+            target.reason === 'controller_container_link_primary' &&
+            target.targetHits === 230000 &&
+            target.repairBelow === 175000;
+    }), 'maintenance planner should keep controller containers on a lighter fallback repair band during link-primary transition');
+    const legacyOnlyControllerMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        controller: {
+            containerPos: { x: 24, y: 25, roomName: 'W1N1' }
+        }
+    });
+    assert.ok(!legacyOnlyControllerMaintenancePlan.targets.some((target) => {
+        return target.id === 'controllerContainer1' &&
+            (target.reason === 'controller_container' || target.reason === 'controller_container_link_primary');
+    }), 'maintenance planner should not classify legacy-only controller containers as canonical controller_container assets during strict rollout');
+    const retiredReadyControllerMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        plannedStructures: [{
+            id: 'controller:container',
+            role: 'controller_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 24, y: 25, roomName: 'W1N1' },
+            lifecycle: { state: 'retired_ready', activeFromRcl: 1, replacement: 'controller:link' }
+        }]
+    });
+    assert.ok(!retiredReadyControllerMaintenancePlan.targets.some((target) => target.id === 'controllerContainer1'), 'maintenance planner should stop repairing retired-ready controller containers');
+    const v2AssetMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        plannedStructures: [
+            {
+                id: 'hub:terminal',
+                role: 'hub_terminal',
+                structureType: STRUCTURE_TERMINAL,
+                pos: { x: 20, y: 20, roomName: 'W1N1' },
+                phase: 'industry',
+                group: 'industry',
+                lifecycle: { state: 'planned', activeFromRcl: 6 }
+            },
+            {
+                id: 'mineral:mineral1:extractor',
+                role: 'mineral_extractor',
+                structureType: STRUCTURE_EXTRACTOR,
+                pos: { x: 22, y: 22, roomName: 'W1N1' },
+                phase: 'industry',
+                group: 'industry',
+                lifecycle: { state: 'planned', activeFromRcl: 6 }
+            }
+        ]
+    });
+    assert.ok(v2AssetMaintenancePlan.targets.some((target) => {
+        return target.id === 'terminal1' &&
+            target.reason === 'hub_terminal_damage' &&
+            target.repairClass === 'core';
+    }), 'maintenance planner should use planned role reasons for hub terminal assets');
+    assert.ok(v2AssetMaintenancePlan.targets.some((target) => {
+        return target.id === 'extractor1' &&
+            target.reason === 'mineral_extractor_damage' &&
+            target.repairClass === 'economic';
+    }), 'maintenance planner should use planned role reasons for extractor assets');
+    assert.ok(v2AssetMaintenancePlan.targets.some((target) => {
+        return target.id === 'terminal1' &&
+            target.plannedRole === 'hub_terminal' &&
+            target.plannedGroup === 'industry' &&
+            target.lifecycleState === 'planned';
+    }), 'maintenance planner should attach planned metadata to maintenance targets');
+    const lowPriorityRoadMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        plannedStructures: [{
+            id: 'road:logistics:16,15',
+            role: 'logistics_road',
+            structureType: STRUCTURE_ROAD,
+            pos: { x: 16, y: 15, roomName: 'W1N1' },
+            phase: 'logistics_link',
+            group: 'infrastructure',
+            lifecycle: { state: 'low_priority', activeFromRcl: 3 }
+        }]
+    });
+    assert.ok(lowPriorityRoadMaintenancePlan.targets.some((target) => {
+        return target.id === 'mainRoad' &&
+            target.reason === 'logistics_road_low_priority' &&
+            target.targetHits === 3750 &&
+            target.repairBelow === 2250;
+    }), 'maintenance planner should use a lighter repair band for low-priority logistics roads');
+    const retiringRoadMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        plannedStructures: [{
+            id: 'road:logistics:16,15',
+            role: 'logistics_road',
+            structureType: STRUCTURE_ROAD,
+            pos: { x: 16, y: 15, roomName: 'W1N1' },
+            phase: 'logistics_link',
+            group: 'infrastructure',
+            lifecycle: { state: 'retiring', activeFromRcl: 3 }
+        }]
+    });
+    assert.ok(!retiringRoadMaintenancePlan.targets.some((target) => target.id === 'mainRoad'), 'maintenance planner should stop repairing retiring logistics roads');
+    const lowPriorityDefenseMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
+        plannedStructures: [{
+            id: 'defense:rampart:0',
+            role: 'defense_rampart',
+            structureType: STRUCTURE_RAMPART,
+            pos: { x: 17, y: 15, roomName: 'W1N1' },
+            phase: 'defense_shell',
+            group: 'defense',
+            lifecycle: { state: 'low_priority', activeFromRcl: 2 }
+        }]
+    });
+    assert.ok(lowPriorityDefenseMaintenancePlan.targets.some((target) => {
+        return target.id === 'rampartEmergency' &&
+            target.reason === 'defense_rampart_low_priority' &&
+            target.targetHits === 25000;
+    }), 'maintenance planner should lower target hits for low-priority defense ramparts');
+    assert.strictEqual(getMaintenancePolicy({
+        plannedStructures: [{
+            id: 'defense:rampart:0',
+            role: 'defense_rampart',
+            structureType: STRUCTURE_RAMPART,
+            pos: { x: 17, y: 15, roomName: 'W1N1' },
+            phase: 'defense_shell',
+            group: 'defense',
+            lifecycle: { state: 'low_priority', activeFromRcl: 2 }
+        }]
+    }, maintenanceStructures.find((structure) => structure.id === 'rampartEmergency')).targetHits, 25000, 'city asset policy should expose reduced defense targets for low-priority ramparts');
 
     let repairedDefense = null;
     const towerDefense = new TowerDefenseService('TowerDefense');
@@ -3293,12 +6243,33 @@ async function runBehaviorChecks() {
     };
     Game.getObjectById = (id) => id === 'source1' ? sourceForPlan : null;
     service.assignMiningTask(plannedMiner);
-    assert.deepStrictEqual(plannedMiner.memory.miningPos, cityPlan.sources.source1.primaryMiningPos, 'miner should prefer cityPlan source mining position');
+    assert.deepStrictEqual(plannedMiner.memory.miningPos, cityPlan.workPositions.sources.source1.mining.primary, 'miner should prefer cityPlan source mining work positions');
+
+    Memory.rooms.W1N1.cityPlan = {
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 11, y: 11, roomName: 'W1N1' }
+            }
+        }
+    };
+    const legacyOnlyWorkPositionMiner = {
+        name: 'MinerLegacyOnlyWorkPosition',
+        room: cityRoom,
+        memory: { role: 'miner', homeRoom: 'W1N1', sourceId: 'source1' },
+        pos: { inRangeTo: () => false },
+        store: { getFreeCapacity: () => 0 }
+    };
+    Game.creeps = { MinerLegacyOnlyWorkPosition: legacyOnlyWorkPositionMiner };
+    service.assignMiningTask(legacyOnlyWorkPositionMiner);
+    assert.deepStrictEqual(legacyOnlyWorkPositionMiner.memory.miningPos, { x: 9, y: 9, roomName: 'W1N1' }, 'miner should ignore legacy-only source mining positions during the second strict work-position rollout');
+    Memory.rooms.W1N1.cityPlan = cityPlan;
 
     const originalPrimaryMiningPos = cityPlan.sources.source1.primaryMiningPos;
+    const originalWorkMiningPos = cityPlan.workPositions.sources.source1.mining.primary;
     const originalContainerPos = cityPlan.sources.source1.containerPos;
-    const sourceContainerPos = { x: 9, y: 10, roomName: 'W1N1' };
-    Memory.rooms.W1N1.cityPlan.sources.source1.primaryMiningPos = { x: 9, y: 8, roomName: 'W1N1' };
+    const sourceContainerPos = { x: 10, y: 9, roomName: 'W1N1' };
+    Memory.rooms.W1N1.cityPlan.sources.source1.primaryMiningPos = { x: 9, y: 10, roomName: 'W1N1' };
+    Memory.rooms.W1N1.cityPlan.workPositions.sources.source1.mining.primary = { x: 9, y: 10, roomName: 'W1N1' };
     Memory.rooms.W1N1.cityPlan.sources.source1.containerPos = sourceContainerPos;
     const cityRoomWithContainer = {
         ...cityRoom,
@@ -3326,10 +6297,34 @@ async function runBehaviorChecks() {
         pos: { inRangeTo: () => false },
         store: { getFreeCapacity: () => 0 }
     };
+    Game.creeps = { MinerOnContainer: containerMiner };
     service.assignMiningTask(containerMiner);
-    assert.deepStrictEqual(containerMiner.memory.miningPos, sourceContainerPos, 'miner should prioritize the planned source container position when the container is already built');
+    assert.deepStrictEqual(containerMiner.memory.miningPos, Memory.rooms.W1N1.cityPlan.workPositions.sources.source1.mining.primary, 'miner should fall back to source mining work positions when only legacy source container storage exists');
+    Memory.rooms.W1N1.cityPlan.sources.source1.primaryMiningPos = { x: 9, y: 10, roomName: 'W1N1' };
+    Memory.rooms.W1N1.cityPlan.workPositions.sources.source1.mining.primary = { x: 9, y: 10, roomName: 'W1N1' };
+    delete Memory.rooms.W1N1.cityPlan.sources.source1.containerPos;
+    Memory.rooms.W1N1.cityPlan.plannedStructures = [{
+        id: 'source1:container',
+        role: 'source_container',
+        structureType: STRUCTURE_CONTAINER,
+        pos: sourceContainerPos,
+        scope: { sourceId: 'source1' },
+        lifecycle: { state: 'active', activeFromRcl: 1 }
+    }];
+    const plannedAssetContainerMiner = {
+        name: 'MinerOnPlannedAssetContainer',
+        room: cityRoomWithContainer,
+        memory: { role: 'miner', homeRoom: 'W1N1', sourceId: 'source1' },
+        pos: { inRangeTo: () => false },
+        store: { getFreeCapacity: () => 0 }
+    };
+    Game.creeps = { MinerOnPlannedAssetContainer: plannedAssetContainerMiner };
+    service.assignMiningTask(plannedAssetContainerMiner);
+    assert.deepStrictEqual(plannedAssetContainerMiner.memory.miningPos, sourceContainerPos, 'miner should prioritize planned source container assets when legacy container positions are absent');
     Memory.rooms.W1N1.cityPlan.sources.source1.primaryMiningPos = originalPrimaryMiningPos;
+    Memory.rooms.W1N1.cityPlan.workPositions.sources.source1.mining.primary = originalWorkMiningPos;
     Memory.rooms.W1N1.cityPlan.sources.source1.containerPos = originalContainerPos;
+    delete Memory.rooms.W1N1.cityPlan.plannedStructures;
 
     const plannedUpgrader = {
         room: cityRoom,
@@ -3339,9 +6334,25 @@ async function runBehaviorChecks() {
     upgraderService.assignUpgraderTask(plannedUpgrader);
     assert.deepStrictEqual(plannedUpgrader.memory.task, {
         type: 'MOVE_TO',
-        pos: cityPlan.controller.primaryUpgradePos,
+        pos: cityPlan.workPositions.controller.upgrade.primary,
         range: 0
     }, 'upgrader should move to the planned controller upgrade position before upgrading');
+    Memory.rooms.W1N1.cityPlan = {
+        controller: {
+            primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' }
+        }
+    };
+    const legacyOnlyWorkPositionUpgrader = {
+        room: cityRoom,
+        memory: { role: 'upgrader', homeRoom: 'W1N1' },
+        store: { getUsedCapacity: () => 50 }
+    };
+    upgraderService.assignUpgraderTask(legacyOnlyWorkPositionUpgrader);
+    assert.deepStrictEqual(legacyOnlyWorkPositionUpgrader.memory.task, {
+        type: 'UPGRADE',
+        targetId: 'controller1'
+    }, 'upgrader should ignore legacy-only controller upgrade positions during the first strict work-position rollout');
+    Memory.rooms.W1N1.cityPlan = cityPlan;
 
     const repairBuilder = {
         room: {
@@ -3482,6 +6493,57 @@ async function runBehaviorChecks() {
         workPos: { x: 6, y: 6, roomName: 'W1N1' },
         workPosReservedAt: Game.time
     }, 'repairer should skip stale maintenance targets that already meet their targetHits');
+
+    Memory.rooms.W1N1.cityPlan = {
+        plannedStructures: [{
+            id: 'road:logistics:7,7',
+            role: 'logistics_road',
+            structureType: STRUCTURE_ROAD,
+            pos: { x: 7, y: 7, roomName: 'W1N1' },
+            phase: 'logistics_link',
+            group: 'infrastructure',
+            lifecycle: { state: 'retired_ready', activeFromRcl: 3 }
+        }]
+    };
+    const retiredPlanRepairer = {
+        room: {
+            name: 'W1N1',
+            controller: {
+                id: 'controller1'
+            },
+            find: () => []
+        },
+        store: {
+            getUsedCapacity: () => 50
+        },
+        memory: { role: 'repairer', homeRoom: 'W1N1' },
+        pos: {}
+    };
+    Memory.rooms.W1N1.maintenancePlan = {
+        targets: [
+            {
+                id: 'damagedRoad',
+                executor: 'repairer',
+                urgency: 'routine',
+                structureType: STRUCTURE_ROAD,
+                priority: 94,
+                targetHits: 5000,
+                plannedRole: 'logistics_road',
+                plannedGroup: 'infrastructure',
+                lifecycleState: 'retired_ready'
+            }
+        ]
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'damagedRoad') return { id, hits: 700, hitsMax: 5000, pos: { x: 7, y: 7, roomName: 'W1N1' } };
+        if (id === 'controller1') return { id, pos: {} };
+        return null;
+    };
+    repairerService.assignRepairerTask(retiredPlanRepairer);
+    assert.deepStrictEqual(retiredPlanRepairer.memory.task, {
+        type: 'UPGRADE',
+        targetId: 'controller1'
+    }, 'repairer should skip retired-ready maintenance targets even if stale plan entries remain');
 
     const matrixValues = new Map();
     class CostMatrix {
@@ -3631,6 +6693,19 @@ async function runBehaviorChecks() {
     roadPlanner.analyze();
     assert.ok(Memory.rooms.W1N1.roadNetwork.includes('14,14'), 'road planner should rebuild the road network when city road anchors change');
     assert.ok(dynamicRoadSites.some((site) => site.x === 14 && site.y === 14), 'road planner should place roads for newly added city anchors after replanning');
+    assert.ok(Memory.rooms.W1N1.cityPlan.plannedStructures.some((entry) => entry.role === 'logistics_road' && entry.group === 'infrastructure' && entry.phase === 'logistics_link'), 'road planner should sync replanned logistics roads into planned structures');
+    Memory.rooms.W1N1.cityPlan.plannedStructures.push({
+        id: 'road:logistics:19,19',
+        role: 'logistics_road',
+        structureType: STRUCTURE_ROAD,
+        pos: { x: 19, y: 19, roomName: 'W1N1' },
+        phase: 'logistics_link',
+        group: 'infrastructure',
+        lifecycle: { state: 'active', activeFromRcl: 3 }
+    });
+    roadPlanner.syncRoadPlannedStructures(Memory.rooms.W1N1.cityPlan, ['14,14', '15,15'], Memory.rooms.W1N1.cityPlan.coreRoads);
+    const staleRoadPlan = Memory.rooms.W1N1.cityPlan.plannedStructures.find((entry) => entry.id === 'road:logistics:19,19');
+    assert.strictEqual(staleRoadPlan.lifecycle.state, 'low_priority', 'road planner should downgrade old logistics roads that disappear from the active network');
 
     const retirementService = new CreepRetirementService('CreepRetirement');
     const stableStorage = {
@@ -3683,6 +6758,498 @@ async function runBehaviorChecks() {
     idleBuilder.memory.task = null;
     retirementService.analyze();
     assert.strictEqual(idleBuilder.suicideCalled, true, 'retirement service should suicide idle surplus workers after they unload');
+
+    const lifecycleService = new StructureLifecycleService('StructureLifecycle');
+    const lifecycleSourceContainer = {
+        id: 'retireNowContainer',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 11, y: 10, roomName: 'W1N1' },
+        store: makeStore({ energy: 0 }, 2000),
+        hits: 90000,
+        hitsMax: 250000,
+        destroyCalled: false,
+        destroy() {
+            this.destroyCalled = true;
+            return OK;
+        }
+    };
+    const lifecycleSourceLink = {
+        id: 'sourceLinkRetire',
+        structureType: STRUCTURE_LINK,
+        pos: { x: 12, y: 10, roomName: 'W1N1' },
+        store: makeStore({ energy: 600 }, 800)
+    };
+    const lifecycleControllerLink = {
+        id: 'controllerLinkRetire',
+        structureType: STRUCTURE_LINK,
+        pos: { x: 24, y: 24, roomName: 'W1N1' },
+        store: makeStore({ energy: 400 }, 800)
+    };
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sourceRuntime: {
+                sources: {
+                    source1: {
+                        preferredOutputRole: 'source_link',
+                        deliveryMode: 'link_primary'
+                    }
+                }
+            },
+            sources: {
+                source1: {
+                    linkPos: { x: 12, y: 10, roomName: 'W1N1' },
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'link_primary'
+                }
+            },
+            controller: {
+                linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+            },
+            plannedStructures: [
+                {
+                    id: 'source1:container',
+                    role: 'source_container',
+                    structureType: STRUCTURE_CONTAINER,
+                    pos: { x: 11, y: 10, roomName: 'W1N1' },
+                    scope: { sourceId: 'source1' },
+                    lifecycle: { state: 'retiring', activeFromRcl: 1, activeUntilRcl: 5, replacement: 'source1:link' }
+                },
+                {
+                    id: 'source1:link',
+                    role: 'source_link',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 12, y: 10, roomName: 'W1N1' },
+                    scope: { sourceId: 'source1' },
+                    lifecycle: { state: 'planned', activeFromRcl: 5 }
+                },
+                {
+                    id: 'controller:link',
+                    role: 'controller_link',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 24, y: 24, roomName: 'W1N1' },
+                    lifecycle: { state: 'planned', activeFromRcl: 5 }
+                }
+            ]
+        },
+        linkNetwork: {
+            updatedAt: 1,
+            sources: {
+                source1: {
+                    mode: 'link_primary',
+                    linkId: 'sourceLinkRetire',
+                    linkEnergy: 600,
+                    lastTransferAt: 1,
+                    transferFailures: 0,
+                    fallbackContainerUsed: false,
+                    stableTicks: 1500
+                }
+            },
+            controller: {
+                linkId: 'controllerLinkRetire',
+                linkEnergy: 400,
+                underfilledTicks: 0
+            }
+        }
+    };
+    global.RoomPhase = {
+        W1N1: {
+            energyPosture: 'normal'
+        }
+    };
+    Game.creeps = {
+        StableMiner: { memory: { role: 'miner', homeRoom: 'W1N1' } },
+        StableHauler: { memory: { role: 'hauler', homeRoom: 'W1N1' } },
+        StableUpgrader: { memory: { role: 'upgrader', homeRoom: 'W1N1' } }
+    };
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true, pos: { x: 25, y: 25, roomName: 'W1N1' } },
+        find: (type) => {
+            if (type === FIND_STRUCTURES) return [lifecycleSourceContainer, lifecycleSourceLink, lifecycleControllerLink];
+            return [];
+        }
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'retireNowContainer') return lifecycleSourceContainer;
+        if (id === 'sourceLinkRetire') return lifecycleSourceLink;
+        if (id === 'controllerLinkRetire') return lifecycleControllerLink;
+        return null;
+    };
+    lifecycleService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.plannedStructures[0].lifecycle.state, 'retired_ready', 'structure lifecycle should mark stable empty retiring source containers as retired-ready');
+    lifecycleService.run();
+    assert.strictEqual(lifecycleSourceContainer.destroyCalled, true, 'structure lifecycle should destroy retired-ready source containers once room safety checks pass');
+    lifecycleSourceContainer.destroyCalled = false;
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sources: {
+                source1: {
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'link_primary'
+                }
+            },
+            controller: {
+                linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+            },
+            plannedStructures: [
+                {
+                    id: 'source1:container',
+                    role: 'source_container',
+                    structureType: STRUCTURE_CONTAINER,
+                    pos: { x: 11, y: 10, roomName: 'W1N1' },
+                    scope: { sourceId: 'source1' },
+                    lifecycle: { state: 'retiring', activeFromRcl: 1, replacement: 'source1:link' }
+                },
+                {
+                    id: 'source1:link',
+                    role: 'source_link',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 12, y: 10, roomName: 'W1N1' },
+                    scope: { sourceId: 'source1' },
+                    lifecycle: { state: 'active', activeFromRcl: 5 }
+                },
+                {
+                    id: 'controller:link',
+                    role: 'controller_link',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 24, y: 24, roomName: 'W1N1' },
+                    lifecycle: { state: 'planned', activeFromRcl: 5 }
+                }
+            ]
+        },
+        linkNetwork: {
+            updatedAt: 1,
+            sources: {
+                source1: {
+                    mode: 'link_primary',
+                    linkId: 'sourceLinkRetire',
+                    linkEnergy: 600,
+                    lastTransferAt: 1,
+                    transferFailures: 0,
+                    fallbackContainerUsed: false,
+                    stableTicks: 1500
+                }
+            },
+            controller: {
+                linkId: 'controllerLinkRetire',
+                linkEnergy: 400,
+                underfilledTicks: 0,
+                stableTicks: 1500
+            }
+        },
+        cityPlanRuntimeObservation: {
+            readyStreak: 3,
+            readyForRuntimeFallbackDisable: true
+        }
+    };
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true, pos: { x: 25, y: 25, roomName: 'W1N1' } },
+        find: (type) => {
+            if (type === FIND_STRUCTURES) return [lifecycleSourceContainer, lifecycleSourceLink, lifecycleControllerLink];
+            return [];
+        }
+    };
+    lifecycleService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.plannedStructures[0].lifecycle.state, 'retiring', 'structure lifecycle should ignore legacy-only source runtime once the strict runtime gate is enabled');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sources: {
+                source1: {
+                    linkPos: { x: 12, y: 10, roomName: 'W1N1' },
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'link_primary'
+                }
+            },
+            controller: {
+                linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+            },
+            plannedStructures: [
+                {
+                    id: 'source1:container',
+                    role: 'source_container',
+                    structureType: STRUCTURE_CONTAINER,
+                    pos: { x: 11, y: 10, roomName: 'W1N1' },
+                    scope: { sourceId: 'source1' },
+                    lifecycle: { state: 'retiring', activeFromRcl: 1, replacement: 'source1:link' }
+                },
+                {
+                    id: 'controller:link',
+                    role: 'controller_link',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 24, y: 24, roomName: 'W1N1' },
+                    lifecycle: { state: 'planned', activeFromRcl: 5 }
+                }
+            ]
+        },
+        linkNetwork: {
+            updatedAt: 1,
+            sources: {
+                source1: {
+                    mode: 'link_primary',
+                    linkId: 'sourceLinkRetire',
+                    linkEnergy: 600,
+                    lastTransferAt: 1,
+                    transferFailures: 0,
+                    fallbackContainerUsed: false,
+                    stableTicks: 1500
+                }
+            },
+            controller: {
+                linkId: 'controllerLinkRetire',
+                linkEnergy: 400,
+                underfilledTicks: 0,
+                stableTicks: 1500
+            }
+        }
+    };
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true, pos: { x: 25, y: 25, roomName: 'W1N1' } },
+        find: (type) => {
+            if (type === FIND_STRUCTURES) return [lifecycleSourceContainer, lifecycleSourceLink, lifecycleControllerLink];
+            return [];
+        }
+    };
+    lifecycleService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.plannedStructures[0].lifecycle.state, 'retiring', 'structure lifecycle should ignore legacy-only source links during strict rollout');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sources: {},
+            controller: {
+                linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+            },
+            plannedStructures: [{
+                id: 'road:logistics:16,15',
+                role: 'logistics_road',
+                structureType: STRUCTURE_ROAD,
+                pos: { x: 16, y: 15, roomName: 'W1N1' },
+                phase: 'logistics_link',
+                group: 'infrastructure',
+                lifecycle: { state: 'low_priority', activeFromRcl: 3, lastPlannedAt: Game.time - 600, lowPrioritySince: Game.time - 600 }
+            }]
+        }
+    };
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true, pos: { x: 25, y: 25, roomName: 'W1N1' } },
+        find: () => []
+    };
+    Game.creeps = {
+        StableMiner: { memory: { role: 'miner', homeRoom: 'W1N1' } },
+        StableHauler: { memory: { role: 'hauler', homeRoom: 'W1N1' } },
+        StableUpgrader: { memory: { role: 'upgrader', homeRoom: 'W1N1' } }
+    };
+    lifecycleService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.plannedStructures[0].lifecycle.state, 'retiring', 'structure lifecycle should advance stale low-priority logistics roads into retiring state');
+    for (let i = 0; i < 25; i++) {
+        recordLifecycleTransitionFailure('W1N1', {
+            service: 'TestHarness',
+            role: 'logistics_road',
+            id: `road:${i}`,
+            from: 'low_priority',
+            to: 'retiring',
+            error: 'synthetic failure'
+        });
+    }
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanTransitionFailures.length, 20, 'city plan debug should cap stored lifecycle transition failures');
+
+    const lifecycleControllerContainer = {
+        id: 'retireControllerContainer',
+        structureType: STRUCTURE_CONTAINER,
+        pos: { x: 24, y: 25, roomName: 'W1N1' },
+        store: makeStore({ energy: 0 }, 2000),
+        hits: 90000,
+        hitsMax: 250000,
+        destroyCalled: false,
+        destroy() {
+            this.destroyCalled = true;
+            return OK;
+        }
+    };
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sources: {},
+            controller: {
+                linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+            },
+            plannedStructures: [
+                {
+                    id: 'controller:container',
+                    role: 'controller_container',
+                    structureType: STRUCTURE_CONTAINER,
+                    pos: { x: 24, y: 25, roomName: 'W1N1' },
+                    lifecycle: { state: 'retiring', activeFromRcl: 1, replacement: 'controller:link' }
+                },
+                {
+                    id: 'controller:link',
+                    role: 'controller_link',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 24, y: 24, roomName: 'W1N1' },
+                    lifecycle: { state: 'planned', activeFromRcl: 5 }
+                }
+            ]
+        },
+        linkNetwork: {
+            updatedAt: 1,
+            sources: {},
+            controller: {
+                linkId: 'controllerLinkRetire',
+                linkEnergy: 400,
+                underfilledTicks: 0,
+                stableTicks: 1500
+            }
+        }
+    };
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true, pos: { x: 25, y: 25, roomName: 'W1N1' } },
+        find: (type) => {
+            if (type === FIND_STRUCTURES) return [lifecycleControllerContainer, lifecycleControllerLink];
+            return [];
+        }
+    };
+    Game.getObjectById = (id) => {
+        if (id === 'retireControllerContainer') return lifecycleControllerContainer;
+        if (id === 'controllerLinkRetire') return lifecycleControllerLink;
+        return null;
+    };
+    lifecycleService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.plannedStructures[0].lifecycle.state, 'retired_ready', 'structure lifecycle should mark stable empty retiring controller containers as retired-ready');
+    lifecycleService.run();
+    assert.strictEqual(lifecycleControllerContainer.destroyCalled, true, 'structure lifecycle should destroy retired-ready controller containers once room safety checks pass');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            sources: {},
+            controller: {
+                linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+            },
+            plannedStructures: [{
+                id: 'controller:container',
+                role: 'controller_container',
+                structureType: STRUCTURE_CONTAINER,
+                pos: { x: 24, y: 25, roomName: 'W1N1' },
+                lifecycle: { state: 'retiring', activeFromRcl: 1, replacement: 'controller:link' }
+            }]
+        },
+        linkNetwork: {
+            updatedAt: 1,
+            sources: {},
+            controller: {
+                linkId: 'controllerLinkRetire',
+                linkEnergy: 400,
+                underfilledTicks: 0,
+                stableTicks: 1500
+            }
+        }
+    };
+    lifecycleControllerContainer.destroyCalled = false;
+    Game.rooms.W1N1 = {
+        name: 'W1N1',
+        controller: { my: true, pos: { x: 25, y: 25, roomName: 'W1N1' } },
+        find: () => []
+    };
+    lifecycleService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.plannedStructures[0].lifecycle.state, 'retiring', 'structure lifecycle should ignore legacy-only controller links during strict rollout');
+
+    const cityPlanDebugService = new CityPlanDebugService('CityPlanDebug');
+    Game.time = 50;
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            schemaVersion: CITY_PLAN_SCHEMA_VERSION,
+            sources: {
+                source1: {
+                    preferredOutputRole: 'source_link',
+                    deliveryMode: 'link_primary'
+                }
+            },
+            controller: {
+                containerPos: { x: 24, y: 25, roomName: 'W1N1' }
+            },
+            plannedStructures: [
+                {
+                    id: 'source1:link',
+                    role: 'source_link',
+                    structureType: STRUCTURE_LINK,
+                    pos: { x: 12, y: 10, roomName: 'W1N1' },
+                    scope: { sourceId: 'source1' },
+                    lifecycle: { state: 'planned', activeFromRcl: 5 }
+                },
+                {
+                    id: 'controller:container',
+                    role: 'controller_container',
+                    structureType: STRUCTURE_CONTAINER,
+                    pos: { x: 24, y: 25, roomName: 'W1N1' },
+                    lifecycle: { state: 'active', activeFromRcl: 1 }
+                }
+            ]
+        },
+        cityPlanTransitionFailures: [{
+            tick: 49,
+            service: 'LinkService',
+            role: 'source_container',
+            id: 'source1:container',
+            from: 'low_priority',
+            to: 'link_primary',
+            error: 'illegal lifecycle transition: low_priority -> link_primary'
+        }]
+    };
+    cityPlanDebugService.analyze();
+    assert.ok(Memory.rooms.W1N1.cityPlanDebug, 'city plan debug service should publish room debug summaries');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.validation.valid, true, 'city plan debug service should expose city plan schema validation state');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.assetCountsByRole.source_link, 1, 'city plan debug service should summarize assets by role');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.sourceRuntime.byMode.container, 1, 'city plan debug service should fall back to container-mode source runtime states when canonical runtime storage is missing');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.sourceRuntime.canonical.totalSources, 0, 'city plan debug service should report canonical source runtime storage coverage independently from runtime mode summary');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlanDebug.sourceRuntime.canonical.fallbackSources, ['source1'], 'city plan debug service should surface runtime fallback sources while canonical coverage is incomplete');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.sourceOutputPolicies.source1.bodyProfile, 'miner', 'city plan debug service should include defaulted source output policy summaries when only legacy runtime storage exists');
+    assert.ok(Memory.rooms.W1N1.cityPlanDebug.transitionFailures.some((failure) => failure.service === 'LinkService'), 'city plan debug service should surface recent transition failures');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.migrationObserved, false, 'city plan debug service should not fabricate migration observation when no migration occurred');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.readyForRuntimeFallbackDisable, false, 'city plan debug service should keep runtime fallback disable gated while runtime fallback sources still exist');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanRuntimeObservation.readyStreak, 0, 'city plan debug service should reset runtime readiness streak when runtime fallback disable is not yet allowed');
+    Memory.rooms.W1N1 = {
+        cityPlan: {
+            schemaVersion: 2,
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' },
+                    containerPos: { x: 9, y: 10, roomName: 'W1N1' }
+                }
+            },
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' },
+                containerPos: { x: 24, y: 25, roomName: 'W1N1' }
+            }
+        }
+    };
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.schemaVersion, 4, 'city plan debug service should migrate legacy city plans to the current schema before publishing debug summaries');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlan.workPositions.sources.source1.mining.primary, { x: 9, y: 10, roomName: 'W1N1' }, 'city plan debug service should persist migrated canonical work positions back into room memory');
+    assert.ok(Memory.rooms.W1N1.cityPlan.plannedStructures.some((entry) => entry.role === 'source_container'), 'city plan debug service should persist migrated planned assets back into room memory');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlan.sourceRuntime.sources.source1, {
+        preferredOutputRole: 'source_container',
+        deliveryMode: 'container'
+    }, 'city plan debug service should persist migrated canonical source runtime storage back into room memory');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanMigration.fromVersion, 2, 'city plan debug service should persist the last observed city plan migration source version');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanMigration.toVersion, 4, 'city plan debug service should persist the last observed city plan migration target version');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanMigration.changed, true, 'city plan debug service should persist whether a migration changed the room city plan');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanMigration.changes.plannedStructuresAdded, 2, 'city plan debug service should persist migration change counts for planned structures');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanMigration.changes.sourceRuntimeEntriesAdded, 1, 'city plan debug service should persist migration change counts for canonical source runtime storage');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.migration.toVersion, 4, 'city plan debug service should surface the persisted migration summary in debug output');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.sourceRuntime.canonical.totalSources, 1, 'city plan debug service should expose migrated canonical source runtime coverage');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.migrationObserved, true, 'city plan debug service should mark migration as observed after persisting migration metadata');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.readyForRuntimeFallbackDisable, true, 'city plan debug service should mark migrated canonical rooms ready for runtime fallback disable');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanRuntimeObservation.readyStreak, 1, 'city plan debug service should begin counting consecutive runtime-fallback-disable-ready observations');
+    Game.time = 100;
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanRuntimeObservation.readyStreak, 2, 'city plan debug service should increment the runtime readiness streak across consecutive ready observations');
+    Game.time = 150;
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanRuntimeObservation.readyStreak, 3, 'city plan debug service should keep counting consecutive runtime-fallback-disable-ready observations');
+    Memory.rooms.W1N1.cityPlan.sourceRuntime.sources = {};
+    Game.time = 200;
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.readyForRuntimeFallbackDisable, false, 'city plan debug service should clear runtime fallback-disable readiness when canonical runtime coverage regresses');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanRuntimeObservation.readyStreak, 0, 'city plan debug service should reset the runtime readiness streak when runtime fallback-disable readiness regresses');
 }
 
 runBehaviorChecks()

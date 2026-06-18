@@ -1,5 +1,8 @@
 import BaseService from '../core/BaseService.js';
 import MemoryConfig from '../config/MemoryConfig.js';
+import { getMaintenancePolicy } from './CityAssetPolicy.js';
+import { getControllerContainerAsset, getSourceContainerAsset } from './CityPlanLegacyAdapter.js';
+import { findPlannedStructureAtPos, findPlannedStructureForObject, getPlannedGroup, getPlannedRole, getStructureLifecycle } from './CityPlanHelpers.js';
 
 const MAINTENANCE_PLAN_VERSION = 1;
 const CORE_TYPES = new Set(['spawn', 'extension', 'tower', 'storage', 'terminal', 'lab', 'link', 'factory', 'powerSpawn', 'nuker', 'observer']);
@@ -38,8 +41,17 @@ class MaintenancePlannerService extends BaseService {
 
     targetForStructure(structure, room, cityPlan, posture, defenseTargets) {
         if (structure.hits === undefined || structure.hitsMax === undefined) return null;
+        const plannedRole = this.plannedRole(structure, cityPlan);
 
         if (structure.structureType === STRUCTURE_RAMPART || structure.structureType === STRUCTURE_WALL) {
+            const plannedRole = this.plannedRole(structure, cityPlan);
+            const lifecycle = getStructureLifecycle(cityPlan, structure);
+            if (plannedRole === 'defense_rampart' && lifecycle.state === 'low_priority') {
+                return this.standardTarget(structure, 'defense', 'defense_rampart_low_priority', 25000, 45, cityPlan);
+            }
+            if (plannedRole === 'defense_wall' && lifecycle.state === 'low_priority') {
+                return this.standardTarget(structure, 'defense', 'defense_wall_low_priority', 25000, 40, cityPlan);
+            }
             return this.defenseTarget(structure, posture, defenseTargets);
         }
 
@@ -48,18 +60,25 @@ class MaintenancePlannerService extends BaseService {
         }
 
         if (structure.structureType === STRUCTURE_ROAD) {
-            return this.bandTarget(structure, 'economic', `${structure.structureType}_damage`, 0.65, 0.9, 60);
+            const maintenancePolicy = getMaintenancePolicy(cityPlan, structure);
+            if (!maintenancePolicy.shouldRepair) {
+                return null;
+            }
+            if (maintenancePolicy.repairMode === 'band' && maintenancePolicy.reason === 'logistics_road_low_priority') {
+                return this.bandTarget(structure, 'economic', maintenancePolicy.reason, maintenancePolicy.repairBelowRatio, maintenancePolicy.targetRatio, maintenancePolicy.priority, cityPlan);
+            }
+            return this.bandTarget(structure, 'economic', `${structure.structureType}_damage`, 0.65, 0.9, 60, cityPlan);
         }
 
         if (ECONOMIC_TYPES.has(structure.structureType)) {
-            return this.standardTarget(structure, 'economic', `${structure.structureType}_damage`, structure.hitsMax, 60);
+            return this.standardTarget(structure, 'economic', this.plannedReason(plannedRole, structure.structureType), structure.hitsMax, 60, cityPlan);
         }
 
         if (CORE_TYPES.has(structure.structureType)) {
-            return this.standardTarget(structure, 'core', `${structure.structureType}_damage`, structure.hitsMax, 85);
+            return this.standardTarget(structure, 'core', this.plannedReason(plannedRole, structure.structureType), structure.hitsMax, 85, cityPlan);
         }
 
-        return this.standardTarget(structure, 'economic', `${structure.structureType}_damage`, structure.hitsMax, 50);
+        return this.standardTarget(structure, 'economic', this.plannedReason(plannedRole, structure.structureType), structure.hitsMax, 50, cityPlan);
     }
 
     defenseTarget(structure, posture, defenseTargets) {
@@ -90,14 +109,29 @@ class MaintenancePlannerService extends BaseService {
 
     containerTarget(structure, cityPlan) {
         const role = this.containerRole(structure.pos, cityPlan);
+        const maintenancePolicy = getMaintenancePolicy(cityPlan, structure);
+        if ((role === 'source_container' || role === 'controller_container') && !maintenancePolicy.shouldRepair) {
+            return null;
+        }
+        if ((role === 'source_container' || role === 'controller_container') && maintenancePolicy.repairMode === 'band' && maintenancePolicy.reason) {
+            return this.bandTarget(
+                structure,
+                'decay',
+                maintenancePolicy.reason,
+                maintenancePolicy.repairBelowRatio,
+                maintenancePolicy.targetRatio,
+                maintenancePolicy.priority,
+                cityPlan
+            );
+        }
         const priority = role === 'source_container' ? 82 : (role === 'controller_container' ? 80 : 65);
         if (role === 'source_container' || role === 'controller_container') {
-            return this.bandTarget(structure, 'decay', role, 0.75, 0.95, priority);
+            return this.bandTarget(structure, 'decay', role, 0.75, 0.95, priority, cityPlan);
         }
-        return this.bandTarget(structure, 'decay', role, 0.65, 0.9, priority);
+        return this.bandTarget(structure, 'decay', role, 0.65, 0.9, priority, cityPlan);
     }
 
-    standardTarget(structure, repairClass, reason, targetHits, basePriority) {
+    standardTarget(structure, repairClass, reason, targetHits, basePriority, cityPlan = {}) {
         if (structure.hits >= targetHits) return null;
 
         return {
@@ -110,11 +144,12 @@ class MaintenancePlannerService extends BaseService {
             targetHits,
             executor: 'repairer',
             repairClass,
-            repairPolicy: 'full'
+            repairPolicy: 'full',
+            ...this.targetPlanningMetadata(structure, cityPlan)
         };
     }
 
-    bandTarget(structure, repairClass, reason, repairBelowRatio, targetRatio, basePriority) {
+    bandTarget(structure, repairClass, reason, repairBelowRatio, targetRatio, basePriority, cityPlan = {}) {
         const repairBelow = Math.floor(structure.hitsMax * repairBelowRatio);
         const targetHits = Math.floor(structure.hitsMax * targetRatio);
         if (structure.hits >= repairBelow) return null;
@@ -130,18 +165,46 @@ class MaintenancePlannerService extends BaseService {
             targetHits,
             executor: 'repairer',
             repairClass,
-            repairPolicy: 'band'
+            repairPolicy: 'band',
+            ...this.targetPlanningMetadata(structure, cityPlan)
         };
     }
 
     containerRole(pos, cityPlan) {
-        if (cityPlan.controller && this.samePos(pos, cityPlan.controller.containerPos)) return 'controller_container';
+        const planned = findPlannedStructureAtPos(cityPlan, pos, STRUCTURE_CONTAINER);
+        if (planned && planned.role) return planned.role;
+
+        const controllerContainer = getControllerContainerAsset(cityPlan, { allowLegacyFallback: false });
+        if (controllerContainer && this.samePos(pos, controllerContainer.pos)) return 'controller_container';
         if (cityPlan.sources) {
             for (const sourceId in cityPlan.sources) {
-                if (this.samePos(pos, cityPlan.sources[sourceId].containerPos)) return 'source_container';
+                const sourceContainer = getSourceContainerAsset(cityPlan, sourceId, { allowLegacyFallback: false });
+                if (sourceContainer && this.samePos(pos, sourceContainer.pos)) return 'source_container';
             }
         }
         return 'container';
+    }
+
+    plannedRole(structure, cityPlan) {
+        return getPlannedRole(cityPlan, structure);
+    }
+
+    plannedGroup(structure, cityPlan) {
+        return getPlannedGroup(cityPlan, structure);
+    }
+
+    plannedReason(plannedRole, structureType) {
+        return plannedRole ? `${plannedRole}_damage` : `${structureType}_damage`;
+    }
+
+    targetPlanningMetadata(structure, cityPlan) {
+        const planned = findPlannedStructureForObject(cityPlan, structure);
+        const lifecycle = getStructureLifecycle(cityPlan, structure);
+        return {
+            plannedRole: planned && planned.role ? planned.role : null,
+            plannedGroup: planned && planned.group ? planned.group : null,
+            lifecycleState: lifecycle.state
+        };
     }
 
     defenseTargetsFor(room, cityPlan) {
