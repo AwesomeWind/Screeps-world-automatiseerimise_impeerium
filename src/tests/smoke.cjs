@@ -34,6 +34,7 @@ const expectedFiles = [
     'src/core/WorkPositionPlanner.js',
     'src/core/EmpireEventLog.js',
     'src/core/RuntimeTelemetry.js',
+    'src/core/ServiceScheduler.js',
     'src/services/RoomCacheService.js',
     'src/services/RoomPhaseService.js',
     'src/services/SpawnBureauService.js',
@@ -429,6 +430,7 @@ async function runBehaviorChecks() {
     const { default: EventBus } = await import('../core/EventBus.js');
     const { recordEmpireEvent, getEmpireEvents } = await import('../core/EmpireEventLog.js');
     const { default: RuntimeTelemetry } = await import('../core/RuntimeTelemetry.js');
+    const { default: ServiceScheduler } = await import('../core/ServiceScheduler.js');
     const { default: MinerStrategyService } = await import('../strategies/MinerStrategyService.js');
     const { default: HaulerStrategyService } = await import('../strategies/HaulerStrategyService.js');
     const { default: UpgraderStrategyService } = await import('../strategies/UpgraderStrategyService.js');
@@ -740,6 +742,37 @@ async function runBehaviorChecks() {
     assert.strictEqual(RuntimeTelemetry.measure('NoCpu', 'init', () => 42), 42, 'telemetry should preserve behavior when Game.cpu is unavailable');
     Game.cpu = previousCpu;
     Memory.empire.control.policy.telemetry.persistInterval = DEFAULT_EMPIRE_POLICY.telemetry.persistInterval;
+
+    const schedulerPreviousCpu = Game.cpu;
+    Memory.empire.control.policy.scheduler = {
+        enforce: false,
+        constrainedBelow: 7000,
+        criticalBelow: 3000,
+        recoveryAbove: 8000
+    };
+    Game.cpu = { bucket: 2500, getUsed: () => 0 };
+    Game.time = 400;
+    ServiceScheduler.beginTick();
+    const shadow = ServiceScheduler.decision('CityPlanDebug', 'analyze');
+    assert.strictEqual(shadow.mode, 'critical', 'low bucket should enter critical mode');
+    assert.strictEqual(shadow.wouldRun, false, 'critical mode should recommend skipping P3 work');
+    assert.strictEqual(shadow.shouldRun, true, 'shadow mode should preserve existing execution');
+
+    Memory.empire.control.policy.scheduler.enforce = true;
+    const enforced = ServiceScheduler.decision('CityPlanDebug', 'analyze');
+    assert.strictEqual(enforced.shouldRun, false, 'enforced scheduler should skip optional work');
+    assert.strictEqual(ServiceScheduler.decision('Spawn', 'run').shouldRun, true, 'P0 services should run in critical mode');
+    assert.strictEqual(ServiceScheduler.decision('CityPlanDebug', 'init').shouldRun, true, 'scheduler should never skip service initialization');
+    assert.strictEqual(ServiceScheduler.decision('CityPlanDebug', 'cleanup').shouldRun, true, 'scheduler should never skip service cleanup');
+
+    Game.cpu.bucket = 7500;
+    ServiceScheduler.beginTick();
+    assert.strictEqual(Memory.empire.control.runtime.cpuMode, 'recovery', 'critical mode should enter recovery before normal');
+    Game.cpu.bucket = 8500;
+    ServiceScheduler.beginTick();
+    assert.strictEqual(Memory.empire.control.runtime.cpuMode, 'normal', 'recovery should exit only above recovery threshold');
+    Game.cpu = schedulerPreviousCpu;
+    Memory.empire.control.policy.scheduler = { ...DEFAULT_EMPIRE_POLICY.scheduler };
     Game.time = policyTestTime;
     Game.rooms = {
         W1N1: {
