@@ -94,6 +94,17 @@ async function run() {
     };
     assert.strictEqual(evaluateCapabilityReadiness(legacyVariant, readinessCurrent, readinessPolicy, 200).ready, true, 'legacy comparison counts should not gate readiness');
 
+    const storedReadyRollout = { ...healthyRollout, ready: true, blockers: [] };
+    const invalidSampleRollout = appendCapabilitySample(storedReadyRollout, {
+        known: true,
+        critical: false
+    });
+    assert.strictEqual(invalidSampleRollout.sampleCount, storedReadyRollout.sampleCount, 'samples missing required fields should not increase sample counts');
+    assert.strictEqual(invalidSampleRollout.knownSampleCount, storedReadyRollout.knownSampleCount, 'invalid samples should not increase component counts');
+    assert.strictEqual(invalidSampleRollout.ready, false, 'invalid samples should reset rollout readiness');
+    assert.ok(invalidSampleRollout.blockers.includes('invalid_sample'), 'invalid samples should record their reason without adding state fields');
+    assert.strictEqual(evaluateCapabilityReadiness(invalidSampleRollout, readinessCurrent, readinessPolicy, 200).ready, false, 'invalid samples should make the current readiness result not ready');
+
     const frozenRollout = Object.freeze({ ...healthyRollout });
     const frozenCurrent = Object.freeze({ ...readinessCurrent });
     const frozenPolicy = Object.freeze({ ...readinessPolicy });
@@ -119,6 +130,11 @@ async function run() {
     assert.strictEqual(Object.prototype.hasOwnProperty.call(boundedRollout, 'samples'), false, 'rollout state should not retain a sample array');
     assert.strictEqual(evaluateCapabilityReadiness({ ...healthyRollout, sampleCount: NaN }, readinessCurrent, readinessPolicy, 200).ready, false, 'invalid rollout counts should never be ready');
     assert.strictEqual(evaluateCapabilityReadiness({ ...healthyRollout, criticalSampleCount: -1 }, readinessCurrent, readinessPolicy, 200).ready, false, 'negative rollout counts should never be ready');
+    assert.strictEqual(evaluateCapabilityReadiness({ ...healthyRollout, knownSampleCount: 51 }, readinessCurrent, readinessPolicy, 200).ready, false, 'component counts above sample counts should never be ready');
+    assert.strictEqual(evaluateCapabilityReadiness({ ...healthyRollout, recommendationPresentCount: 49.5 }, readinessCurrent, readinessPolicy, 200).ready, false, 'fractional rollout counts should never be ready');
+    assert.strictEqual(evaluateCapabilityReadiness({ ...healthyRollout, recommendationFlipCount: 50 }, readinessCurrent, readinessPolicy, 200).ready, false, 'flip counts above the possible transition count should never be ready');
+    assert.strictEqual(evaluateCapabilityReadiness({ ...healthyRollout, legacyMatchCount: 26, legacyMissingCount: 25 }, readinessCurrent, readinessPolicy, 200).ready, false, 'legacy totals above sample counts should never be ready');
+    assert.strictEqual(evaluateCapabilityReadiness({ ...healthyRollout, lastSampleAt: null }, readinessCurrent, readinessPolicy, 200).ready, false, 'sampled rollouts missing their last sample tick should never be ready');
     const incompleteRollout = { ...healthyRollout };
     delete incompleteRollout.blockers;
     assert.strictEqual(evaluateCapabilityReadiness(incompleteRollout, readinessCurrent, readinessPolicy, 200).ready, false, 'rollouts missing fixed schema fields should never be ready');
