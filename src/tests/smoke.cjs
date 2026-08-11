@@ -321,9 +321,18 @@ assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'cleanupLegacyAsse
 assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'cleanupLegacyWorkPositionFields', 'legacy cleanup helper should expose work-position cleanup execution');
 
 const main = read('src/main.js');
-for (const phase of ['init();', 'analyze();', 'EventBus.dispatch();', 'run();', 'cleanup();']) {
+for (const phase of ["runServicePhase(services, 'init')", "runServicePhase(services, 'analyze')", 'EventBus.dispatch()', "runServicePhase(services, 'run')", "runServicePhase(services, 'cleanup')"]) {
     assertContains(main, phase, 'main lifecycle');
 }
+assertContains(main, "RuntimeTelemetry.measure(service.name, phase", 'main loop should measure every service phase');
+assertContains(main, "ServiceScheduler.decision(service.name, phase)", 'main loop should consult the scheduler');
+assertContains(main, "RuntimeTelemetry.measure('EventBus', 'dispatch'", 'main loop should measure event dispatch');
+assertContains(main, "RuntimeTelemetry.measure('ActionParser', 'run'", 'main loop should measure creep action execution');
+assert.ok(main.indexOf("runServicePhase(services, 'init')") < main.indexOf("runServicePhase(services, 'analyze')"), 'init should remain before analyze');
+assert.ok(main.indexOf("runServicePhase(services, 'analyze')") < main.indexOf("EventBus.dispatch()"), 'analyze should remain before event dispatch');
+assert.ok(main.indexOf("EventBus.dispatch()") < main.indexOf("runServicePhase(services, 'run')"), 'event dispatch should remain before service run');
+assert.ok(main.indexOf("runServicePhase(services, 'run')") < main.indexOf("ActionParser.run"), 'service run should remain before creep actions');
+assert.ok(main.indexOf("ActionParser.run") < main.indexOf("runServicePhase(services, 'cleanup')"), 'creep actions should remain before cleanup');
 assertContains(main, "const SERVICE_VERSION = '__SERVICE_VERSION__';", 'main should use build-time service version placeholder');
 assertNotContains(main, 'delete global.Memory', 'main should not replace the Screeps Memory object');
 assertNotContains(main, 'RawMemory._parsed = global.LastMemory', 'main should not override RawMemory parsed cache');

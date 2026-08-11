@@ -1,6 +1,8 @@
 import EventBus from './core/EventBus.js';
 import MemoryConfig from './config/MemoryConfig.js';
 import ActionParser from './core/ActionParser.js';
+import RuntimeTelemetry from './core/RuntimeTelemetry.js';
+import ServiceScheduler from './core/ServiceScheduler.js';
 
 import RoomCacheService from './services/RoomCacheService.js';
 import RoomPhaseService from './services/RoomPhaseService.js';
@@ -81,20 +83,32 @@ function prepareMemory() {
     Memory;
 }
 
+function runServicePhase(services, phase) {
+    for (const service of services) {
+        const decision = ServiceScheduler.decision(service.name, phase);
+        if (!decision.shouldRun) continue;
+        RuntimeTelemetry.measure(service.name, phase, () => service[phase]());
+    }
+}
+
 export function loop() {
     prepareMemory();
     MemoryConfig.ensureDefaults();
+    RuntimeTelemetry.beginTick();
+    ServiceScheduler.beginTick();
 
     const services = getServices();
-
     EventBus.beginTick();
 
-    for (const service of services) service.init();
-    for (const service of services) service.analyze();
+    runServicePhase(services, 'init');
+    runServicePhase(services, 'analyze');
 
-    EventBus.dispatch();
+    RuntimeTelemetry.measure('EventBus', 'dispatch', () => EventBus.dispatch());
 
-    for (const service of services) service.run();
-    for (const name in Game.creeps) ActionParser.run(Game.creeps[name]);
-    for (const service of services) service.cleanup();
+    runServicePhase(services, 'run');
+    RuntimeTelemetry.measure('ActionParser', 'run', () => {
+        for (const name in Game.creeps) ActionParser.run(Game.creeps[name]);
+    });
+    runServicePhase(services, 'cleanup');
+    RuntimeTelemetry.finishTick();
 }
