@@ -25,6 +25,105 @@ async function run() {
     assert.strictEqual(DEFAULT_EMPIRE_POLICY.capabilityControl.capabilities.upgradeWork.defaultMode, 'shadow', 'upgrade work should default to shadow mode');
     assert.strictEqual(DEFAULT_EMPIRE_POLICY.capabilityControl.readiness.minSamples, 50, 'capability readiness should require enough samples by default');
 
+    const {
+        CAPABILITY_ROLLOUT_FIELDS,
+        appendCapabilitySample,
+        evaluateCapabilityReadiness
+    } = await import('../governance/CapabilityRolloutReadiness.js');
+    const readinessPolicy = DEFAULT_EMPIRE_POLICY.capabilityControl.readiness;
+    const healthyCapabilitySample = {
+        known: true,
+        critical: false,
+        recommendationPresent: true,
+        legacyMatched: true,
+        legacyMissing: false,
+        sampledAt: 100
+    };
+    const readinessCurrent = { lifecycle: 'self_sufficient', staleFor: 0 };
+    let healthyRollout = null;
+    for (let index = 0; index < 49; index++) {
+        healthyRollout = appendCapabilitySample(healthyRollout, {
+            ...healthyCapabilitySample,
+            sampledAt: 100 + index
+        });
+    }
+    assert.ok(evaluateCapabilityReadiness(healthyRollout, readinessCurrent, readinessPolicy, 200).blockers.includes('insufficient_samples'), '49 healthy samples should still be insufficient');
+    healthyRollout = appendCapabilitySample(healthyRollout, { ...healthyCapabilitySample, sampledAt: 149 });
+    assert.strictEqual(evaluateCapabilityReadiness(healthyRollout, readinessCurrent, readinessPolicy, 200).ready, true, '50 healthy samples should be ready');
+
+    let lowKnownRollout = healthyRollout;
+    for (let index = 0; index < 3; index++) {
+        lowKnownRollout = appendCapabilitySample(lowKnownRollout, {
+            ...healthyCapabilitySample,
+            known: false,
+            sampledAt: 150 + index
+        });
+    }
+    assert.ok(evaluateCapabilityReadiness(lowKnownRollout, readinessCurrent, readinessPolicy, 200).blockers.includes('known_ratio_low'), 'known ratios below the threshold should block readiness');
+
+    let criticalRollout = healthyRollout;
+    for (let index = 0; index < 3; index++) {
+        criticalRollout = appendCapabilitySample(criticalRollout, {
+            ...healthyCapabilitySample,
+            critical: true,
+            sampledAt: 150 + index
+        });
+    }
+    assert.ok(evaluateCapabilityReadiness(criticalRollout, readinessCurrent, readinessPolicy, 200).blockers.includes('critical_ratio_high'), 'critical ratios above the threshold should block readiness');
+
+    let flipRollout = null;
+    for (let index = 0; index < 50; index++) {
+        flipRollout = appendCapabilitySample(flipRollout, {
+            ...healthyCapabilitySample,
+            recommendationPresent: index % 2 === 0,
+            sampledAt: 100 + index
+        });
+    }
+    assert.ok(evaluateCapabilityReadiness(flipRollout, readinessCurrent, readinessPolicy, 200).blockers.includes('recommendation_flip_ratio_high'), 'recommendation flip ratios above the threshold should block readiness');
+
+    assert.ok(evaluateCapabilityReadiness(healthyRollout, { ...readinessCurrent, staleFor: 21 }, readinessPolicy, 200).blockers.includes('snapshot_stale'), 'stale snapshots should block readiness');
+    assert.ok(evaluateCapabilityReadiness(healthyRollout, { ...readinessCurrent, lifecycle: 'claimed' }, readinessPolicy, 200).blockers.includes('lifecycle_ineligible'), 'claimed lifecycle should block readiness');
+    assert.ok(evaluateCapabilityReadiness(healthyRollout, { ...readinessCurrent, lifecycle: 'bootstrap' }, readinessPolicy, 200).blockers.includes('lifecycle_ineligible'), 'bootstrap lifecycle should block readiness');
+    assert.strictEqual(evaluateCapabilityReadiness(healthyRollout, { ...readinessCurrent, lifecycle: 'self_sufficient' }, readinessPolicy, 200).blockers.includes('lifecycle_ineligible'), false, 'self sufficient lifecycle should be eligible');
+    assert.ok(evaluateCapabilityReadiness({ ...healthyRollout, lastErrorAt: 180 }, readinessCurrent, readinessPolicy, 200).blockers.includes('recent_governor_error'), 'recent governor errors should block readiness');
+
+    const legacyVariant = {
+        ...healthyRollout,
+        legacyMatchCount: 0,
+        legacyMissingCount: healthyRollout.sampleCount
+    };
+    assert.strictEqual(evaluateCapabilityReadiness(legacyVariant, readinessCurrent, readinessPolicy, 200).ready, true, 'legacy comparison counts should not gate readiness');
+
+    const frozenRollout = Object.freeze({ ...healthyRollout });
+    const frozenCurrent = Object.freeze({ ...readinessCurrent });
+    const frozenPolicy = Object.freeze({ ...readinessPolicy });
+    const readinessFrozenSnapshot = JSON.stringify({ frozenRollout, frozenCurrent, frozenPolicy });
+    assert.strictEqual(evaluateCapabilityReadiness(frozenRollout, frozenCurrent, frozenPolicy, 200).ready, true, 'frozen readiness inputs should be accepted');
+    assert.strictEqual(JSON.stringify({ frozenRollout, frozenCurrent, frozenPolicy }), readinessFrozenSnapshot, 'readiness evaluation should not mutate inputs');
+    const frozenAppendPrevious = Object.freeze({ ...healthyRollout, blockers: Object.freeze([...healthyRollout.blockers]) });
+    const frozenAppendSample = Object.freeze({ ...healthyCapabilitySample, sampledAt: 150 });
+    const frozenAppendSnapshot = JSON.stringify({ frozenAppendPrevious, frozenAppendSample });
+    const appendedFrozenInput = appendCapabilitySample(frozenAppendPrevious, frozenAppendSample);
+    assert.notStrictEqual(appendedFrozenInput, frozenAppendPrevious, 'appending should return a new rollout object');
+    assert.strictEqual(JSON.stringify({ frozenAppendPrevious, frozenAppendSample }), frozenAppendSnapshot, 'appending should not mutate frozen inputs');
+
+    let boundedRollout = null;
+    for (let index = 0; index < 1000; index++) {
+        boundedRollout = appendCapabilitySample(boundedRollout, {
+            ...healthyCapabilitySample,
+            recommendationPresent: index % 2 === 0,
+            sampledAt: index
+        });
+    }
+    assert.deepStrictEqual(Object.keys(boundedRollout).sort(), [...CAPABILITY_ROLLOUT_FIELDS].sort(), 'rollout state should retain only its fixed schema fields after repeated samples');
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(boundedRollout, 'samples'), false, 'rollout state should not retain a sample array');
+    assert.strictEqual(evaluateCapabilityReadiness({ ...healthyRollout, sampleCount: NaN }, readinessCurrent, readinessPolicy, 200).ready, false, 'invalid rollout counts should never be ready');
+    assert.strictEqual(evaluateCapabilityReadiness({ ...healthyRollout, criticalSampleCount: -1 }, readinessCurrent, readinessPolicy, 200).ready, false, 'negative rollout counts should never be ready');
+    const incompleteRollout = { ...healthyRollout };
+    delete incompleteRollout.blockers;
+    assert.strictEqual(evaluateCapabilityReadiness(incompleteRollout, readinessCurrent, readinessPolicy, 200).ready, false, 'rollouts missing fixed schema fields should never be ready');
+    assert.strictEqual(evaluateCapabilityReadiness(healthyRollout, { staleFor: 0 }, readinessPolicy, 200).ready, false, 'missing lifecycle should never be ready');
+
     const initializedMemory = Memory;
     global.Memory = {};
     const memoryBeforeCapabilityResolution = JSON.stringify(Memory);
