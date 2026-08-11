@@ -32,6 +32,7 @@ const expectedFiles = [
     'src/core/TaskGuard.js',
     'src/core/WorkPositionCoordinator.js',
     'src/core/WorkPositionPlanner.js',
+    'src/core/EmpireEventLog.js',
     'src/services/RoomCacheService.js',
     'src/services/RoomPhaseService.js',
     'src/services/SpawnBureauService.js',
@@ -425,6 +426,7 @@ async function runBehaviorChecks() {
     const { default: ActionParser } = await import('../core/ActionParser.js');
     const { default: BodyBuilder } = await import('../core/BodyBuilder.js');
     const { default: EventBus } = await import('../core/EventBus.js');
+    const { recordEmpireEvent, getEmpireEvents } = await import('../core/EmpireEventLog.js');
     const { default: MinerStrategyService } = await import('../strategies/MinerStrategyService.js');
     const { default: HaulerStrategyService } = await import('../strategies/HaulerStrategyService.js');
     const { default: UpgraderStrategyService } = await import('../strategies/UpgraderStrategyService.js');
@@ -696,6 +698,19 @@ async function runBehaviorChecks() {
     Game.time = 121;
     assert.strictEqual(resolvePolicy('autoExpansion', { roomName: 'W1N1' }), true, 'expired overrides should fall back to the default policy');
     assert.strictEqual(DEFAULT_EMPIRE_POLICY.telemetry.eventLimit, 50, 'event history should have a bounded default limit');
+    Memory.empire.control.events = [];
+    Memory.empire.control.policy.telemetry.eventLimit = 2;
+    Game.time = 200;
+    const eventInput = { roomName: 'W1N1' };
+    recordEmpireEvent('cpu_mode_changed', 'warning', eventInput);
+    Game.time = 201;
+    recordEmpireEvent('goal_paused', 'info', { goalId: 'g1' });
+    Game.time = 202;
+    recordEmpireEvent('room_recovered', 'info', { roomName: 'W1N1' });
+    assert.deepStrictEqual(getEmpireEvents().map((event) => event.type), ['goal_paused', 'room_recovered'], 'event log should retain only the newest bounded entries');
+    assert.deepStrictEqual(eventInput, { roomName: 'W1N1' }, 'event recording should not mutate caller data');
+    assert.strictEqual(getEmpireEvents()[1].tick, 202, 'event log should record the game tick');
+    Memory.empire.control.policy.telemetry.eventLimit = DEFAULT_EMPIRE_POLICY.telemetry.eventLimit;
     Game.time = policyTestTime;
     Game.rooms = {
         W1N1: {
