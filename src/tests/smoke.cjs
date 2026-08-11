@@ -72,7 +72,8 @@ const expectedFiles = [
     'src/planning/DefensePlannerService.js',
     'src/planning/MaintenancePlannerService.js',
     'src/planning/RoadPlannerService.js',
-    'src/config/MemoryConfig.js'
+    'src/config/MemoryConfig.js',
+    'src/config/EmpirePolicy.js'
 ];
 
 for (const file of expectedFiles) {
@@ -448,6 +449,11 @@ async function runBehaviorChecks() {
     const { default: RemoteMiningService } = await import('../services/RemoteMiningService.js');
     const { default: TowerDefenseService } = await import('../services/TowerDefenseService.js');
     const { default: MemoryConfig } = await import('../config/MemoryConfig.js');
+    const {
+        ensureEmpireControl,
+        resolvePolicy,
+        DEFAULT_EMPIRE_POLICY
+    } = await import('../config/EmpirePolicy.js');
     const { default: CityPlannerService } = await import('../planning/CityPlannerService.js');
     const {
         getAssetPolicy,
@@ -665,6 +671,32 @@ async function runBehaviorChecks() {
     assert.strictEqual(fullMiner.memory.task, null, 'HARVEST should end when creep store is full');
 
     global.Memory = { creeps: {}, rooms: { W1N1: { maintenancePlan: { targets: [1, 2] } } }, empire: {} };
+    const policyTestTime = Game.time;
+    Memory.empire = { market: { enabled: false }, existingField: { keep: true } };
+    Game.time = 100;
+    const control = ensureEmpireControl();
+    assert.strictEqual(control.schemaVersion, 1, 'empire control should start at schema version 1');
+    assert.strictEqual(control.policy.autoExpansion, true, 'empire policy should default to automatic expansion');
+    assert.strictEqual(control.policy.autoWar, true, 'empire policy should default to automatic war decisions');
+    assert.strictEqual(control.policy.scheduler.enforce, false, 'scheduler should start in shadow mode');
+    assert.deepStrictEqual(Memory.empire.existingField, { keep: true }, 'control initialization should preserve existing empire memory');
+
+    control.policy.overrides = {
+        empire: {
+            autoExpansion: { value: false, reason: 'manual pause', expiresAt: 120 }
+        },
+        rooms: {
+            W1N1: {
+                autoExpansion: { value: true, reason: 'room exception', expiresAt: 120 }
+            }
+        }
+    };
+    assert.strictEqual(resolvePolicy('autoExpansion', { roomName: 'W1N1' }), true, 'room override should outrank empire override');
+    assert.strictEqual(resolvePolicy('autoExpansion', { roomName: 'W2N2' }), false, 'empire override should outrank the default policy');
+    Game.time = 121;
+    assert.strictEqual(resolvePolicy('autoExpansion', { roomName: 'W1N1' }), true, 'expired overrides should fall back to the default policy');
+    assert.strictEqual(DEFAULT_EMPIRE_POLICY.telemetry.eventLimit, 50, 'event history should have a bounded default limit');
+    Game.time = policyTestTime;
     Game.rooms = {
         W1N1: {
             name: 'W1N1',

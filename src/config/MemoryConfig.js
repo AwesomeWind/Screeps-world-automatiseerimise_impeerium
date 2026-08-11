@@ -1,3 +1,5 @@
+import { ensureEmpireControl } from './EmpirePolicy.js';
+
 const DEFAULT_MARKET = {
     enabled: false,
     minCreditsPerEnergy: 0.02,
@@ -8,6 +10,7 @@ const DEFAULT_MARKET = {
 const MemoryConfig = {
     ensureDefaults() {
         if (!Memory.empire) Memory.empire = {};
+        ensureEmpireControl();
         if (!Memory.empire.remoteRooms) Memory.empire.remoteRooms = {};
         if (!Memory.empire.market) Memory.empire.market = DEFAULT_MARKET;
         if (!Memory.rooms) Memory.rooms = {};
