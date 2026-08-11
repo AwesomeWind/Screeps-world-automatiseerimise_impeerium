@@ -54,6 +54,7 @@ const expectedFiles = [
     'src/services/LabService.js',
     'src/services/MarketService.js',
     'src/services/RemoteMiningService.js',
+    'src/services/EmpireMetricsService.js',
     'src/strategies/MinerStrategyService.js',
     'src/strategies/BuilderStrategyService.js',
     'src/strategies/RepairerStrategyService.js',
@@ -319,6 +320,10 @@ assertContains(read('src/planning/CityPlanDebug.js'), 'assetFallbackReadiness', 
 assertContains(read('src/planning/CityPlanDebug.js'), 'assetImportRollbackGate', 'city plan debug should expose rollout rollback-gate observation details');
 assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'cleanupLegacyAssetFields', 'legacy cleanup helper should expose asset-field cleanup execution');
 assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'cleanupLegacyWorkPositionFields', 'legacy cleanup helper should expose work-position cleanup execution');
+const metricsSource = read('src/services/EmpireMetricsService.js');
+for (const forbidden of ['EventBus.publish', 'assignTask(', 'spawnCreep(', 'createConstructionSite(', 'Game.market.deal']) {
+    assertNotContains(metricsSource, forbidden, 'empire metrics should remain read-only');
+}
 
 const main = read('src/main.js');
 for (const phase of ["runServicePhase(services, 'init')", "runServicePhase(services, 'analyze')", 'EventBus.dispatch()', "runServicePhase(services, 'run')", "runServicePhase(services, 'cleanup')"]) {
@@ -440,6 +445,7 @@ async function runBehaviorChecks() {
     const { recordEmpireEvent, getEmpireEvents } = await import('../core/EmpireEventLog.js');
     const { default: RuntimeTelemetry } = await import('../core/RuntimeTelemetry.js');
     const { default: ServiceScheduler } = await import('../core/ServiceScheduler.js');
+    const { default: EmpireMetricsService } = await import('../services/EmpireMetricsService.js');
     const { default: MinerStrategyService } = await import('../strategies/MinerStrategyService.js');
     const { default: HaulerStrategyService } = await import('../strategies/HaulerStrategyService.js');
     const { default: UpgraderStrategyService } = await import('../strategies/UpgraderStrategyService.js');
@@ -782,6 +788,54 @@ async function runBehaviorChecks() {
     assert.strictEqual(Memory.empire.control.runtime.cpuMode, 'normal', 'recovery should exit only above recovery threshold');
     Game.cpu = schedulerPreviousCpu;
     Memory.empire.control.policy.scheduler = { ...DEFAULT_EMPIRE_POLICY.scheduler };
+
+    const previousRooms = Game.rooms;
+    const previousCreeps = Game.creeps;
+    const previousSpawns = Game.spawns;
+    const previousRoomPhase = global.RoomPhase;
+    const previousResourceMarket = global.ResourceMarket;
+    const previousMetrics = Memory.empire.control.metrics;
+    Memory.empire.control.policy.telemetry.metricsInterval = 10;
+    Memory.empire.control.metrics = { rooms: {} };
+    Game.time = 500;
+    Game.rooms = {
+        W1N1: {
+            name: 'W1N1',
+            controller: { my: true },
+            energyAvailable: 400,
+            energyCapacityAvailable: 550,
+            storage: { store: { getUsedCapacity: () => 120000 } }
+        }
+    };
+    Game.creeps = {
+        M1: { memory: { role: 'miner', homeRoom: 'W1N1' } },
+        H1: { memory: { role: 'hauler', homeRoom: 'W1N1' } }
+    };
+    Game.spawns = {
+        Spawn1: { room: Game.rooms.W1N1, spawning: { name: 'NewMiner' } }
+    };
+    global.RoomPhase = {
+        W1N1: {
+            phase: 'storage',
+            energyPosture: 'normal',
+            spawnEnergyRatio: 0.72,
+            constructionPressure: 3,
+            maintenancePressure: 2
+        }
+    };
+    global.ResourceMarket = { W1N1: { stats: { supplies: 4, demands: 3 } } };
+    new EmpireMetricsService('EmpireMetrics').cleanup();
+    assert.deepStrictEqual(Memory.empire.control.metrics.rooms.W1N1.roleCounts, { miner: 1, hauler: 1 }, 'metrics should aggregate role counts by home room');
+    assert.strictEqual(Memory.empire.control.metrics.rooms.W1N1.storageEnergy, 120000, 'metrics should record storage energy');
+    assert.strictEqual(Memory.empire.control.metrics.rooms.W1N1.spawningCount, 1, 'metrics should record active room spawns');
+    assert.deepStrictEqual(Game.creeps.M1.memory, { role: 'miner', homeRoom: 'W1N1' }, 'metrics should not mutate creep memory');
+    Game.rooms = previousRooms;
+    Game.creeps = previousCreeps;
+    Game.spawns = previousSpawns;
+    global.RoomPhase = previousRoomPhase;
+    global.ResourceMarket = previousResourceMarket;
+    Memory.empire.control.metrics = previousMetrics;
+    Memory.empire.control.policy.telemetry.metricsInterval = DEFAULT_EMPIRE_POLICY.telemetry.metricsInterval;
     Game.time = policyTestTime;
     Game.rooms = {
         W1N1: {

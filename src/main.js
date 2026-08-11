@@ -22,6 +22,7 @@ import TowerDefenseService from './services/TowerDefenseService.js';
 import LabService from './services/LabService.js';
 import MarketService from './services/MarketService.js';
 import RemoteMiningService from './services/RemoteMiningService.js';
+import EmpireMetricsService from './services/EmpireMetricsService.js';
 
 import MinerStrategyService from './strategies/MinerStrategyService.js';
 import BuilderStrategyService from './strategies/BuilderStrategyService.js';
@@ -67,7 +68,8 @@ function createServices() {
         new RoadPlannerService('RoadPlanner'),
         new LabService('Lab'),
         new MarketService('Market'),
-        new RemoteMiningService('RemoteMining')
+        new RemoteMiningService('RemoteMining'),
+        new EmpireMetricsService('EmpireMetrics')
     ];
 }
 
