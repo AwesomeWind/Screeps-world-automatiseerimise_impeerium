@@ -4,6 +4,7 @@ import { recordEmpireEvent } from '../core/EmpireEventLog.js';
 import { collectRoomGovernorFacts } from '../governance/RoomGovernorFacts.js';
 import { evaluateRoomGovernor } from '../governance/RoomGovernorModel.js';
 import { compareSpawnDecisions } from '../governance/SpawnDecisionComparator.js';
+import { appendCapabilitySample, evaluateCapabilityReadiness } from '../governance/CapabilityRolloutReadiness.js';
 
 const ROOM_CONTROL_SCHEMA_VERSION = 1;
 
@@ -24,6 +25,7 @@ function roomControl(control, roomName) {
 
 function globalSnapshot(shadow, deferred, maxSnapshotAge) {
     const staleFor = Math.max(0, Game.time - shadow.evaluatedAt);
+    const upgradeWorkRollout = shadow.capabilityRollout && shadow.capabilityRollout.upgradeWork;
     return {
         tick: Game.time,
         evaluatedAt: shadow.evaluatedAt,
@@ -34,11 +36,20 @@ function globalSnapshot(shadow, deferred, maxSnapshotAge) {
         health: shadow.health,
         budgets: shadow.budgets,
         capabilities: shadow.capabilities,
+        controllerTicksToDowngrade: shadow.controllerTicksToDowngrade,
         spawnRecommendations: staleFor > maxSnapshotAge ? [] : (shadow.spawnRecommendations || []),
         reasons: staleFor > maxSnapshotAge
             ? [...(shadow.reasons || []), 'snapshot_expired']
             : (shadow.reasons || []),
-        comparison: shadow.comparison || null
+        comparison: shadow.comparison || null,
+        capabilityRollout: upgradeWorkRollout ? {
+            upgradeWork: {
+                ready: upgradeWorkRollout.ready,
+                blockers: upgradeWorkRollout.blockers,
+                sampleCount: upgradeWorkRollout.sampleCount,
+                lastSampleAt: upgradeWorkRollout.lastSampleAt
+            }
+        } : null
     };
 }
 
@@ -72,6 +83,7 @@ class RoomGovernorService extends BaseService {
                 message: collected.errors[roomName].message
             });
             const previous = roomControl(control, roomName).shadow;
+            this.persistGovernorErrorReadiness(control, roomName);
             if (previous && previous.evaluatedAt !== undefined) {
                 global.RoomGovernor[roomName] = globalSnapshot(previous, true, policy.maxSnapshotAge);
             }
@@ -103,6 +115,7 @@ class RoomGovernorService extends BaseService {
                     health: evaluation.health,
                     budgets: evaluation.budgets,
                     capabilities: evaluation.capabilities,
+                    controllerTicksToDowngrade: facts.controllerTicksToDowngrade,
                     spawnRecommendations: evaluation.spawnRecommendations,
                     reasons: evaluationReasons(evaluation),
                     comparison: previous && previous.comparison ? previous.comparison : null,
@@ -133,6 +146,7 @@ class RoomGovernorService extends BaseService {
                     roomName,
                     message: error && error.message ? error.message : String(error)
                 });
+                this.persistGovernorErrorReadiness(control, roomName);
                 if (previous && previous.evaluatedAt !== undefined) {
                     global.RoomGovernor[roomName] = globalSnapshot(previous, true, policy.maxSnapshotAge);
                 }
@@ -149,11 +163,23 @@ class RoomGovernorService extends BaseService {
             const shadow = state.shadow;
             if (!shadow || shadow.evaluatedAt !== Game.time) continue;
             const bureau = global.SpawnBureau && global.SpawnBureau[roomName];
-            const intents = bureau && Array.isArray(bureau.intents) ? bureau.intents : [];
-            const comparison = compareSpawnDecisions(shadow.spawnRecommendations || [], intents, Game.time);
+            const legacyIntents = bureau && Array.isArray(bureau.legacyIntents)
+                ? bureau.legacyIntents
+                : (bureau && Array.isArray(bureau.intents) ? bureau.intents : []);
+            const comparison = compareSpawnDecisions(shadow.spawnRecommendations || [], legacyIntents, Game.time);
             shadow.comparison = comparison;
+            this.sampleCapabilityRollout(control, roomName, shadow, bureau, comparison);
             if (global.RoomGovernor && global.RoomGovernor[roomName]) {
                 global.RoomGovernor[roomName].comparison = comparison;
+                const rollout = shadow.capabilityRollout && shadow.capabilityRollout.upgradeWork;
+                global.RoomGovernor[roomName].capabilityRollout = rollout ? {
+                    upgradeWork: {
+                        ready: rollout.ready,
+                        blockers: rollout.blockers,
+                        sampleCount: rollout.sampleCount,
+                        lastSampleAt: rollout.lastSampleAt
+                    }
+                } : null;
             }
             if (comparison.missing.length > 0) {
                 this.recordRoomEvent(control, roomName, 'spawnDifference', 'room_spawn_difference', 'info', {
@@ -162,6 +188,76 @@ class RoomGovernorService extends BaseService {
                 });
             }
         }
+    }
+
+    sampleCapabilityRollout(control, roomName, shadow, bureau, comparison) {
+        if (!bureau) return;
+        const currentRollout = shadow.capabilityRollout && shadow.capabilityRollout.upgradeWork;
+        if (currentRollout && currentRollout.lastSampleAt === Game.time) return;
+
+        const legacyIntents = Array.isArray(bureau.legacyIntents)
+            ? bureau.legacyIntents
+            : (Array.isArray(bureau.intents) ? bureau.intents : []);
+        const recommendations = shadow.spawnRecommendations || [];
+        const quotaKey = `upgrader:${roomName}:controller`;
+        const legacyPresent = legacyIntents.some((intent) => intent.quotaKey === quotaKey);
+        const recommendationPresent = recommendations.some((item) => item.capability === 'upgradeWork');
+        const legacyMatched = recommendationPresent
+            ? comparison.matched.some((item) => item.capability === 'upgradeWork')
+            : !legacyPresent;
+        const coreHealth = shadow.health || {};
+        const known = Number.isFinite(shadow.capabilities && shadow.capabilities.upgradeWork && shadow.capabilities.upgradeWork.gap) &&
+            [coreHealth.survival, coreHealth.harvest, coreHealth.logistics]
+                .every((health) => health && health.status !== 'unknown');
+        const critical = [coreHealth.survival, coreHealth.harvest, coreHealth.logistics]
+            .some((health) => health && health.status === 'critical');
+        const sampled = appendCapabilitySample(currentRollout, {
+            known,
+            critical,
+            recommendationPresent,
+            legacyMatched,
+            legacyMissing: !legacyMatched,
+            sampledAt: Game.time,
+            lastErrorAt: shadow.eventTicks && shadow.eventTicks.error
+        });
+        const readiness = evaluateCapabilityReadiness(sampled, {
+            lifecycle: shadow.lifecycle,
+            staleFor: Math.max(0, Game.time - shadow.evaluatedAt)
+        }, control.policy.capabilityControl.readiness, Game.time);
+        const rollout = {
+            ...sampled,
+            ready: readiness.ready,
+            blockers: readiness.blockers
+        };
+        shadow.capabilityRollout = { ...(shadow.capabilityRollout || {}), upgradeWork: rollout };
+        roomControl(control, roomName).capabilityRollout = shadow.capabilityRollout;
+        if ((!currentRollout || currentRollout.ready !== true) && rollout.ready) {
+            this.recordRoomEvent(control, roomName, 'capabilityRolloutReady', 'capability_rollout_ready', 'info', {
+                roomName,
+                capability: 'upgradeWork'
+            });
+        }
+    }
+
+    persistGovernorErrorReadiness(control, roomName) {
+        const shadow = roomControl(control, roomName).shadow;
+        const existing = shadow && shadow.capabilityRollout && shadow.capabilityRollout.upgradeWork;
+        const errorAt = shadow && shadow.eventTicks && shadow.eventTicks.error;
+        if (!existing || !Number.isFinite(errorAt)) return;
+        const rolloutWithError = { ...existing, lastErrorAt: errorAt };
+        const readiness = evaluateCapabilityReadiness(rolloutWithError, {
+            lifecycle: shadow.lifecycle,
+            staleFor: Math.max(0, Game.time - shadow.evaluatedAt)
+        }, control.policy.capabilityControl.readiness, Game.time);
+        shadow.capabilityRollout = {
+            ...shadow.capabilityRollout,
+            upgradeWork: {
+                ...rolloutWithError,
+                ready: readiness.ready,
+                blockers: readiness.blockers
+            }
+        };
+        roomControl(control, roomName).capabilityRollout = shadow.capabilityRollout;
     }
 
     recordRoomEvent(control, roomName, key, type, severity, data) {

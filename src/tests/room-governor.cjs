@@ -508,7 +508,7 @@ async function run() {
     const setHealthyGovernorWorld = (time) => {
         const room = {
             name: 'W1N1',
-            controller: { my: true, level: 4 },
+            controller: { my: true, level: 4, ticksToDowngrade: 12345 },
             energyAvailable: 600,
             energyCapacityAvailable: 600
         };
@@ -556,6 +556,89 @@ async function run() {
     governorControl.events = [];
     governorControl.runtime.cpuMode = 'normal';
     governorControl.policy.roomGovernor = JSON.parse(JSON.stringify(DEFAULT_EMPIRE_POLICY.roomGovernor));
+    governorControl.policy.capabilityControl.readiness = {
+        ...DEFAULT_EMPIRE_POLICY.capabilityControl.readiness,
+        minSamples: 1,
+        minKnownRatio: 0,
+        maxCriticalRatio: 1,
+        maxFlipRatio: 1
+    };
+
+    setHealthyGovernorWorld(700);
+    delete Game.creeps.UpgraderHealthy;
+    global.SpawnBureau = {
+        W1N1: {
+            intents: [],
+            legacyIntents: [{
+                role: 'upgrader',
+                quotaKey: 'upgrader:W1N1:controller',
+                priority: 35,
+                body: [WORK, MOVE]
+            }]
+        }
+    };
+    roomGovernorService.analyze();
+    roomGovernorService.cleanup();
+    assert.strictEqual(
+        governorControl.rooms.W1N1.capabilityRollout.upgradeWork.sampleCount,
+        1
+    );
+    assert.strictEqual(
+        governorControl.rooms.W1N1.capabilityRollout.upgradeWork.legacyMatchCount,
+        1
+    );
+    assert.strictEqual(governorControl.rooms.W1N1.shadow.controllerTicksToDowngrade, 12345, 'full evaluation should persist the controller downgrade tick beside the governor snapshot');
+    assert.strictEqual(global.RoomGovernor.W1N1.controllerTicksToDowngrade, 12345, 'global governor snapshots should expose the persisted controller downgrade tick');
+    assert.strictEqual(global.RoomGovernor.W1N1.capabilityRollout.upgradeWork.ready, true, 'a healthy first sample should publish compact readiness without changing recommendations');
+    assert.strictEqual(governorControl.events.filter((event) => event.type === 'capability_rollout_ready').length, 1, 'the first readiness transition should emit one rollout-ready event');
+
+    roomGovernorService.cleanup();
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.sampleCount, 1, 'cleanup should not sample the same evaluated tick twice');
+    assert.strictEqual(governorControl.events.filter((event) => event.type === 'capability_rollout_ready').length, 1, 'duplicate cleanup should not duplicate the rollout-ready event');
+
+    Game.time = 701;
+    roomGovernorService.analyze();
+    roomGovernorService.cleanup();
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.sampleCount, 1, 'a non-evaluation tick should not be sampled');
+
+    Game.time = 710;
+    governorControl.runtime.cpuMode = 'critical';
+    roomGovernorService.analyze();
+    roomGovernorService.cleanup();
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.sampleCount, 1, 'a CPU-critical deferred tick should not be sampled');
+    assert.strictEqual(global.RoomGovernor.W1N1.deferred, true, 'a CPU-critical due tick should defer the governor snapshot');
+    governorControl.runtime.cpuMode = 'normal';
+
+    setHealthyGovernorWorld(720);
+    global.SpawnBureau = {};
+    roomGovernorService.analyze();
+    roomGovernorService.cleanup();
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.sampleCount, 1, 'a full evaluation without a SpawnBureau snapshot should not be sampled');
+
+    setHealthyGovernorWorld(730);
+    Game.rooms.W1N1.controller.ticksToDowngrade = 12000;
+    global.RoomCache.W1N1.sources = null;
+    roomGovernorService.analyze();
+    roomGovernorService.cleanup();
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.sampleCount, 2, 'a complete evaluation with a bureau should still record an unknown-health sample');
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.knownSampleCount, 1, 'an unknown core health dimension should not increase known samples');
+
+    setHealthyGovernorWorld(740);
+    delete Game.creeps.MinerHealthy;
+    roomGovernorService.analyze();
+    roomGovernorService.cleanup();
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.criticalSampleCount, 1, 'a critical core health dimension should increase critical samples');
+
+    setHealthyGovernorWorld(751);
+    Game.rooms.W1N1.storage = { store: { getUsedCapacity: () => { throw new Error('broken rollout facts'); } } };
+    roomGovernorService.analyze();
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.lastErrorAt, 751, 'a governor error should persist its tick on the rollout');
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.ready, false, 'a recent governor error should block readiness');
+    assert.ok(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.blockers.includes('recent_governor_error'), 'the persisted readiness blockers should explain the recent governor error');
+
+    governorControl.rooms = {};
+    governorControl.events = [];
+    governorControl.runtime.cpuMode = 'normal';
     setHealthyGovernorWorld(700);
     roomGovernorService.analyze();
     assert.strictEqual(global.RoomGovernor.W1N1.lifecycle, 'self_sufficient', 'first room governor evaluation should produce a lifecycle');
