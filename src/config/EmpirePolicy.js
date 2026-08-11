@@ -16,6 +16,28 @@ export const DEFAULT_EMPIRE_POLICY = {
         eventLimit: 50,
         metricsInterval: 10
     },
+    roomGovernor: {
+        enabled: true,
+        shadow: true,
+        interval: 10,
+        stableSamples: 3,
+        maxSnapshotAge: 50,
+        eventCooldown: 50,
+        thresholds: {
+            criticalScore: 30,
+            strainedScore: 60,
+            spawnEnergyCriticalRatio: 0.5,
+            reserveCritical: 5000,
+            reserveMature: 50000,
+            reserveIndustrial: 100000,
+            constructionHigh: 5,
+            maintenanceHigh: 3,
+            sourceWorkPerSource: 5,
+            sourceEnergyPerTick: 10,
+            carryCapacityPerPart: 50,
+            replacementLeadTicks: 50
+        }
+    },
     overrides: {
         empire: {},
         rooms: {}
@@ -48,6 +70,7 @@ export function ensureEmpireControl() {
     if (!control.telemetry) control.telemetry = {};
     if (!control.metrics) control.metrics = { rooms: {} };
     if (!control.events) control.events = [];
+    if (!control.rooms) control.rooms = {};
     return control;
 }
 

@@ -321,6 +321,8 @@ assertContains(read('src/planning/CityPlanDebug.js'), 'assetImportRollbackGate',
 assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'cleanupLegacyAssetFields', 'legacy cleanup helper should expose asset-field cleanup execution');
 assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'cleanupLegacyWorkPositionFields', 'legacy cleanup helper should expose work-position cleanup execution');
 assertContains(read('src/config/EmpirePolicy.js'), 'enforce: false', 'scheduler should default to shadow mode');
+assertContains(read('src/config/EmpirePolicy.js'), 'shadow: true', 'room governor should default to shadow mode');
+assertContains(read('src/config/EmpirePolicy.js'), 'if (!control.rooms) control.rooms = {}', 'empire control should initialize room governor state');
 assertNotContains(read('src/core/RuntimeTelemetry.js'), 'Memory.rooms', 'runtime telemetry should not mutate room strategy state');
 assertNotContains(read('src/core/ServiceScheduler.js'), 'creep.memory', 'scheduler should not mutate creep state');
 assertContains(read('src/AGENTS.md'), 'ServiceScheduler` 默认 `enforce: false', 'module guide should document shadow scheduling');
