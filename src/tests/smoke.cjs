@@ -33,6 +33,7 @@ const expectedFiles = [
     'src/core/WorkPositionCoordinator.js',
     'src/core/WorkPositionPlanner.js',
     'src/core/EmpireEventLog.js',
+    'src/core/RuntimeTelemetry.js',
     'src/services/RoomCacheService.js',
     'src/services/RoomPhaseService.js',
     'src/services/SpawnBureauService.js',
@@ -427,6 +428,7 @@ async function runBehaviorChecks() {
     const { default: BodyBuilder } = await import('../core/BodyBuilder.js');
     const { default: EventBus } = await import('../core/EventBus.js');
     const { recordEmpireEvent, getEmpireEvents } = await import('../core/EmpireEventLog.js');
+    const { default: RuntimeTelemetry } = await import('../core/RuntimeTelemetry.js');
     const { default: MinerStrategyService } = await import('../strategies/MinerStrategyService.js');
     const { default: HaulerStrategyService } = await import('../strategies/HaulerStrategyService.js');
     const { default: UpgraderStrategyService } = await import('../strategies/UpgraderStrategyService.js');
@@ -711,6 +713,33 @@ async function runBehaviorChecks() {
     assert.deepStrictEqual(eventInput, { roomName: 'W1N1' }, 'event recording should not mutate caller data');
     assert.strictEqual(getEmpireEvents()[1].tick, 202, 'event log should record the game tick');
     Memory.empire.control.policy.telemetry.eventLimit = DEFAULT_EMPIRE_POLICY.telemetry.eventLimit;
+
+    const previousCpu = Game.cpu;
+    let usedCpu = 10;
+    Game.cpu = { bucket: 9000, getUsed: () => usedCpu };
+    Game.time = 300;
+    Memory.empire.control.policy.telemetry.persistInterval = 1;
+    RuntimeTelemetry.beginTick();
+    const telemetryResult = RuntimeTelemetry.measure('FakeService', 'analyze', () => {
+        usedCpu = 11.25;
+        return 'ok';
+    });
+    assert.strictEqual(telemetryResult, 'ok', 'telemetry wrapper should return callback results');
+    RuntimeTelemetry.finishTick();
+    assert.strictEqual(global.EmpireTelemetry.services.FakeService.analyze, 1.25, 'telemetry should record phase CPU deltas');
+    assert.strictEqual(Memory.empire.control.telemetry.services.FakeService.analyzeEwma, 1.25, 'telemetry should persist phase EWMA');
+
+    RuntimeTelemetry.beginTick();
+    assert.throws(() => RuntimeTelemetry.measure('BrokenService', 'run', () => {
+        usedCpu = 12;
+        throw new Error('boom');
+    }), /boom/, 'telemetry should preserve existing error propagation');
+    assert.strictEqual(global.EmpireTelemetry.errors.BrokenService.run, 1, 'telemetry should count measured errors');
+
+    delete Game.cpu;
+    assert.strictEqual(RuntimeTelemetry.measure('NoCpu', 'init', () => 42), 42, 'telemetry should preserve behavior when Game.cpu is unavailable');
+    Game.cpu = previousCpu;
+    Memory.empire.control.policy.telemetry.persistInterval = DEFAULT_EMPIRE_POLICY.telemetry.persistInterval;
     Game.time = policyTestTime;
     Game.rooms = {
         W1N1: {
