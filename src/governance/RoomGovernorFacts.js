@@ -148,6 +148,9 @@ export function collectRoomGovernorFacts(options = {}) {
                 roomName,
                 owned: true,
                 rcl: room.controller.level || 0,
+                controllerTicksToDowngrade: Number.isFinite(room.controller.ticksToDowngrade)
+                    ? room.controller.ticksToDowngrade
+                    : null,
                 hasSpawn: roomSpawns.length > 0,
                 spawnCount: roomSpawns.length,
                 hasStorage: !!room.storage,

@@ -15,17 +15,35 @@ async function run() {
 
     const {
         DEFAULT_EMPIRE_POLICY,
-        ensureEmpireControl
+        ensureEmpireControl,
+        resolveCapabilityMode
     } = await import('../config/EmpirePolicy.js');
 
     assert.ok(DEFAULT_EMPIRE_POLICY.roomGovernor, 'room governor policy defaults should exist');
     assert.strictEqual(DEFAULT_EMPIRE_POLICY.roomGovernor.shadow, true, 'room governor should default to shadow mode');
     assert.strictEqual(DEFAULT_EMPIRE_POLICY.roomGovernor.thresholds.sourceWorkPerSource, 5, 'room governor should expose initial capability thresholds through policy');
+    assert.strictEqual(DEFAULT_EMPIRE_POLICY.capabilityControl.capabilities.upgradeWork.defaultMode, 'shadow', 'upgrade work should default to shadow mode');
+    assert.strictEqual(DEFAULT_EMPIRE_POLICY.capabilityControl.readiness.minSamples, 50, 'capability readiness should require enough samples by default');
 
     const first = ensureEmpireControl();
     assert.ok(first.rooms, 'empire control should initialize room governor state');
     assert.strictEqual(first.rooms.W1N1.marker, 'preserve', 'room governor initialization should preserve existing room control state');
     assert.strictEqual(first.policy.roomGovernor.shadow, true, 'policy initialization should merge room governor defaults');
+    first.policy.overrides.rooms.W1N1 = {
+        'capability:upgradeWork': {
+            value: 'active',
+            reason: 'single_room_pilot',
+            expiresAt: 150
+        }
+    };
+    assert.deepStrictEqual(resolveCapabilityMode('W1N1', 'upgradeWork'), {
+        value: 'active',
+        source: 'room',
+        reason: 'single_room_pilot',
+        expiresAt: 150
+    }, 'active room capability overrides should retain their explanation metadata');
+    Game.time = 151;
+    assert.strictEqual(resolveCapabilityMode('W1N1', 'upgradeWork').value, 'shadow', 'expired capability overrides should fall back to shadow mode');
     const second = ensureEmpireControl();
     assert.strictEqual(second.rooms.W1N1.marker, 'preserve', 'room governor initialization should be idempotent');
 
@@ -45,7 +63,7 @@ async function run() {
     };
     const ownedRoom = {
         name: 'W1N1',
-        controller: { my: true, level: 6 },
+        controller: { my: true, level: 6, ticksToDowngrade: 12345 },
         energyAvailable: 400,
         energyCapacityAvailable: 800,
         storage: {
@@ -136,6 +154,7 @@ async function run() {
     assert.strictEqual(facts.retiringCapabilities.logisticsCarry, 2, 'facts should separate retiring capability');
     assert.strictEqual(facts.spawningCapabilities.logisticsCarry, 2, 'facts should include spawning capability separately');
     assert.strictEqual(facts.capabilities.buildWork, 1, 'facts should map role work parts to build capability');
+    assert.strictEqual(collected.rooms.W1N1.controllerTicksToDowngrade, 12345, 'facts should expose owned controller downgrade time');
     assert.strictEqual(facts.sourceCount, 2, 'facts should reuse cached room sources');
     assert.strictEqual(facts.haulDistanceEstimate, 15, 'facts should estimate aggregate source haul range from storage');
     assert.strictEqual(facts.hasIndustrialInfrastructure, true, 'facts should detect cached lab or factory infrastructure');
@@ -147,6 +166,7 @@ async function run() {
     }, 'facts should reuse existing security and war intel scores');
     assert.deepStrictEqual(facts.previousMetrics, { capturedAt: 190, storageEnergy: 58000 }, 'facts should expose the previous metrics snapshot');
     assert.strictEqual(collected.rooms.W3N3.sourceCount, null, 'missing room cache should remain unknown');
+    assert.strictEqual(collected.rooms.W3N3.controllerTicksToDowngrade, null, 'missing controller downgrade time should remain unknown');
     assert.strictEqual(collected.rooms.W3N3.security.hostileStrength, null, 'missing war intel should remain unknown');
 
     const {

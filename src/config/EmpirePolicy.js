@@ -38,6 +38,22 @@ export const DEFAULT_EMPIRE_POLICY = {
             replacementLeadTicks: 50
         }
     },
+    capabilityControl: {
+        enabled: true,
+        emergencyDisable: false,
+        fallbackSuspendCount: 3,
+        controllerEmergencyTicks: 5000,
+        readiness: {
+            minSamples: 50,
+            minKnownRatio: 0.95,
+            maxCriticalRatio: 0.05,
+            maxFlipRatio: 0.10,
+            maxSnapshotAge: 20
+        },
+        capabilities: {
+            upgradeWork: { defaultMode: 'shadow' }
+        }
+    },
     overrides: {
         empire: {},
         rooms: {}
@@ -89,4 +105,33 @@ export function resolvePolicy(key, context = {}, fallback) {
     const empireOverride = activeOverride(policy.overrides.empire[key]);
     if (empireOverride !== undefined) return empireOverride;
     return policy[key] === undefined ? fallback : policy[key];
+}
+
+function resolveCapabilityOverride(entry, source) {
+    if (!entry || typeof entry !== 'object' || entry.expiresAt < Game.time) return null;
+    if (entry.value !== 'shadow' && entry.value !== 'active') return null;
+    return {
+        value: entry.value,
+        source,
+        reason: entry.reason,
+        expiresAt: entry.expiresAt
+    };
+}
+
+export function resolveCapabilityMode(roomName, capability) {
+    const control = ensureEmpireControl();
+    const key = `capability:${capability}`;
+    const capabilityPolicy = control.policy.capabilityControl.capabilities[capability];
+    const fallback = capabilityPolicy.defaultMode;
+    const roomOverrides = control.policy.overrides.rooms[roomName];
+    const roomMode = roomOverrides && resolveCapabilityOverride(roomOverrides[key], 'room');
+    if (roomMode) return roomMode;
+    const empireMode = resolveCapabilityOverride(control.policy.overrides.empire[key], 'empire');
+    if (empireMode) return empireMode;
+    return {
+        value: fallback,
+        source: 'default',
+        reason: undefined,
+        expiresAt: undefined
+    };
 }
