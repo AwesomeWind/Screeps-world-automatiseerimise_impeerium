@@ -25,6 +25,13 @@ async function run() {
     assert.strictEqual(DEFAULT_EMPIRE_POLICY.capabilityControl.capabilities.upgradeWork.defaultMode, 'shadow', 'upgrade work should default to shadow mode');
     assert.strictEqual(DEFAULT_EMPIRE_POLICY.capabilityControl.readiness.minSamples, 50, 'capability readiness should require enough samples by default');
 
+    const initializedMemory = Memory;
+    global.Memory = {};
+    const memoryBeforeCapabilityResolution = JSON.stringify(Memory);
+    assert.strictEqual(resolveCapabilityMode('W1N1', 'upgradeWork').value, 'shadow', 'missing policy state should fall back to the shadow capability mode');
+    assert.strictEqual(JSON.stringify(Memory), memoryBeforeCapabilityResolution, 'capability mode resolution should not initialize or mutate Memory');
+    global.Memory = initializedMemory;
+
     const first = ensureEmpireControl();
     assert.ok(first.rooms, 'empire control should initialize room governor state');
     assert.strictEqual(first.rooms.W1N1.marker, 'preserve', 'room governor initialization should preserve existing room control state');

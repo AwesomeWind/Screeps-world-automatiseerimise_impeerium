@@ -119,14 +119,25 @@ function resolveCapabilityOverride(entry, source) {
 }
 
 export function resolveCapabilityMode(roomName, capability) {
-    const control = ensureEmpireControl();
     const key = `capability:${capability}`;
-    const capabilityPolicy = control.policy.capabilityControl.capabilities[capability];
-    const fallback = capabilityPolicy.defaultMode;
-    const roomOverrides = control.policy.overrides.rooms[roomName];
+    const defaultCapability = DEFAULT_EMPIRE_POLICY.capabilityControl.capabilities[capability];
+    const defaultMode = defaultCapability && defaultCapability.defaultMode;
+    const policy = typeof Memory !== 'undefined' && Memory.empire && Memory.empire.control
+        ? Memory.empire.control.policy
+        : null;
+    const capabilityPolicy = policy && policy.capabilityControl && policy.capabilityControl.capabilities
+        ? policy.capabilityControl.capabilities[capability]
+        : null;
+    const fallback = capabilityPolicy && (capabilityPolicy.defaultMode === 'shadow' || capabilityPolicy.defaultMode === 'active')
+        ? capabilityPolicy.defaultMode
+        : defaultMode;
+    const roomOverrides = policy && policy.overrides && policy.overrides.rooms
+        ? policy.overrides.rooms[roomName]
+        : null;
     const roomMode = roomOverrides && resolveCapabilityOverride(roomOverrides[key], 'room');
     if (roomMode) return roomMode;
-    const empireMode = resolveCapabilityOverride(control.policy.overrides.empire[key], 'empire');
+    const empireOverrides = policy && policy.overrides ? policy.overrides.empire : null;
+    const empireMode = empireOverrides && resolveCapabilityOverride(empireOverrides[key], 'empire');
     if (empireMode) return empireMode;
     return {
         value: fallback,
