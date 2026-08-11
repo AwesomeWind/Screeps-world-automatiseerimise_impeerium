@@ -149,6 +149,130 @@ async function run() {
     assert.strictEqual(collected.rooms.W3N3.sourceCount, null, 'missing room cache should remain unknown');
     assert.strictEqual(collected.rooms.W3N3.security.hostileStrength, null, 'missing war intel should remain unknown');
 
+    const {
+        requiredCapabilities,
+        evaluateHealth,
+        candidateLifecycle,
+        resolveLifecycle,
+        evaluateRoomGovernor
+    } = await import('../governance/RoomGovernorModel.js');
+    const governorPolicy = DEFAULT_EMPIRE_POLICY.roomGovernor;
+    const baseFacts = {
+        roomName: 'W1N1',
+        hasSpawn: true,
+        hasStorage: false,
+        hasTerminal: false,
+        hasIndustrialInfrastructure: false,
+        energyAvailable: 800,
+        energyCapacity: 800,
+        spawnEnergyRatio: 1,
+        storageEnergy: 0,
+        sourceCount: 2,
+        haulDistanceEstimate: 15,
+        constructionPressure: 0,
+        maintenancePressure: 0,
+        capabilities: {
+            harvestWork: 10,
+            logisticsCarry: 6,
+            buildWork: 0,
+            repairWork: 0,
+            upgradeWork: 1,
+            defenseScore: 0
+        },
+        retiringCapabilities: {
+            harvestWork: 0,
+            logisticsCarry: 0,
+            buildWork: 0,
+            repairWork: 0,
+            upgradeWork: 0,
+            defenseScore: 0
+        },
+        spawningCapabilities: {
+            harvestWork: 0,
+            logisticsCarry: 0,
+            buildWork: 0,
+            repairWork: 0,
+            upgradeWork: 0,
+            defenseScore: 0
+        },
+        security: {
+            defcon: 5,
+            posture: 'peace',
+            hostileStrength: 0,
+            defenseStrength: 0
+        }
+    };
+    const factsFor = (changes = {}) => ({
+        ...baseFacts,
+        ...changes,
+        capabilities: { ...baseFacts.capabilities, ...(changes.capabilities || {}) },
+        retiringCapabilities: { ...baseFacts.retiringCapabilities, ...(changes.retiringCapabilities || {}) },
+        spawningCapabilities: { ...baseFacts.spawningCapabilities, ...(changes.spawningCapabilities || {}) },
+        security: { ...baseFacts.security, ...(changes.security || {}) }
+    });
+
+    const claimedFacts = factsFor({ hasSpawn: false });
+    const claimedRequirements = requiredCapabilities(claimedFacts, governorPolicy);
+    const claimedHealth = evaluateHealth(claimedFacts, claimedRequirements, governorPolicy);
+    assert.strictEqual(candidateLifecycle(claimedFacts, claimedRequirements, claimedHealth, governorPolicy), 'claimed', 'owned rooms without a spawn should be claimed');
+    assert.strictEqual(claimedHealth.survival.status, 'critical', 'rooms without a spawn should have critical survival health');
+
+    const noMinerFacts = factsFor({ capabilities: { harvestWork: 0 } });
+    const noMinerRequirements = requiredCapabilities(noMinerFacts, governorPolicy);
+    const noMinerHealth = evaluateHealth(noMinerFacts, noMinerRequirements, governorPolicy);
+    assert.strictEqual(candidateLifecycle(noMinerFacts, noMinerRequirements, noMinerHealth, governorPolicy), 'bootstrap', 'rooms without harvest capability should be bootstrap');
+    assert.strictEqual(noMinerHealth.harvest.status, 'critical', 'missing harvest capability should be critical');
+
+    const selfRequirements = requiredCapabilities(baseFacts, governorPolicy);
+    const selfHealth = evaluateHealth(baseFacts, selfRequirements, governorPolicy);
+    assert.strictEqual(candidateLifecycle(baseFacts, selfRequirements, selfHealth, governorPolicy), 'self_sufficient', 'stable rooms without storage should be self sufficient');
+    assert.strictEqual(selfHealth.reserves.status, 'unknown', 'rooms without storage should not fabricate healthy reserves');
+
+    const developingFacts = factsFor({ hasStorage: true, storageEnergy: 10000 });
+    const developingRequirements = requiredCapabilities(developingFacts, governorPolicy);
+    const developingHealth = evaluateHealth(developingFacts, developingRequirements, governorPolicy);
+    assert.strictEqual(candidateLifecycle(developingFacts, developingRequirements, developingHealth, governorPolicy), 'developing', 'storage rooms below mature reserve should be developing');
+
+    const matureFacts = factsFor({ hasStorage: true, storageEnergy: 60000 });
+    const matureRequirements = requiredCapabilities(matureFacts, governorPolicy);
+    const matureHealth = evaluateHealth(matureFacts, matureRequirements, governorPolicy);
+    assert.strictEqual(candidateLifecycle(matureFacts, matureRequirements, matureHealth, governorPolicy), 'mature', 'healthy storage rooms above mature reserve should be mature');
+
+    const industrialFacts = factsFor({
+        hasStorage: true,
+        hasTerminal: true,
+        hasIndustrialInfrastructure: true,
+        storageEnergy: 120000
+    });
+    const industrialRequirements = requiredCapabilities(industrialFacts, governorPolicy);
+    const industrialHealth = evaluateHealth(industrialFacts, industrialRequirements, governorPolicy);
+    assert.strictEqual(candidateLifecycle(industrialFacts, industrialRequirements, industrialHealth, governorPolicy), 'industrial', 'healthy terminal rooms with industry and reserve should be industrial');
+
+    let lifecycleState = { lifecycle: 'self_sufficient', pendingLifecycle: null, stableSamples: 0 };
+    lifecycleState = resolveLifecycle(lifecycleState, 'developing', false, governorPolicy);
+    assert.strictEqual(lifecycleState.lifecycle, 'self_sufficient', 'lifecycle upgrades should wait for stable samples');
+    lifecycleState = resolveLifecycle(lifecycleState, 'developing', false, governorPolicy);
+    assert.strictEqual(lifecycleState.lifecycle, 'self_sufficient', 'lifecycle upgrades should remain pending before the stability threshold');
+    lifecycleState = resolveLifecycle(lifecycleState, 'developing', false, governorPolicy);
+    assert.strictEqual(lifecycleState.lifecycle, 'developing', 'lifecycle upgrades should apply after enough stable samples');
+    const emergencyState = resolveLifecycle({ lifecycle: 'mature', pendingLifecycle: null, stableSamples: 0 }, 'bootstrap', true, governorPolicy);
+    assert.strictEqual(emergencyState.lifecycle, 'bootstrap', 'loss of core capability should downgrade immediately');
+    const minorShortfall = evaluateRoomGovernor(
+        factsFor({ hasStorage: true, storageEnergy: 60000, capabilities: { harvestWork: 9 } }),
+        { lifecycle: 'mature', pendingLifecycle: null, stableSamples: 0 },
+        governorPolicy
+    );
+    assert.strictEqual(minorShortfall.emergency, false, 'partial core capability shortfalls should not trigger emergency downgrade');
+    assert.strictEqual(minorShortfall.lifecycle, 'mature', 'partial shortfalls should pass through the stability window before downgrade');
+
+    const frozenFacts = factsFor({ hasStorage: true, storageEnergy: 60000 });
+    const frozenSnapshot = JSON.stringify(frozenFacts);
+    Object.freeze(frozenFacts);
+    Object.freeze(frozenFacts.capabilities);
+    const evaluation = evaluateRoomGovernor(frozenFacts, null, governorPolicy);
+    assert.strictEqual(evaluation.candidateLifecycle, 'mature', 'combined evaluation should expose the candidate lifecycle');
+    assert.strictEqual(JSON.stringify(frozenFacts), frozenSnapshot, 'room governor model should not mutate input facts');
+
     console.log('room governor checks passed');
 }
 

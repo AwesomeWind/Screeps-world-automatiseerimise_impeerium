@@ -36,6 +36,7 @@ const expectedFiles = [
     'src/core/RuntimeTelemetry.js',
     'src/core/ServiceScheduler.js',
     'src/governance/RoomGovernorFacts.js',
+    'src/governance/RoomGovernorModel.js',
     'src/services/RoomCacheService.js',
     'src/services/RoomPhaseService.js',
     'src/services/SpawnBureauService.js',
@@ -327,6 +328,9 @@ assertContains(read('src/config/EmpirePolicy.js'), 'if (!control.rooms) control.
 assertNotContains(read('src/governance/RoomGovernorFacts.js'), 'Memory.rooms', 'room governor facts should not read room strategy memory');
 assertNotContains(read('src/governance/RoomGovernorFacts.js'), 'cityPlan', 'room governor facts should not read city plan data');
 assertNotContains(read('src/governance/RoomGovernorFacts.js'), 'PathFinder.search', 'room governor facts should not run pathfinder in the first shadow model');
+assertNotContains(read('src/governance/RoomGovernorModel.js'), 'global.', 'room governor model should remain independent from global state');
+assertNotContains(read('src/governance/RoomGovernorModel.js'), 'Memory', 'room governor model should remain independent from Memory');
+assertNotContains(read('src/governance/RoomGovernorModel.js'), 'Game.', 'room governor model should remain independent from Game');
 assertNotContains(read('src/core/RuntimeTelemetry.js'), 'Memory.rooms', 'runtime telemetry should not mutate room strategy state');
 assertNotContains(read('src/core/ServiceScheduler.js'), 'creep.memory', 'scheduler should not mutate creep state');
 assertContains(read('src/AGENTS.md'), 'ServiceScheduler` 默认 `enforce: false', 'module guide should document shadow scheduling');
