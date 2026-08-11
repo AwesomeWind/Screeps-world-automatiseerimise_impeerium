@@ -7,16 +7,26 @@
 每 tick 的顺序固定为：
 
 1. `MemoryConfig.ensureDefaults()`
-2. 所有 service `init()`
-3. 所有 service `analyze()`
-4. `EventBus.dispatch()`
-5. 所有 service `run()`
-6. 对所有 creep 执行 `ActionParser.run(creep)`
-7. 所有 service `cleanup()`
+2. 启动 `RuntimeTelemetry` 并由 `ServiceScheduler` 评估 CPU 姿态
+3. 所有 service `init()`
+4. 所有 service `analyze()`
+5. `EventBus.dispatch()`
+6. 所有 service `run()`
+7. 对所有 creep 执行 `ActionParser.run(creep)`
+8. 所有 service `cleanup()`
+9. `RuntimeTelemetry.finishTick()` 持久化低频摘要
 
 新增服务时要确认它依赖的全局状态是否已经由前序服务写入。当前关键顺序是：
 
 `RoomCache -> WarIntel/WarStrategy/Combat/Security -> RoomPhase -> SpawnBureau/Spawn -> TaskGuard -> ResourceMarket -> role strategies -> Tower/Planning/Lab/Market/RemoteMining`
+
+## 帝国控制基础层
+
+- `Memory.empire.control.policy` 是人工战略配置入口；不要在各 service 新增分散的全局战略开关。
+- `global.EmpireTelemetry` 保存当前 tick 的服务耗时；持久摘要位于 `Memory.empire.control.telemetry`。
+- `ServiceScheduler` 默认 `enforce: false`，此时只记录影子决策，不允许改变既有 service 生命周期执行。
+- `EmpireMetricsService` 只读现有状态，不发布需求、不分配任务、不执行游戏动作。
+- CPU 阈值必须通过 policy 配置；在积累真实数据前不得以当前默认值宣称已经完成性能调优。
 
 ## 目录职责
 

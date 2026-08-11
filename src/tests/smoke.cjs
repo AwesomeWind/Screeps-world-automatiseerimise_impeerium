@@ -320,6 +320,10 @@ assertContains(read('src/planning/CityPlanDebug.js'), 'assetFallbackReadiness', 
 assertContains(read('src/planning/CityPlanDebug.js'), 'assetImportRollbackGate', 'city plan debug should expose rollout rollback-gate observation details');
 assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'cleanupLegacyAssetFields', 'legacy cleanup helper should expose asset-field cleanup execution');
 assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'cleanupLegacyWorkPositionFields', 'legacy cleanup helper should expose work-position cleanup execution');
+assertContains(read('src/config/EmpirePolicy.js'), 'enforce: false', 'scheduler should default to shadow mode');
+assertNotContains(read('src/core/RuntimeTelemetry.js'), 'Memory.rooms', 'runtime telemetry should not mutate room strategy state');
+assertNotContains(read('src/core/ServiceScheduler.js'), 'creep.memory', 'scheduler should not mutate creep state');
+assertContains(read('src/AGENTS.md'), 'ServiceScheduler` 默认 `enforce: false', 'module guide should document shadow scheduling');
 const metricsSource = read('src/services/EmpireMetricsService.js');
 for (const forbidden of ['EventBus.publish', 'assignTask(', 'spawnCreep(', 'createConstructionSite(', 'Game.market.deal']) {
     assertNotContains(metricsSource, forbidden, 'empire metrics should remain read-only');
