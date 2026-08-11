@@ -64,6 +64,7 @@ const expectedFiles = [
     'src/planning/CityPlanMigration.js',
     'src/planning/CityPlanSchema.js',
     'src/planning/RuntimeReadiness.js',
+    'src/planning/CityPlanLegacyCleanup.js',
     'src/planning/CityWorkPositionPolicy.js',
     'src/planning/SourceRuntimeState.js',
     'src/planning/CityPlanHelpers.js',
@@ -142,10 +143,20 @@ assertContains(read('src/services/StructureLifecycleService.js'), 'SOURCE_RUNTIM
 assertNotContains(read('src/planning/CityAssetPolicy.js'), 'cityPlan.sources && cityPlan.sources[sourceId]', 'city asset policy should read source runtime state through shared source runtime helpers');
 assertContains(read('src/planning/CityPlanMigration.js'), 'sourcePlan.containerPos', 'city plan migration should remain the compat-only source-container coordinate import boundary');
 assertContains(read('src/planning/CityPlanMigration.js'), 'cityPlan.controller && cityPlan.controller.linkPos', 'city plan migration should remain the compat-only controller-link coordinate import boundary');
-assertContains(read('src/planning/CityPlanLegacyAdapter.js'), 'legacySource && legacySource.containerPos', 'legacy adapter should remain the compat-only source-container fallback boundary');
-assertContains(read('src/planning/CityPlanLegacyAdapter.js'), 'cityPlan.controller && cityPlan.controller.linkPos', 'legacy adapter should remain the compat-only controller-link fallback boundary');
+assertNotContains(read('src/planning/CityPlanLegacyAdapter.js'), 'legacySource && legacySource.containerPos', 'legacy adapter should no longer read legacy source-container storage after adapter hard retirement');
+assertNotContains(read('src/planning/CityPlanLegacyAdapter.js'), 'cityPlan.controller && cityPlan.controller.linkPos', 'legacy adapter should no longer read legacy controller-link storage after adapter hard retirement');
+assertNotContains(read('src/planning/CityPlanLegacyAdapter.js'), 'function legacyAsset(', 'legacy adapter should remove legacy asset record construction after adapter hard retirement');
+assertNotContains(read('src/planning/CityPlanDebug.js'), 'allowLegacyFallback: true', 'city plan debug should stop opting into legacy asset fallback observation during debug fallback retirement');
+assertNotContains(read('src/services/CityPlanDebugService.js'), 'allowLegacyFallback: true', 'city plan debug service should not activate legacy asset fallback directly outside the debug summary boundary');
+assertNotContains(read('src/services/LinkService.js'), 'allowLegacyFallback: true', 'link service should not activate legacy asset fallback once strict execution reads are in place');
+assertNotContains(read('src/services/SpawnBureauService.js'), 'allowLegacyFallback: true', 'spawn bureau should not activate legacy asset fallback once strict execution reads are in place');
+assertNotContains(read('src/services/StructureLifecycleService.js'), 'allowLegacyFallback: true', 'structure lifecycle should not activate legacy asset fallback once strict execution reads are in place');
+assertNotContains(read('src/strategies/MinerStrategyService.js'), 'allowLegacyFallback: true', 'miner strategy should not activate legacy asset fallback once strict execution reads are in place');
+assertNotContains(read('src/strategies/UpgraderStrategyService.js'), 'allowLegacyFallback: true', 'upgrader strategy should not activate legacy asset fallback once strict execution reads are in place');
 assertContains(read('src/planning/CityPlanMigration.js'), 'sourcePlan.primaryMiningPos', 'city plan migration should remain the compat-only source mining-position import boundary');
 assertContains(read('src/planning/CityPlanMigration.js'), 'cityPlan.controller.primaryUpgradePos', 'city plan migration should remain the compat-only controller upgrade-position import boundary');
+assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'sourcePlan.primaryMiningPos', 'legacy cleanup helper should remain an allowed source mining-position deletion boundary');
+assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'cityPlan.controller.primaryUpgradePos', 'legacy cleanup helper should remain an allowed controller upgrade-position deletion boundary');
 assertNotContains(read('src/planning/CityWorkPositionPolicy.js'), 'legacySourcePlan && legacySourcePlan.primaryMiningPos', 'city work position policy should no longer read legacy source mining-position compatibility storage after migration-only convergence');
 assertNotContains(read('src/planning/CityWorkPositionPolicy.js'), 'cityPlan.controller && cityPlan.controller.primaryUpgradePos', 'city work position policy should no longer read legacy controller upgrade-position compatibility storage after migration-only convergence');
 assertNotContains(read('src/planning/DefensePlannerService.js'), 'primaryMiningPos', 'defense planner should not read legacy work-position coordinates directly');
@@ -156,7 +167,8 @@ assertContains(read('docs/city-planning-legacy-read-audit.md'), 'CityWorkPositio
 assertContains(read('docs/city-planning-legacy-read-audit.md'), 'workPositions', 'legacy read audit should describe the workPositions model');
 assertContains(read('docs/city-planning-legacy-read-audit.md'), 'schema/debug coverage for `workPositions` is complete', 'legacy read audit should reflect that work position schema/debug coverage is complete');
 assertContains(read('docs/city-planning-legacy-read-audit.md'), 'Legacy `primaryMiningPos / primaryUpgradePos` now remain only as migration input for canonical `workPositions` regeneration.', 'legacy read audit should confine legacy work-position storage to migration input only');
-assertContains(read('docs/city-planning-legacy-read-audit.md'), 'compatibility read ownership for work positions now belongs to `CityPlanMigration` only', 'legacy read audit should record that work-position compatibility reads have been reduced to migration only');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'compatibility read ownership for work positions now belongs to `CityPlanMigration` import and `CityPlanLegacyCleanup` deletion only.', 'legacy read audit should record that work-position compatibility reads are limited to migration import and cleanup deletion');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'adapter fallback should require explicit opt-in while execution callers stay strict by default', 'legacy read audit should record the adapter default-canonical convergence step');
 assertContains(read('docs/city-planning-legacy-read-audit.md'), '`MinerStrategyService` is now the second strict work-position consumer and no longer uses legacy-only source mining positions when canonical `workPositions.sources[sourceId].mining.primary` is absent.', 'legacy read audit should record the miner strict work-position rollout');
 assertNotContains(read('docs/city-planning-legacy-read-audit.md'), 'decide when `CityWorkPositionPolicy` and migration no longer need legacy `primaryMiningPos / primaryUpgradePos` fallback support', 'legacy read audit should no longer describe work-position fallback scope as an unstructured future question after V3.7a boundary hardening');
 assertContains(read('docs/city-planning-legacy-read-audit.md'), 'Remaining compatibility storage is limited to:', 'legacy read audit should state that new plans no longer publish legacy asset-position storage');
@@ -210,6 +222,99 @@ assertContains(read('docs/city-planning-legacy-read-audit.md'), 'SourceRuntimeSt
 assertContains(read('docs/city-planning-legacy-read-audit.md'), 'default strict source-runtime reads', 'legacy read audit should record that source output policy now defaults to strict runtime reads');
 assertContains(read('docs/city-planning-legacy-read-audit.md'), 'RuntimeReadiness.shouldUseStrictSourceRuntime', 'legacy read audit should record the shared runtime readiness helper used by execution services');
 assertContains(read('docs/city-planning-legacy-read-audit.md'), 'compat-only boundary hardening and legacy fallback observation cleanup', 'legacy read audit should state that the next phase is compat-only boundary hardening after planner asset-position output removal');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'continuous observation window', 'legacy read audit should require a continuous observation window before disabling asset fallback compatibility');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.9 deletion-gate plan', 'legacy read audit should define the V3.9 deletion-gate phase for legacy asset-position cleanup');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'readyForControllerAssetFieldRemoval', 'legacy read audit should document the controller-side asset-field deletion gate');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.10 controller-only cleanup wave', 'legacy read audit should document the first controller-only cleanup execution wave');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.11 source cleanup wave', 'legacy read audit should document the follow-up source cleanup execution wave');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.13 work-position cleanup wave', 'legacy read audit should document the work-position cleanup execution wave');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.14 final legacy cleanup boundary audit', 'legacy read audit should document the final legacy cleanup boundary audit phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.15 debug fallback retirement', 'legacy read audit should document the debug fallback retirement phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'there should be no remaining active compat asset fallback activation points in production reads', 'legacy read audit should record that debug fallback activation has been retired from production reads');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.16c adapter legacy-read retirement', 'legacy read audit should document the adapter legacy-read retirement phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), '`CityPlanLegacyAdapter` should no longer read legacy asset coordinates or return legacy-derived missing diagnostics', 'legacy read audit should record that adapter no longer reads legacy asset coordinates');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.17a migration import retirement plan', 'legacy read audit should document the migration import retirement planning phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), '`CityPlanMigration` should remain the last canonical asset-regeneration boundary for genuinely old room memory until migration retirement gates are satisfied', 'legacy read audit should keep migration import as the final asset-regeneration boundary during migration retirement planning');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'asset-position migration import should not be removed until canonical `plannedStructures` remain complete without regeneration', 'legacy read audit should define the canonical plannedStructures gate before migration asset import retirement');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'cleanup execution should have already removed reintroduced legacy asset coordinates in steady-state room memory before migration import retirement begins', 'legacy read audit should require cleanup stability before migration asset import retirement');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'test coverage should explicitly include pre-canonical room memory migration, canonical-only room memory migration, and post-cleanup steady-state room memory', 'legacy read audit should define migration retirement test coverage requirements');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.17b migration asset import dry-run readiness', 'legacy read audit should document the migration asset import dry-run readiness phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'migration metadata should explicitly report whether canonical planned assets were already complete before legacy asset import ran', 'legacy read audit should require explicit readiness metadata for canonical asset completeness before migration import');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'steady-state canonical rooms should report ready for asset import removal only when migration no longer regenerates any controller/source container or link planned structures', 'legacy read audit should define the dry-run readiness gate for asset import retirement');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.17c asset import readiness observation', 'legacy read audit should document the room-level asset import readiness observation phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'three consecutive migration observations', 'legacy read audit should require a stable observation window before asset import retirement is considered ready');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'legacy asset import regeneration should reset the readiness streak', 'legacy read audit should require regeneration to reset asset import retirement readiness');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.18a migration asset import controlled-disable path', 'legacy read audit should document the controlled-disable phase for migration asset import');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'asset-position import should be switchable between enabled and disabled modes without changing the default migration behavior', 'legacy read audit should define the controlled-disable switch without changing default migration behavior');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'disabled mode should stop regenerating controller/source container and link planned structures from legacy coordinates while preserving readiness diagnostics', 'legacy read audit should define disabled-mode migration behavior for asset import retirement rehearsal');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.18b asset import disabled rehearsal observation', 'legacy read audit should document the disabled-mode rehearsal observation phase for migration asset import');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'disabled rehearsal should not mutate room memory', 'legacy read audit should require disabled-mode rehearsal to remain non-persistent');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'default migration should remain enabled while rehearsal observes disabled-mode readiness', 'legacy read audit should require rehearsal observation without changing default migration behavior');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.18c asset import retirement gate consolidation', 'legacy read audit should document the retirement gate consolidation phase for migration asset import');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'readyForDefaultDisabled', 'legacy read audit should define the final default-disabled readiness gate');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'blockingReasons', 'legacy read audit should define explicit blocking reasons for asset import retirement');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.19 room-level default-disabled rollout decision', 'legacy read audit should document the room-level rollout decision phase for default-disabled migration');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'requestedMode', 'legacy read audit should define the requested rollout mode for room-level default-disabled migration');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'effectiveMode', 'legacy read audit should define the effective rollout mode for room-level default-disabled migration');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'rollbackMode', 'legacy read audit should define the rollback mode for room-level default-disabled migration');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.20 controlled migration-mode consumption', 'legacy read audit should document the controlled migration-mode consumption phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'effective rollout mode should only take effect on a later observation cycle after it has already been persisted', 'legacy read audit should define the one-cycle delay before rollout mode affects migration');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'requested rollout mode alone should not change migration behavior unless the persisted effective mode is already disabled', 'legacy read audit should require migration to consume effective mode rather than requested mode');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.21 rollout execution observation', 'legacy read audit should document the rollout execution observation phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'consumedMode', 'legacy read audit should define the consumed migration asset import mode for rollout execution observation');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'rollbackRecommended', 'legacy read audit should define rollback guidance for rollout execution observation');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.22 rollback gate observation', 'legacy read audit should document the rollback gate observation phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'cityPlanAssetImportRollbackGate', 'legacy read audit should define room-level rollback gate observation state');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'stableRollbackRecommended', 'legacy read audit should define rollback stability for rollout rollback-gate observation');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'readyForManualRollback', 'legacy read audit should define manual rollback readiness for rollout rollback-gate observation');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.23 rollback summary convergence', 'legacy read audit should document the rollback summary convergence phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'cityPlanAssetImportRollbackSummary', 'legacy read audit should define empire-level rollback summary state');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'actionRequired', 'legacy read audit should define whether rollback summary requires operator action');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.24 controlled manual rollback action', 'legacy read audit should document the controlled manual rollback action phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'cityPlanAssetImportRollbackAction', 'legacy read audit should define room-level rollback action state');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'cityPlanAssetImportRollbackExecution', 'legacy read audit should define room-level rollback execution state');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.25 empire batch rollback action', 'legacy read audit should document the empire batch rollback action phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'cityPlanAssetImportRollbackBatchExecution', 'legacy read audit should define empire-level rollback batch execution state');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'V3.26 rollback action history and cooldown', 'legacy read audit should document the rollback action history and cooldown phase');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'cityPlanAssetImportRollbackHistory', 'legacy read audit should define room-level rollback history state');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'cityPlanAssetImportRollbackBatchHistory', 'legacy read audit should define empire-level rollback batch history state');
+assertNotContains(read('docs/city-planning-legacy-read-audit.md'), '`CityPlanLegacyAdapter` may still retain explicit fallback capability for transitional tests and future removal planning, but `CityPlanDebug` should no longer call it', 'legacy read audit should no longer describe explicit adapter fallback capability after adapter fallback retirement');
+assertNotContains(read('docs/city-planning-legacy-read-audit.md'), 'active compat asset fallback activation is now limited to `CityPlanDebug`', 'legacy read audit should no longer describe city plan debug as an active compat asset fallback activation point after debug fallback retirement');
+assertNotContains(read('docs/city-planning-legacy-read-audit.md'), '`CityPlanDebug` may still read compat asset fallback state because it is the explicit observability boundary for rollback and migration readiness.', 'legacy read audit should no longer describe city plan debug as an active compat asset fallback observability boundary after debug fallback retirement');
+assertNotContains(read('docs/city-planning-legacy-read-audit.md'), '`CityPlanDebug` should continue using compat reads so `legacyFallbackSummary` remains an honest observation channel for fallback usage.', 'legacy read audit should no longer prescribe compat debug reads after debug fallback retirement');
+assertNotContains(read('docs/city-planning-legacy-read-audit.md'), '`CityPlanDebug` should remain the only active compat asset fallback activation point while final rollback visibility is still required.', 'legacy read audit should no longer describe city plan debug as the only active compat asset fallback activation point after debug fallback retirement');
+assertNotContains(read('docs/city-planning-legacy-read-audit.md'), '`CityPlanDebug` still observes compat asset fallback, but no longer compares canonical source runtime against legacy runtime fields.', 'legacy read audit should no longer describe city plan debug as observing compat asset fallback after debug fallback retirement');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), '`CityPlanMigration` remains the only import boundary for legacy asset-position storage', 'legacy read audit should record migration as the only asset-position import boundary that still consumes legacy coordinates');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), '`cityPlanLegacyCleanup` metadata should remain visible', 'legacy read audit should preserve cleanup execution metadata as part of the compat-boundary audit');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'asset-position compatibility read ownership is now limited to `CityPlanMigration` and `CityPlanLegacyCleanup`.', 'legacy read audit should record that asset-position compatibility ownership is limited to migration and cleanup after adapter hard retirement');
+assertNotContains(read('docs/city-planning-legacy-read-audit.md'), 'asset-position compatibility read ownership is now limited to `CityPlanMigration`, `CityPlanLegacyAdapter`, and `CityPlanLegacyCleanup`.', 'legacy read audit should no longer list city plan legacy adapter as an active asset-position compatibility read boundary after adapter hard retirement');
+assertNotContains(read('docs/city-planning-legacy-read-audit.md'), 'asset-position compatibility read ownership is now limited to `CityPlanMigration`, `CityPlanLegacyAdapter`, `CityPlanDebug`, and `CityPlanLegacyCleanup`.', 'legacy read audit should no longer list city plan debug as an active asset-position compatibility read boundary after debug fallback retirement');
+assertContains(read('docs/city-planning-legacy-read-audit.md'), 'work-position compatibility read ownership is now limited to `CityPlanMigration` and `CityPlanLegacyCleanup`.', 'legacy read audit should record the final allowed work-position compatibility boundaries');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetFallbackObservation', 'city plan debug service should persist asset fallback observation state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportObservation', 'city plan debug service should persist asset import readiness observation state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportRehearsal', 'city plan debug service should persist disabled-mode asset import rehearsal state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportRetirementGate', 'city plan debug service should persist the consolidated asset import retirement gate state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportRollout', 'city plan debug service should persist room-level asset import rollout decision state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'effectiveMode', 'city plan debug service should consume room-level effective asset import rollout mode during controlled migration rollout');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportExecution', 'city plan debug service should persist rollout execution observation state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportRollbackGate', 'city plan debug service should persist rollout rollback-gate observation state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportRollbackSummary', 'city plan debug service should persist empire-level rollback summary state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportRollbackAction', 'city plan debug service should consume room-level rollback actions');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportRollbackExecution', 'city plan debug service should persist room-level rollback execution state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportRollbackBatchExecution', 'city plan debug service should persist empire-level rollback batch execution state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'applyEmpireAssetImportRollbackAction', 'city plan debug service should distribute empire-level rollback actions before room-level execution');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportRollbackHistory', 'city plan debug service should persist room-level rollback execution history');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanAssetImportRollbackBatchHistory', 'city plan debug service should persist empire-level rollback batch history');
+assertContains(read('src/services/CityPlanDebugService.js'), 'ROLLBACK_ACTION_COOLDOWN_TICKS', 'city plan debug service should define a cooldown window for repeated rollback actions');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cityPlanWorkPositionCleanupObservation', 'city plan debug service should persist work-position cleanup observation state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'applyLegacyWorkPositionFieldCleanup', 'city plan debug service should execute legacy work-position field cleanup after readiness is evaluated');
+assertContains(read('src/services/CityPlanDebugService.js'), 'legacyCleanupReadiness', 'city plan debug service should persist legacy cleanup readiness state');
+assertContains(read('src/services/CityPlanDebugService.js'), 'applyLegacyAssetFieldCleanup', 'city plan debug service should execute legacy asset-field cleanup after readiness is evaluated');
+assertContains(read('src/services/CityPlanDebugService.js'), 'cleanupSourceFields: true', 'city plan debug service should enable source cleanup during the source-only cleanup wave');
+assertContains(read('src/planning/CityPlanDebug.js'), 'assetFallbackReadiness', 'city plan debug should expose per-role asset fallback readiness details');
+assertContains(read('src/planning/CityPlanDebug.js'), 'assetImportRollbackGate', 'city plan debug should expose rollout rollback-gate observation details');
+assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'cleanupLegacyAssetFields', 'legacy cleanup helper should expose asset-field cleanup execution');
+assertContains(read('src/planning/CityPlanLegacyCleanup.js'), 'cleanupLegacyWorkPositionFields', 'legacy cleanup helper should expose work-position cleanup execution');
 
 const main = read('src/main.js');
 for (const phase of ['init();', 'analyze();', 'EventBus.dispatch();', 'run();', 'cleanup();']) {
@@ -381,6 +486,12 @@ async function runBehaviorChecks() {
         buildCityPlanDebug,
         recordLifecycleTransitionFailure
     } = await import('../planning/CityPlanDebug.js');
+    const {
+        buildLegacyCleanupReadiness,
+        cleanupLegacyAssetFields,
+        buildLegacyWorkPositionCleanupReadiness,
+        cleanupLegacyWorkPositionFields
+    } = await import('../planning/CityPlanLegacyCleanup.js');
     const {
         getSourceRuntimeState,
         setSourceRuntimeState,
@@ -1584,7 +1695,7 @@ async function runBehaviorChecks() {
     assert.strictEqual(legacyOnlySourceLinkPolicy.runtimeMode, 'invalid', 'city asset policy should report invalid runtime mode by default when canonical source runtime storage is missing');
     assert.strictEqual(legacyOnlySourceLinkPolicy.bodyProfile, 'miner', 'city asset policy should fall back to stationary miner bodies by default when only legacy source-link runtime storage exists');
     assert.strictEqual(legacyOnlySourceLinkPolicy.usesLinkOutput, false, 'city asset policy should disable source-link output by default when only legacy source runtime storage exists');
-    assert.strictEqual(legacyOnlySourceLinkPolicy.outputAssetSource, 'missing', 'city asset policy should not treat legacy-only source-link storage as a canonical output asset during strict rollout');
+    assert.strictEqual(legacyOnlySourceLinkPolicy.outputAssetSource, 'none', 'city asset policy should report none once adapter no longer reads legacy-only source-link storage during strict rollout');
     assert.strictEqual(legacyOnlySourceLinkPolicy.outputAssetRole, null, 'city asset policy should clear source-link asset role when only legacy compatibility storage exists');
     const compatLegacyOnlySourceLinkPolicy = getSourceOutputPolicy(Memory.rooms.W1N1.cityPlan, 'source1', {
         sourceRuntimeAllowLegacyFallback: true
@@ -2606,7 +2717,8 @@ async function runBehaviorChecks() {
     };
     builderService.assignBuilderTask(containerPriorityBuilder);
     assert.strictEqual(containerPriorityBuilder.memory.task.targetId, 'ordinaryContainerSite', 'builder should not treat legacy-only source container planning as canonical during strict rollout');
-    assert.strictEqual(resolveSourceContainerAsset(Memory.rooms.W1N1.cityPlan, 'source1').source, 'legacy', 'legacy adapter should report legacy source for source container assets when planned structures are absent');
+    assert.strictEqual(resolveSourceContainerAsset(Memory.rooms.W1N1.cityPlan, 'source1').source, 'none', 'legacy adapter should report none once legacy-only source-container storage is no longer read');
+    assert.strictEqual(resolveSourceContainerAsset(Memory.rooms.W1N1.cityPlan, 'source1', { allowLegacyFallback: true }).source, 'none', 'legacy adapter should keep reporting none even when compat fallback is requested after adapter hard retirement');
 
     const plannedStructureOnlyBuilder = {
         name: 'PlannedStructureOnlyBuilder',
@@ -3220,8 +3332,10 @@ async function runBehaviorChecks() {
     const controllerBufferDemand = global.ResourceMarket.W1N1.demands.find((demand) => demand.targetId === 'marketControllerContainer' && demand.demandType === 'buffer');
     assert.ok(!controllerBufferDemand, 'resource market should not create controller buffer demand from legacy-only controller container compatibility storage during strict rollout');
     assert.ok(global.ResourceMarket.W1N1.demands.some((demand) => demand.targetId === 'marketControllerContainer' && demand.purpose === 'storage_balance'), 'resource market should fall back to generic container demand handling when only legacy controller container planning exists during strict rollout');
-    assert.strictEqual(getControllerContainerAsset(Memory.rooms.W1N1.cityPlan).pos.x, 24, 'legacy adapter should fall back to legacy controller container positions when planned assets are absent');
-    assert.strictEqual(resolveControllerContainerAsset(Memory.rooms.W1N1.cityPlan).source, 'legacy', 'legacy adapter should report legacy fallback for controller container assets');
+    assert.strictEqual(getControllerContainerAsset(Memory.rooms.W1N1.cityPlan), null, 'legacy adapter should default controller-container getters to canonical planned assets only when planned assets are absent');
+    assert.strictEqual(resolveControllerContainerAsset(Memory.rooms.W1N1.cityPlan).source, 'none', 'legacy adapter should report none once legacy-only controller-container storage is no longer read');
+    assert.strictEqual(getControllerContainerAsset(Memory.rooms.W1N1.cityPlan, { allowLegacyFallback: true }), null, 'legacy adapter should ignore explicit compat fallback getter requests for legacy-only controller containers');
+    assert.strictEqual(resolveControllerContainerAsset(Memory.rooms.W1N1.cityPlan, { allowLegacyFallback: true }).source, 'none', 'legacy adapter should report none for legacy-only controller containers even when compat fallback is requested after adapter hard retirement');
     Memory.rooms.W1N1.cityPlan.sources = {
         source1: {
             containerPos: { x: 11, y: 10, roomName: 'W1N1' }
@@ -4589,6 +4703,11 @@ async function runBehaviorChecks() {
     assert.ok(migratedLegacyPlan.cityPlan.plannedStructures.some((entry) => entry.id === 'source1:link' && entry.role === 'source_link'), 'city plan migration should regenerate source link planned assets from legacy coordinates');
     assert.ok(migratedLegacyPlan.cityPlan.plannedStructures.some((entry) => entry.id === 'controller:container' && entry.role === 'controller_container'), 'city plan migration should regenerate controller container planned assets from legacy coordinates');
     assert.ok(migratedLegacyPlan.cityPlan.plannedStructures.some((entry) => entry.id === 'controller:link' && entry.role === 'controller_link'), 'city plan migration should regenerate controller link planned assets from legacy coordinates');
+    assert.strictEqual(migratedLegacyPlan.assetImportReadiness.canonicalCompleteBeforeImport, false, 'city plan migration should report incomplete canonical planned assets before importing legacy asset coordinates');
+    assert.strictEqual(migratedLegacyPlan.assetImportReadiness.legacyAssetImportUsed, true, 'city plan migration should report when legacy asset coordinates regenerated canonical planned assets');
+    assert.strictEqual(migratedLegacyPlan.assetImportReadiness.readyForAssetImportRemoval, false, 'city plan migration should keep asset import removal disabled while regeneration still occurs');
+    assert.deepStrictEqual(migratedLegacyPlan.assetImportReadiness.missingCanonicalAssetRoles.sort(), ['controller_container', 'controller_link', 'source_container', 'source_link'], 'city plan migration should report which canonical asset roles were missing before legacy import');
+    assert.deepStrictEqual(migratedLegacyPlan.assetImportReadiness.regeneratedAssetRoles.sort(), ['controller_container', 'controller_link', 'source_container', 'source_link'], 'city plan migration should report which canonical asset roles were regenerated from legacy coordinates');
     assert.deepStrictEqual(migratedLegacyPlan.cityPlan.sources.source1.containerPos, { x: 9, y: 10, roomName: 'W1N1' }, 'city plan migration should preserve legacy source compatibility storage in v3.0');
     assert.deepStrictEqual(migratedLegacyPlan.cityPlan.controller.containerPos, { x: 24, y: 25, roomName: 'W1N1' }, 'city plan migration should preserve legacy controller compatibility storage in v3.0');
     assert.deepStrictEqual(migratedLegacyPlan.cityPlan.sourceRuntime.sources.source1, {
@@ -4637,6 +4756,81 @@ async function runBehaviorChecks() {
     });
     assert.deepStrictEqual(preservedCanonicalPlan.cityPlan.workPositions.sources.source1.mining.primary, { x: 7, y: 7, roomName: 'W1N1' }, 'city plan migration should preserve existing canonical work positions');
     assert.strictEqual(preservedCanonicalPlan.cityPlan.plannedStructures.filter((entry) => entry.id === 'source1:container').length, 1, 'city plan migration should not duplicate existing canonical planned assets');
+    assert.strictEqual(preservedCanonicalPlan.assetImportReadiness.canonicalCompleteBeforeImport, true, 'city plan migration should treat rooms with no remaining legacy asset import targets as complete before import');
+    assert.strictEqual(preservedCanonicalPlan.assetImportReadiness.legacyAssetImportUsed, false, 'city plan migration should report no legacy asset import when no canonical assets were regenerated');
+    assert.strictEqual(preservedCanonicalPlan.assetImportReadiness.readyForAssetImportRemoval, true, 'city plan migration should mark rooms with no remaining legacy asset import targets ready for asset import removal');
+    const canonicalAssetReadyPlan = migrateCityPlan({
+        schemaVersion: 2,
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' },
+                containerPos: { x: 9, y: 10, roomName: 'W1N1' },
+                linkPos: { x: 10, y: 11, roomName: 'W1N1' }
+            }
+        },
+        controller: {
+            primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' },
+            containerPos: { x: 24, y: 25, roomName: 'W1N1' },
+            linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+        },
+        plannedStructures: [{
+            id: 'source1:container',
+            role: 'source_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 9, y: 10, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'active', activeFromRcl: 1 }
+        }, {
+            id: 'source1:link',
+            role: 'source_link',
+            structureType: STRUCTURE_LINK,
+            pos: { x: 10, y: 11, roomName: 'W1N1' },
+            scope: { sourceId: 'source1' },
+            lifecycle: { state: 'planned', activeFromRcl: 5 }
+        }, {
+            id: 'controller:container',
+            role: 'controller_container',
+            structureType: STRUCTURE_CONTAINER,
+            pos: { x: 24, y: 25, roomName: 'W1N1' },
+            lifecycle: { state: 'active', activeFromRcl: 1 }
+        }, {
+            id: 'controller:link',
+            role: 'controller_link',
+            structureType: STRUCTURE_LINK,
+            pos: { x: 24, y: 24, roomName: 'W1N1' },
+            lifecycle: { state: 'planned', activeFromRcl: 5 }
+        }]
+    });
+    assert.strictEqual(canonicalAssetReadyPlan.assetImportReadiness.canonicalCompleteBeforeImport, true, 'city plan migration should report steady-state canonical rooms as complete before legacy asset import');
+    assert.strictEqual(canonicalAssetReadyPlan.assetImportReadiness.legacyAssetImportUsed, false, 'city plan migration should report no legacy asset import when canonical planned assets already exist');
+    assert.strictEqual(canonicalAssetReadyPlan.assetImportReadiness.readyForAssetImportRemoval, true, 'city plan migration should mark fully canonical rooms ready for asset import removal dry-run');
+    assert.deepStrictEqual(canonicalAssetReadyPlan.assetImportReadiness.missingCanonicalAssetRoles, [], 'city plan migration should report no missing canonical asset roles for steady-state canonical rooms');
+    assert.deepStrictEqual(canonicalAssetReadyPlan.assetImportReadiness.regeneratedAssetRoles, [], 'city plan migration should report no regenerated asset roles for steady-state canonical rooms');
+    const disabledAssetImportPlan = migrateCityPlan({
+        schemaVersion: 2,
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' },
+                containerPos: { x: 9, y: 10, roomName: 'W1N1' },
+                linkPos: { x: 10, y: 11, roomName: 'W1N1' }
+            }
+        },
+        controller: {
+            primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' },
+            containerPos: { x: 24, y: 25, roomName: 'W1N1' },
+            linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+        }
+    }, 4, {
+        assetImportMode: 'disabled'
+    });
+    assert.strictEqual(disabledAssetImportPlan.changed, true, 'city plan migration should still migrate schema/runtime/work-position state when asset import is disabled');
+    assert.strictEqual(disabledAssetImportPlan.changes.plannedStructuresAdded, 0, 'city plan migration should stop regenerating planned assets when asset import mode is disabled');
+    assert.strictEqual(disabledAssetImportPlan.cityPlan.plannedStructures.length, 0, 'city plan migration should leave canonical planned assets missing when legacy asset import is disabled');
+    assert.strictEqual(disabledAssetImportPlan.assetImportReadiness.canonicalCompleteBeforeImport, false, 'city plan migration should continue reporting incomplete canonical planned assets before disabled import runs');
+    assert.strictEqual(disabledAssetImportPlan.assetImportReadiness.legacyAssetImportUsed, false, 'city plan migration should report no legacy asset import usage when asset import mode is disabled');
+    assert.strictEqual(disabledAssetImportPlan.assetImportReadiness.readyForAssetImportRemoval, false, 'city plan migration should keep asset import retirement gated when canonical planned assets remain incomplete in disabled mode');
+    assert.deepStrictEqual(disabledAssetImportPlan.assetImportReadiness.missingCanonicalAssetRoles.sort(), ['controller_container', 'controller_link', 'source_container', 'source_link'], 'city plan migration should preserve missing-role diagnostics when asset import mode is disabled');
+    assert.deepStrictEqual(disabledAssetImportPlan.assetImportReadiness.regeneratedAssetRoles, [], 'city plan migration should not report regenerated asset roles when asset import mode is disabled');
     const activeSourceContainer = getActivePlannedStructure(cityPlan, 'source_container', { sourceId: 'source1' });
     assert.ok(activeSourceContainer && activeSourceContainer.pos, 'city plan helpers should resolve active planned structures by role and scope');
     assert.strictEqual(getPlannedStructuresByRole(cityPlan, 'controller_container').length, 1, 'city plan helpers should return role-filtered planned structures');
@@ -4657,20 +4851,52 @@ async function runBehaviorChecks() {
     assert.strictEqual(resolveSourceContainerAsset({}, 'missing').source, 'none', 'legacy adapter should report none when no source container asset exists');
     assert.strictEqual(resolveControllerContainerAsset({
         controller: { containerPos: { x: 24, y: 25, roomName: 'W1N1' } }
-    }, { allowLegacyFallback: false }).source, 'missing', 'legacy adapter strict controller-container resolution should not fall back to legacy coordinates');
+    }).source, 'none', 'legacy adapter should report none once legacy-only controller-container storage is no longer read');
+    assert.strictEqual(resolveControllerContainerAsset({
+        controller: { containerPos: { x: 24, y: 25, roomName: 'W1N1' } }
+    }, { allowLegacyFallback: false }).source, 'none', 'legacy adapter strict controller-container resolution should report none when only legacy coordinates exist after adapter hard retirement');
+    assert.strictEqual(resolveControllerContainerAsset({
+        controller: { containerPos: { x: 24, y: 25, roomName: 'W1N1' } }
+    }, { allowLegacyFallback: true }).source, 'none', 'legacy adapter should report none for legacy-only controller containers even when compat fallback is requested after adapter hard retirement');
     assert.strictEqual(resolveSourceContainerAsset({
         sources: {
             source1: { containerPos: { x: 9, y: 10, roomName: 'W1N1' } }
         }
-    }, 'source1', { allowLegacyFallback: false }).source, 'missing', 'legacy adapter strict source-container resolution should not fall back to legacy coordinates');
+    }, 'source1').source, 'none', 'legacy adapter should report none once legacy-only source-container storage is no longer read');
+    assert.strictEqual(resolveSourceContainerAsset({
+        sources: {
+            source1: { containerPos: { x: 9, y: 10, roomName: 'W1N1' } }
+        }
+    }, 'source1', { allowLegacyFallback: false }).source, 'none', 'legacy adapter strict source-container resolution should report none when only legacy coordinates exist after adapter hard retirement');
+    assert.strictEqual(resolveSourceContainerAsset({
+        sources: {
+            source1: { containerPos: { x: 9, y: 10, roomName: 'W1N1' } }
+        }
+    }, 'source1', { allowLegacyFallback: true }).source, 'none', 'legacy adapter should report none for legacy-only source containers even when compat fallback is requested after adapter hard retirement');
     assert.strictEqual(resolveControllerLinkAsset({
         controller: { linkPos: { x: 24, y: 24, roomName: 'W1N1' } }
-    }, { allowLegacyFallback: false }).source, 'missing', 'legacy adapter strict controller-link resolution should not fall back to legacy coordinates');
+    }).source, 'none', 'legacy adapter should report none once legacy-only controller-link storage is no longer read');
+    assert.strictEqual(resolveControllerLinkAsset({
+        controller: { linkPos: { x: 24, y: 24, roomName: 'W1N1' } }
+    }, { allowLegacyFallback: false }).source, 'none', 'legacy adapter strict controller-link resolution should report none when only legacy coordinates exist after adapter hard retirement');
+    assert.strictEqual(resolveControllerLinkAsset({
+        controller: { linkPos: { x: 24, y: 24, roomName: 'W1N1' } }
+    }, { allowLegacyFallback: true }).source, 'none', 'legacy adapter should report none for legacy-only controller links even when compat fallback is requested after adapter hard retirement');
     assert.strictEqual(resolveSourceLinkAsset({
         sources: {
             source1: { linkPos: { x: 10, y: 11, roomName: 'W1N1' } }
         }
-    }, 'source1', { allowLegacyFallback: false }).source, 'missing', 'legacy adapter strict source-link resolution should not fall back to legacy coordinates');
+    }, 'source1').source, 'none', 'legacy adapter should report none once legacy-only source-link storage is no longer read');
+    assert.strictEqual(resolveSourceLinkAsset({
+        sources: {
+            source1: { linkPos: { x: 10, y: 11, roomName: 'W1N1' } }
+        }
+    }, 'source1', { allowLegacyFallback: false }).source, 'none', 'legacy adapter strict source-link resolution should report none when only legacy coordinates exist after adapter hard retirement');
+    assert.strictEqual(resolveSourceLinkAsset({
+        sources: {
+            source1: { linkPos: { x: 10, y: 11, roomName: 'W1N1' } }
+        }
+    }, 'source1', { allowLegacyFallback: true }).source, 'none', 'legacy adapter should report none for legacy-only source links even when compat fallback is requested after adapter hard retirement');
     assert.strictEqual(resolveControllerContainerAsset(cityPlan, { allowLegacyFallback: false }).source, 'planned', 'legacy adapter strict controller-container resolution should still return canonical planned assets');
     assert.strictEqual(getControllerContainerAsset({
         controller: { containerPos: { x: 24, y: 25, roomName: 'W1N1' } }
@@ -5189,11 +5415,15 @@ async function runBehaviorChecks() {
         controller: { containerPos: { x: 24, y: 25, roomName: 'W1N1' } },
         sources: {}
     });
-    assert.ok(legacyDebugSummary.legacyFallbacks.some((fallback) => fallback.role === 'controller_container' && fallback.source === 'legacy'), 'city plan debug should report legacy asset fallbacks');
-    assert.strictEqual(legacyDebugSummary.legacyFallbackSummary.total, 1, 'city plan debug should summarize legacy fallback totals');
-    assert.strictEqual(legacyDebugSummary.legacyFallbackSummary.byRole.controller_container, 1, 'city plan debug should summarize legacy fallbacks by role');
-    assert.strictEqual(legacyDebugSummary.v3Readiness.legacyFallbackFree, false, 'city plan debug should mark rooms with legacy fallbacks as not fallback-free');
-    assert.strictEqual(legacyDebugSummary.legacyFallbacks[0].source, 'legacy', 'city plan debug should continue observing compat fallback paths during V3.2b');
+    assert.deepStrictEqual(legacyDebugSummary.legacyFallbacks, [], 'city plan debug should stop reporting legacy asset fallbacks once debug fallback observation is retired');
+    assert.strictEqual(legacyDebugSummary.legacyFallbackSummary.total, 0, 'city plan debug should summarize zero legacy fallback totals once debug fallback observation is retired');
+    assert.strictEqual(legacyDebugSummary.assetFallbackReadiness.controller_container.fallbackCount, 0, 'city plan debug should stop surfacing compat fallback counts once debug fallback observation is retired');
+    assert.strictEqual(legacyDebugSummary.assetFallbackReadiness.controller_container.fallbackFree, true, 'city plan debug should treat asset fallback readiness as cleanup-driven once direct fallback observation is retired');
+    assert.strictEqual(legacyDebugSummary.assetFallbackReadiness.source_container.fallbackFree, true, 'city plan debug should keep untouched source-container fallback readiness free when direct compat fallback observation is retired');
+    assert.strictEqual(legacyDebugSummary.v3Readiness.legacyFallbackFree, true, 'city plan debug should stop treating legacy-only asset coordinates as active fallback once direct observation is retired');
+    assert.strictEqual(legacyDebugSummary.v3Readiness.assetFallbackFree, true, 'city plan debug should stop treating legacy-only asset coordinates as asset-fallback-active once direct observation is retired');
+    assert.strictEqual(legacyDebugSummary.v3Readiness.assetFallbackObservationStable, false, 'city plan debug should still leave asset fallback observation stability unset before the service records cleanup-derived readiness');
+    assert.strictEqual(legacyDebugSummary.v3Readiness.readyForAssetFallbackDisable, false, 'city plan debug should keep asset fallback disable gated before service-side cleanup readiness is recorded');
     Memory.rooms.W1N1.cityPlanMigration = {
         updatedAt: 48,
         fromVersion: 2,
@@ -5287,6 +5517,13 @@ async function runBehaviorChecks() {
     });
     assert.strictEqual(readyDebugSummary.migration.fromVersion, 2, 'city plan debug should surface the last observed city plan migration summary');
     assert.strictEqual(readyDebugSummary.v3Readiness.readyForFallbackDisable, true, 'city plan debug should mark rooms ready for fallback disable once migration is observed and no fallback remains');
+    assert.strictEqual(readyDebugSummary.assetFallbackReadiness.controller_container.readyForDisable, true, 'city plan debug should mark controller-container asset fallback as snapshot-ready when migration is observed and no fallback remains');
+    assert.strictEqual(readyDebugSummary.assetFallbackReadiness.source_container.readyForDisable, true, 'city plan debug should mark source-container asset fallback as snapshot-ready when migration is observed and no fallback remains');
+    assert.strictEqual(readyDebugSummary.assetFallbackReadiness.controller_link.readyForDisable, true, 'city plan debug should mark controller-link asset fallback as snapshot-ready when migration is observed and no fallback remains');
+    assert.strictEqual(readyDebugSummary.assetFallbackReadiness.source_link.readyForDisable, true, 'city plan debug should mark source-link asset fallback as snapshot-ready when migration is observed and no fallback remains');
+    assert.strictEqual(readyDebugSummary.v3Readiness.assetFallbackFree, true, 'city plan debug should mark rooms without legacy asset fallback as asset-fallback-free');
+    assert.strictEqual(readyDebugSummary.v3Readiness.assetFallbackObservationStable, false, 'city plan debug should not claim asset fallback observation stability before the service records a streak');
+    assert.strictEqual(readyDebugSummary.v3Readiness.readyForAssetFallbackDisable, false, 'city plan debug should keep asset fallback disable gated until the observation streak is satisfied');
     assert.strictEqual(readyDebugSummary.sourceRuntime.canonical.totalSources, 1, 'city plan debug should report canonical source runtime storage coverage');
     assert.deepStrictEqual(readyDebugSummary.sourceRuntime.canonical.missingSources, [], 'city plan debug should report no missing canonical source runtime entries after migration');
     assert.deepStrictEqual(readyDebugSummary.sourceRuntime.canonical.fallbackSources, [], 'city plan debug should report no runtime fallback sources after canonical coverage is complete');
@@ -5990,7 +6227,12 @@ async function runBehaviorChecks() {
         sources: {
             source1: { containerPos: { x: 9, y: 10, roomName: 'W1N1' } }
         }
-    }, 'source1').pos.x, 9, 'legacy adapter should fall back to legacy source container positions when planned assets are absent');
+    }, 'source1'), null, 'legacy adapter should default source-container getters to canonical planned assets only when planned assets are absent');
+    assert.strictEqual(getSourceContainerAsset({
+        sources: {
+            source1: { containerPos: { x: 9, y: 10, roomName: 'W1N1' } }
+        }
+    }, 'source1', { allowLegacyFallback: true }), null, 'legacy adapter should ignore explicit compat fallback getter requests when only legacy source-container storage exists');
     const legacyOnlySourceMaintenancePlan = maintenancePlanner.buildMaintenancePlan(maintenanceRoom, {
         sources: {
             source1: {
@@ -7206,6 +7448,12 @@ async function runBehaviorChecks() {
     assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.migrationObserved, false, 'city plan debug service should not fabricate migration observation when no migration occurred');
     assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.readyForRuntimeFallbackDisable, false, 'city plan debug service should keep runtime fallback disable gated while runtime fallback sources still exist');
     assert.strictEqual(Memory.rooms.W1N1.cityPlanRuntimeObservation.readyStreak, 0, 'city plan debug service should reset runtime readiness streak when runtime fallback disable is not yet allowed');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetFallbackObservation.readyStreak, 1, 'city plan debug service should begin counting consecutive asset-fallback-disable-ready observations when no asset fallback is observed');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetFallbackObservation.readyByRole.controller_container, true, 'city plan debug service should mark controller-container asset fallback readiness true after the first fallback-free observation');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupReadiness.readyForControllerAssetFieldRemoval, false, 'city plan debug service should keep controller asset-field removal gated before the observation window is satisfied');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupReadiness.readyForSourceAssetFieldRemoval, false, 'city plan debug service should keep source asset-field removal gated before the observation window is satisfied');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.assetFallbackObservationStable, false, 'city plan debug service should keep asset fallback observation unstable before the streak threshold is reached');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.readyForAssetFallbackDisable, false, 'city plan debug service should keep asset fallback disable gated before the streak threshold is reached');
     Memory.rooms.W1N1 = {
         cityPlan: {
             schemaVersion: 2,
@@ -7234,22 +7482,604 @@ async function runBehaviorChecks() {
     assert.strictEqual(Memory.rooms.W1N1.cityPlanMigration.changed, true, 'city plan debug service should persist whether a migration changed the room city plan');
     assert.strictEqual(Memory.rooms.W1N1.cityPlanMigration.changes.plannedStructuresAdded, 2, 'city plan debug service should persist migration change counts for planned structures');
     assert.strictEqual(Memory.rooms.W1N1.cityPlanMigration.changes.sourceRuntimeEntriesAdded, 1, 'city plan debug service should persist migration change counts for canonical source runtime storage');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanMigration.assetImportReadiness.canonicalCompleteBeforeImport, false, 'city plan debug service should persist migration asset-import readiness metadata');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanMigration.assetImportReadiness.legacyAssetImportUsed, true, 'city plan debug service should persist whether migration regenerated canonical assets from legacy coordinates');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportExecution.consumedMode, 'enabled', 'city plan debug service should record enabled as the consumed asset import mode for default migration execution');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportExecution.rollbackRecommended, true, 'city plan debug service should recommend rollback from disabled rollout when enabled execution still needs legacy asset import');
+    assert.ok(Memory.rooms.W1N1.cityPlanAssetImportExecution.rollbackReasons.includes('legacy_asset_import_still_required'), 'city plan debug service should record legacy asset import as a rollback reason when enabled execution still regenerates canonical assets');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollbackGate.rollbackRecommended, true, 'city plan debug service should mirror enabled execution rollback recommendations into rollback-gate observation state');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollbackGate.readyForManualRollback, false, 'city plan debug service should not mark manual rollback ready while rollout is currently enabled');
+    assert.ok(Memory.rooms.W1N1.cityPlanAssetImportRollbackGate.blockingReasons.includes('rollout_not_currently_disabled'), 'city plan debug service should explain why enabled rollout execution cannot yet become a manual rollback candidate');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.readyStreak, 0, 'city plan debug service should reset asset import retirement readiness when migration still regenerates canonical assets');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.readyForAssetImportRemoval, false, 'city plan debug service should keep asset import retirement gated while migration still regenerates canonical assets');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.legacyAssetImportUsed, true, 'city plan debug service should persist whether the latest migration observation regenerated canonical assets');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlanDebug.assetImportObservation.regeneratedAssetRoles.sort(), ['controller_container', 'source_container'], 'city plan debug service should surface regenerated asset roles in room debug output for migration observations');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRehearsal.readyForDisabledAssetImport, true, 'city plan debug service should report disabled-mode rehearsal ready after default migration repairs canonical assets');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRehearsal.disabledModeWouldMissCanonicalAssets, false, 'city plan debug service should report no missing canonical assets in disabled rehearsal after canonical repair has been persisted');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlanAssetImportRehearsal.missingCanonicalAssetRoles, [], 'city plan debug service should surface no missing asset roles once persisted canonical assets satisfy disabled rehearsal');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRehearsal.plannedStructuresAdded, 0, 'city plan debug service should keep disabled rehearsal non-mutating for planned asset regeneration');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.assetImportRehearsal.readyForDisabledAssetImport, true, 'city plan debug service should surface disabled-mode rehearsal readiness in debug output');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRetirementGate.readyForDefaultDisabled, false, 'city plan debug service should keep the consolidated default-disabled gate closed before observation stability is established');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRetirementGate.observationReady, false, 'city plan debug service should report observation gate false before the asset import observation streak is stable');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRetirementGate.rehearsalReady, true, 'city plan debug service should report rehearsal gate true once disabled rehearsal shows no missing canonical assets');
+    assert.ok(Memory.rooms.W1N1.cityPlanAssetImportRetirementGate.blockingReasons.includes('asset_import_observation_not_stable'), 'city plan debug service should report observation instability as a retirement-gate blocker before the streak is stable');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollout.requestedMode, 'enabled', 'city plan debug service should default room-level asset import rollout requests to enabled');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollout.effectiveMode, 'enabled', 'city plan debug service should keep effective room-level asset import rollout enabled by default');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollout.readyForDisabled, false, 'city plan debug service should keep rollout readiness false while the consolidated retirement gate is closed');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.assetImportRollout.effectiveMode, 'enabled', 'city plan debug service should surface the room-level rollout decision in debug output');
     assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.migration.toVersion, 4, 'city plan debug service should surface the persisted migration summary in debug output');
     assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.sourceRuntime.canonical.totalSources, 1, 'city plan debug service should expose migrated canonical source runtime coverage');
     assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.migrationObserved, true, 'city plan debug service should mark migration as observed after persisting migration metadata');
     assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.readyForRuntimeFallbackDisable, true, 'city plan debug service should mark migrated canonical rooms ready for runtime fallback disable');
     assert.strictEqual(Memory.rooms.W1N1.cityPlanRuntimeObservation.readyStreak, 1, 'city plan debug service should begin counting consecutive runtime-fallback-disable-ready observations');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetFallbackObservation.readyStreak, 1, 'city plan debug service should begin a new asset fallback readiness streak when room debug state is rebuilt around a migrated room memory snapshot');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanWorkPositionCleanupObservation.readyStreak, 1, 'city plan debug service should begin a new work-position cleanup readiness streak when canonical work positions are present');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.assetFallbackObservationStable, false, 'city plan debug service should still keep asset fallback observation unstable before the third consecutive observation');
     Game.time = 100;
     cityPlanDebugService.analyze();
     assert.strictEqual(Memory.rooms.W1N1.cityPlanRuntimeObservation.readyStreak, 2, 'city plan debug service should increment the runtime readiness streak across consecutive ready observations');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetFallbackObservation.readyStreak, 2, 'city plan debug service should keep counting consecutive asset-fallback-disable-ready observations');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.readyStreak, 1, 'city plan debug service should begin counting consecutive asset-import-retirement-ready observations after regeneration stops');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.readyForAssetImportRemoval, false, 'city plan debug service should keep asset import retirement gated until the observation window is satisfied');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanWorkPositionCleanupObservation.readyStreak, 2, 'city plan debug service should keep counting consecutive work-position-cleanup-ready observations');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetFallbackObservation.readyForAssetFallbackDisable, false, 'city plan debug service should keep asset fallback disable gated until the third consecutive fallback-free observation is recorded');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetFallbackObservation.readyByRole.source_container, true, 'city plan debug service should keep per-role asset fallback readiness true while fallback remains absent');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.assetFallbackObservationStable, false, 'city plan debug service should keep asset fallback observation unstable until the third consecutive observation is recorded');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.readyForAssetFallbackDisable, false, 'city plan debug service should keep rooms gated for asset fallback disable until the third consecutive observation is recorded');
     Game.time = 150;
     cityPlanDebugService.analyze();
     assert.strictEqual(Memory.rooms.W1N1.cityPlanRuntimeObservation.readyStreak, 3, 'city plan debug service should keep counting consecutive runtime-fallback-disable-ready observations');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetFallbackObservation.readyStreak, 3, 'city plan debug service should continue counting stable asset fallback observations until the observation window is satisfied');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetFallbackObservation.readyForAssetFallbackDisable, true, 'city plan debug service should mark asset fallback disable ready after the third consecutive fallback-free observation');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.readyStreak, 2, 'city plan debug service should continue counting stable asset import retirement observations until the observation window is satisfied');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.assetImportObservation.readyForAssetImportRemoval, false, 'city plan debug service should keep asset import retirement unstable before the third consecutive ready observation');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanWorkPositionCleanupObservation.readyStreak, 3, 'city plan debug service should continue counting stable work-position cleanup observations until the observation window is satisfied');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.controller.containerPos, undefined, 'city plan debug service should automatically remove legacy controller container compatibility storage once controller cleanup is ready');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.controller.linkPos, undefined, 'city plan debug service should automatically remove legacy controller link compatibility storage once controller cleanup is ready');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.sources.source1.containerPos, undefined, 'city plan debug service should automatically remove legacy source container compatibility storage once source cleanup is enabled and ready');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.sources.source1.linkPos, undefined, 'city plan debug service should automatically remove legacy source link compatibility storage once source cleanup is enabled and ready');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.controller.primaryUpgradePos, undefined, 'city plan debug service should automatically remove legacy controller upgrade-position compatibility storage once work-position cleanup is ready');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.sources.source1.primaryMiningPos, undefined, 'city plan debug service should automatically remove legacy source mining-position compatibility storage once work-position cleanup is ready');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupReadiness.readyForControllerAssetFieldRemoval, true, 'city plan debug service should mark controller asset-field removal ready once controller roles stay fallback-free through the observation window');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupReadiness.readyForSourceAssetFieldRemoval, true, 'city plan debug service should mark source asset-field removal ready once source roles stay fallback-free through the observation window');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupReadiness.readyRoles, ['controller_container', 'controller_link', 'source_container', 'source_link'], 'city plan debug service should surface all asset roles as cleanup-ready once each role satisfies the observation window');
+    assert.ok(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupExecution.removedFields.includes('sources.source1.containerPos'), 'city plan debug service should record source container field cleanup in execution metadata');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupExecution.sourceFieldsRemoved, true, 'city plan debug service should mark source cleanup execution once source compat fields are removed');
+    assert.ok(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupExecution.removedFields.includes('sources.source1.primaryMiningPos'), 'city plan debug service should record source mining-position field cleanup in execution metadata');
+    assert.ok(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupExecution.removedFields.includes('controller.primaryUpgradePos'), 'city plan debug service should record controller upgrade-position field cleanup in execution metadata');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupExecution.workPositionFieldsRemoved, true, 'city plan debug service should mark work-position cleanup execution once legacy work-position fields are removed');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.assetFallbackObservationStable, true, 'city plan debug service should mark asset fallback observation stable once the streak threshold is met');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.readyForAssetFallbackDisable, true, 'city plan debug service should mark rooms ready for asset fallback disable once snapshot gates and the observation streak are satisfied');
+    Game.time = 200;
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.readyStreak, 3, 'city plan debug service should mark asset import retirement observation stable after the third consecutive ready observation');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.readyForAssetImportRemoval, true, 'city plan debug service should mark room-level asset import retirement readiness after the observation window is satisfied');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.legacyAssetImportUsed, false, 'city plan debug service should clear regeneration state once canonical rooms no longer import legacy assets');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.regeneratedAssetRoles, [], 'city plan debug service should clear regenerated asset role details once migration no longer rebuilds canonical assets');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.assetImportObservation.readyForAssetImportRemoval, true, 'city plan debug service should surface stable asset import retirement readiness in room debug output');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRetirementGate.readyForDefaultDisabled, true, 'city plan debug service should open the consolidated default-disabled gate once observation, rehearsal, and cleanup signals are all ready');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRetirementGate.cleanupComplete, true, 'city plan debug service should report cleanup complete once legacy asset coordinates have been removed');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlanAssetImportRetirementGate.blockingReasons, [], 'city plan debug service should clear all retirement gate blockers once default-disabled readiness is satisfied');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.assetImportRetirementGate.readyForDefaultDisabled, true, 'city plan debug service should surface the consolidated asset import retirement gate in debug output');
+    Memory.rooms.W1N1.cityPlanAssetImportRollout = {
+        requestedMode: 'disabled'
+    };
+    Game.time = 250;
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollout.requestedMode, 'disabled', 'city plan debug service should preserve explicit room-level disabled rollout requests');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollout.effectiveMode, 'disabled', 'city plan debug service should allow room-level disabled rollout once the retirement gate is ready');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollout.readyForDisabled, true, 'city plan debug service should mark rollout readiness true once the retirement gate is ready');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollout.blockedReasons, [], 'city plan debug service should clear rollout blockers once disabled rollout is allowed');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollout.rollbackMode, 'enabled', 'city plan debug service should record enabled as the room-level rollback mode for asset import rollout');
+    Memory.rooms.W2N2 = {
+        cityPlan: {
+            schemaVersion: 2,
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W2N2' },
+                    containerPos: { x: 9, y: 10, roomName: 'W2N2' }
+                }
+            },
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W2N2' },
+                containerPos: { x: 24, y: 25, roomName: 'W2N2' }
+            }
+        },
+        cityPlanAssetImportRollout: {
+            requestedMode: 'disabled',
+            effectiveMode: 'disabled'
+        }
+    };
+    Game.rooms.W2N2 = { name: 'W2N2' };
+    Game.time = 300;
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W2N2.cityPlan.schemaVersion, 4, 'city plan debug service should still migrate legacy room schemas when room-level effective asset import mode is disabled');
+    assert.strictEqual(Memory.rooms.W2N2.cityPlan.plannedStructures.length, 0, 'city plan debug service should stop regenerating planned assets when room-level effective asset import mode is disabled');
+    assert.strictEqual(Memory.rooms.W2N2.cityPlanMigration.changes.plannedStructuresAdded, 0, 'city plan debug service should report zero regenerated planned assets when room-level effective asset import mode is disabled');
+    assert.deepStrictEqual(Memory.rooms.W2N2.cityPlan.workPositions.sources.source1.mining.primary, { x: 9, y: 10, roomName: 'W2N2' }, 'city plan debug service should still migrate canonical work positions when room-level effective asset import mode is disabled');
+    assert.strictEqual(Memory.rooms.W2N2.cityPlanAssetImportExecution.consumedMode, 'disabled', 'city plan debug service should record disabled as the consumed asset import mode when room-level rollout is disabled');
+    assert.strictEqual(Memory.rooms.W2N2.cityPlanAssetImportExecution.rollbackRecommended, true, 'city plan debug service should recommend rollback when disabled execution leaves canonical planned assets missing');
+    assert.ok(Memory.rooms.W2N2.cityPlanAssetImportExecution.rollbackReasons.includes('disabled_mode_missing_canonical_assets'), 'city plan debug service should record missing canonical assets as a rollback reason for disabled execution');
+    assert.strictEqual(Memory.rooms.W2N2.cityPlanAssetImportRollbackGate.stableRollbackRecommended, false, 'city plan debug service should keep disabled rollback recommendations unstable on the first failing execution');
+    assert.strictEqual(Memory.rooms.W2N2.cityPlanAssetImportRollbackGate.readyForManualRollback, false, 'city plan debug service should not mark manual rollback ready before disabled execution rollback recommendations stabilize');
+    Memory.rooms.W3N3 = {
+        cityPlan: {
+            schemaVersion: 2,
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W3N3' },
+                    containerPos: { x: 9, y: 10, roomName: 'W3N3' }
+                }
+            },
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W3N3' },
+                containerPos: { x: 24, y: 25, roomName: 'W3N3' }
+            }
+        },
+        cityPlanAssetImportRollout: {
+            requestedMode: 'disabled',
+            effectiveMode: 'enabled'
+        }
+    };
+    Game.rooms.W3N3 = { name: 'W3N3' };
+    Game.time = 350;
+    cityPlanDebugService.analyze();
+    assert.ok(Memory.rooms.W3N3.cityPlan.plannedStructures.some((entry) => entry.role === 'source_container'), 'city plan debug service should keep asset import enabled when only the requested rollout mode is disabled');
+    assert.strictEqual(Memory.rooms.W3N3.cityPlanMigration.changes.plannedStructuresAdded, 2, 'city plan debug service should still regenerate planned assets when the persisted effective rollout mode remains enabled');
+    assert.strictEqual(Memory.rooms.W3N3.cityPlanAssetImportExecution.consumedMode, 'enabled', 'city plan debug service should consume the effective rollout mode rather than the requested rollout mode during migration execution');
+    assert.strictEqual(Memory.rooms.W3N3.cityPlanAssetImportExecution.rollbackRecommended, true, 'city plan debug service should still recommend rollback from disabled rollout when enabled execution proves legacy asset import is still required');
+    Memory.rooms.W4N4 = {
+        cityPlan: {
+            schemaVersion: 2,
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W4N4' },
+                    containerPos: { x: 9, y: 10, roomName: 'W4N4' }
+                }
+            },
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W4N4' },
+                containerPos: { x: 24, y: 25, roomName: 'W4N4' }
+            }
+        },
+        cityPlanAssetImportRollout: {
+            requestedMode: 'disabled',
+            effectiveMode: 'disabled'
+        },
+        cityPlanAssetImportRollbackGate: {
+            readyStreak: 1
+        }
+    };
+    Game.rooms.W4N4 = { name: 'W4N4' };
+    Game.time = 400;
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W4N4.cityPlanAssetImportRollbackGate.stableRollbackRecommended, true, 'city plan debug service should mark rollback recommendations stable once prior rollback-gate history and a new failing execution satisfy the streak threshold');
+    assert.strictEqual(Memory.rooms.W4N4.cityPlanAssetImportRollbackGate.readyForManualRollback, false, 'city plan debug service should keep manual rollback not-ready once rollout has already recovered to enabled');
+    assert.strictEqual(Memory.rooms.W4N4.cityPlanAssetImportRollbackGate.recommendedMode, 'enabled', 'city plan debug service should recommend enabled as the rollback target mode once rollback recommendations stabilize');
+    assert.ok(Memory.rooms.W4N4.cityPlanAssetImportRollbackGate.blockingReasons.includes('rollout_not_currently_disabled'), 'city plan debug service should explain why stable rollback recommendations do not require manual rollback after rollout recovery');
+    assert.ok(Memory.empire.cityPlanAssetImportRollbackSummary.observedRooms.includes('W1N1'), 'city plan debug service should include observed rollback-gate rooms in the empire rollback summary');
+    assert.ok(Memory.empire.cityPlanAssetImportRollbackSummary.rollbackRecommendedRooms.includes('W4N4'), 'city plan debug service should summarize rooms with active rollback recommendations at empire scope');
+    assert.ok(Memory.empire.cityPlanAssetImportRollbackSummary.stableRollbackRooms.includes('W4N4'), 'city plan debug service should summarize rooms with stable rollback recommendations at empire scope');
+    assert.ok(Memory.empire.cityPlanAssetImportRollbackSummary.recoveredRooms.includes('W4N4'), 'city plan debug service should summarize rooms whose rollback recommendations stabilized after rollout recovered to enabled');
+    assert.strictEqual(Memory.empire.cityPlanAssetImportRollbackSummary.actionRequired, false, 'city plan debug service should keep empire rollback action status false when no room is manually rollback-ready');
+    assert.strictEqual(Memory.empire.cityPlanAssetImportRollbackSummary.rooms.W4N4.recommendedMode, 'enabled', 'city plan debug service should preserve room-level rollback recommendation details inside the empire rollback summary');
+    Memory.rooms.W5N5 = {
+        cityPlan: {
+            schemaVersion: 2,
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W5N5' },
+                    containerPos: { x: 9, y: 10, roomName: 'W5N5' }
+                }
+            },
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W5N5' },
+                containerPos: { x: 24, y: 25, roomName: 'W5N5' }
+            }
+        },
+        cityPlanAssetImportRollout: {
+            requestedMode: 'disabled',
+            effectiveMode: 'disabled'
+        },
+        cityPlanAssetImportRollbackGate: {
+            readyForManualRollback: false
+        },
+        cityPlanAssetImportRollbackAction: {
+            targetMode: 'enabled',
+            reason: 'manual_operator_rollback'
+        }
+    };
+    Memory.rooms.W6N6 = {
+        cityPlan: {
+            schemaVersion: 2,
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W6N6' },
+                    containerPos: { x: 9, y: 10, roomName: 'W6N6' }
+                }
+            },
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W6N6' },
+                containerPos: { x: 24, y: 25, roomName: 'W6N6' }
+            }
+        },
+        cityPlanAssetImportRollout: {
+            requestedMode: 'disabled',
+            effectiveMode: 'disabled'
+        },
+        cityPlanAssetImportRollbackGate: {
+            readyForManualRollback: true
+        },
+        cityPlanAssetImportRollbackAction: {
+            targetMode: 'enabled',
+            reason: 'manual_operator_rollback'
+        }
+    };
+    Game.rooms.W5N5 = { name: 'W5N5' };
+    Game.rooms.W6N6 = { name: 'W6N6' };
+    Game.time = 450;
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W5N5.cityPlanAssetImportRollout.requestedMode, 'disabled', 'city plan debug service should keep rollback-target rollout requested mode unchanged when the manual rollback gate is not ready');
+    assert.strictEqual(Memory.rooms.W5N5.cityPlanAssetImportRollbackExecution.applied, false, 'city plan debug service should record a blocked manual rollback execution when the rollback gate is not ready');
+    assert.ok(Memory.rooms.W5N5.cityPlanAssetImportRollbackExecution.blockedReasons.includes('rollback_gate_not_ready'), 'city plan debug service should explain why a manual rollback action was blocked');
+    assert.strictEqual(Memory.rooms.W6N6.cityPlanAssetImportRollout.requestedMode, 'enabled', 'city plan debug service should switch rollback-target rollout requested mode back to enabled when the manual rollback gate is ready');
+    assert.strictEqual(Memory.rooms.W6N6.cityPlanAssetImportRollout.effectiveMode, 'enabled', 'city plan debug service should make the manual rollback action affect migration mode in the same observation cycle');
+    assert.strictEqual(Memory.rooms.W6N6.cityPlanMigration.changes.plannedStructuresAdded, 2, 'city plan debug service should re-enable legacy asset import during the same cycle after a manual rollback action is applied');
+    assert.strictEqual(Memory.rooms.W6N6.cityPlanAssetImportRollbackExecution.applied, true, 'city plan debug service should persist successful manual rollback execution state');
+    assert.strictEqual(Memory.rooms.W6N6.cityPlanAssetImportRollbackAction, undefined, 'city plan debug service should consume a successful manual rollback action once it has been applied');
+    Memory.rooms.W7N7 = {
+        cityPlan: {
+            schemaVersion: 2,
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W7N7' },
+                    containerPos: { x: 9, y: 10, roomName: 'W7N7' }
+                }
+            },
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W7N7' },
+                containerPos: { x: 24, y: 25, roomName: 'W7N7' }
+            }
+        },
+        cityPlanAssetImportRollout: {
+            requestedMode: 'disabled',
+            effectiveMode: 'disabled'
+        },
+        cityPlanAssetImportRollbackGate: {
+            readyForManualRollback: true
+        }
+    };
+    Memory.rooms.W8N8 = {
+        cityPlan: {
+            schemaVersion: 2,
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W8N8' },
+                    containerPos: { x: 9, y: 10, roomName: 'W8N8' }
+                }
+            },
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W8N8' },
+                containerPos: { x: 24, y: 25, roomName: 'W8N8' }
+            }
+        },
+        cityPlanAssetImportRollout: {
+            requestedMode: 'disabled',
+            effectiveMode: 'disabled'
+        },
+        cityPlanAssetImportRollbackGate: {
+            readyForManualRollback: false
+        }
+    };
+    Memory.rooms.W9N9 = {
+        cityPlan: {
+            schemaVersion: 2,
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W9N9' },
+                    containerPos: { x: 9, y: 10, roomName: 'W9N9' }
+                }
+            },
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W9N9' },
+                containerPos: { x: 24, y: 25, roomName: 'W9N9' }
+            }
+        },
+        cityPlanAssetImportRollout: {
+            requestedMode: 'disabled',
+            effectiveMode: 'disabled'
+        },
+        cityPlanAssetImportRollbackGate: {
+            readyForManualRollback: true
+        },
+        cityPlanAssetImportRollbackAction: {
+            targetMode: 'enabled',
+            reason: 'existing_pending_action'
+        }
+    };
+    Memory.empire.cityPlanAssetImportRollbackAction = {
+        targetMode: 'enabled',
+        rooms: ['W7N7', 'W8N8', 'W9N9', 'W10N10'],
+        reason: 'manual_operator_batch_rollback'
+    };
+    Game.rooms.W7N7 = { name: 'W7N7' };
+    Game.rooms.W8N8 = { name: 'W8N8' };
+    Game.rooms.W9N9 = { name: 'W9N9' };
+    Game.time = 500;
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W7N7.cityPlanAssetImportRollbackExecution.applied, true, 'city plan debug service should dispatch empire batch rollback actions into room-level execution for ready rooms');
+    assert.strictEqual(Memory.rooms.W8N8.cityPlanAssetImportRollbackExecution.applied, false, 'city plan debug service should still route batch-dispatched room actions through room-level rollback gate validation');
+    assert.strictEqual(Memory.rooms.W9N9.cityPlanAssetImportRollbackExecution.reason, 'existing_pending_action', 'city plan debug service should not overwrite existing room-level rollback actions when batch dispatch encounters pending work');
+    assert.strictEqual(Memory.empire.cityPlanAssetImportRollbackAction, undefined, 'city plan debug service should consume empire-level batch rollback action after dispatch');
+    assert.strictEqual(Memory.empire.cityPlanAssetImportRollbackBatchExecution.applied, true, 'city plan debug service should persist successful empire batch rollback dispatch state');
+    assert.ok(Memory.empire.cityPlanAssetImportRollbackBatchExecution.dispatchedRooms.includes('W7N7'), 'city plan debug service should report dispatched rooms in empire rollback batch execution state');
+    assert.ok(Memory.empire.cityPlanAssetImportRollbackBatchExecution.dispatchedRooms.includes('W8N8'), 'city plan debug service should dispatch room-level rollback actions even when later room-level gate validation blocks execution');
+    assert.ok(Memory.empire.cityPlanAssetImportRollbackBatchExecution.skippedRooms.includes('W10N10'), 'city plan debug service should report unknown target rooms as skipped during empire rollback batch dispatch');
+    assert.ok(Memory.empire.cityPlanAssetImportRollbackBatchExecution.blockedReasonsByRoom.W9N9.includes('room_action_already_pending'), 'city plan debug service should preserve per-room blocked reasons when batch dispatch encounters pending room-level rollback actions');
+    assert.strictEqual(Memory.rooms.W7N7.cityPlanAssetImportRollbackHistory.length, 1, 'city plan debug service should append successful room-level rollback executions into room history');
+    assert.strictEqual(Memory.rooms.W7N7.cityPlanAssetImportRollbackHistory[0].applied, true, 'city plan debug service should record applied rollback executions in room history');
+    assert.strictEqual(Memory.rooms.W7N7.cityPlanAssetImportRollbackExecution.cooldownUntil, 650, 'city plan debug service should set a cooldown window after successful room-level rollback execution');
+    assert.strictEqual(Memory.empire.cityPlanAssetImportRollbackBatchHistory.length, 1, 'city plan debug service should append empire batch dispatch execution into batch history');
+    assert.ok(Memory.empire.cityPlanAssetImportRollbackBatchHistory[0].dispatchedRooms.includes('W7N7'), 'city plan debug service should preserve dispatched rooms inside empire rollback batch history');
+    Memory.rooms.W7N7.cityPlanAssetImportRollbackAction = {
+        targetMode: 'enabled',
+        reason: 'retry_during_cooldown'
+    };
+    Game.time = 550;
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W7N7.cityPlanAssetImportRollbackExecution.applied, false, 'city plan debug service should block repeated room-level rollback actions while cooldown is active');
+    assert.ok(Memory.rooms.W7N7.cityPlanAssetImportRollbackExecution.blockedReasons.includes('rollback_action_cooldown_active'), 'city plan debug service should explain repeated rollback blocks through cooldown metadata');
+    assert.strictEqual(Memory.rooms.W7N7.cityPlanAssetImportRollbackAction, undefined, 'city plan debug service should consume blocked room-level rollback actions during cooldown');
+    assert.strictEqual(Memory.rooms.W7N7.cityPlanAssetImportRollbackHistory.length, 2, 'city plan debug service should append blocked cooldown executions into room rollback history');
+    Memory.rooms.W12N12 = {
+        cityPlan: {
+            schemaVersion: 2,
+            sources: {
+                source1: {
+                    primaryMiningPos: { x: 9, y: 10, roomName: 'W12N12' },
+                    containerPos: { x: 9, y: 10, roomName: 'W12N12' }
+                }
+            },
+            controller: {
+                primaryUpgradePos: { x: 24, y: 25, roomName: 'W12N12' },
+                containerPos: { x: 24, y: 25, roomName: 'W12N12' }
+            }
+        },
+        cityPlanAssetImportRollout: {
+            requestedMode: 'disabled',
+            effectiveMode: 'disabled'
+        },
+        cityPlanAssetImportRollbackGate: {
+            readyForManualRollback: true
+        },
+        cityPlanAssetImportRollbackHistory: [
+            { updatedAt: 1 }, { updatedAt: 2 }, { updatedAt: 3 }, { updatedAt: 4 }, { updatedAt: 5 }
+        ]
+    };
+    Memory.empire.cityPlanAssetImportRollbackBatchHistory = [
+        { updatedAt: 1 }, { updatedAt: 2 }, { updatedAt: 3 }, { updatedAt: 4 }, { updatedAt: 5 }
+    ];
+    Memory.empire.cityPlanAssetImportRollbackAction = {
+        targetMode: 'enabled',
+        rooms: ['W12N12'],
+        reason: 'history_trim_batch'
+    };
+    Game.rooms.W12N12 = { name: 'W12N12' };
+    Game.time = 700;
+    cityPlanDebugService.analyze();
+    assert.strictEqual(Memory.rooms.W12N12.cityPlanAssetImportRollbackHistory.length, 5, 'city plan debug service should keep only the most recent room rollback history entries');
+    assert.strictEqual(Memory.rooms.W12N12.cityPlanAssetImportRollbackHistory[4].updatedAt, 700, 'city plan debug service should retain the newest room rollback history entry after trimming');
+    assert.strictEqual(Memory.empire.cityPlanAssetImportRollbackBatchHistory.length, 5, 'city plan debug service should keep only the most recent empire rollback batch history entries');
+    assert.strictEqual(Memory.empire.cityPlanAssetImportRollbackBatchHistory[4].updatedAt, 700, 'city plan debug service should retain the newest empire batch history entry after trimming');
+    Memory.rooms.W1N1.cityPlan.plannedStructures = Memory.rooms.W1N1.cityPlan.plannedStructures.filter((entry) => entry.role !== 'controller_container');
+    Memory.rooms.W1N1.cityPlan.controller.containerPos = { x: 24, y: 25, roomName: 'W1N1' };
     Memory.rooms.W1N1.cityPlan.sourceRuntime.sources = {};
     Game.time = 200;
     cityPlanDebugService.analyze();
     assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.readyForRuntimeFallbackDisable, false, 'city plan debug service should clear runtime fallback-disable readiness when canonical runtime coverage regresses');
     assert.strictEqual(Memory.rooms.W1N1.cityPlanRuntimeObservation.readyStreak, 0, 'city plan debug service should reset the runtime readiness streak when runtime fallback-disable readiness regresses');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.assetFallbackReadiness.controller_container.fallbackCount, 0, 'city plan debug service should stop surfacing compat fallback counts once debug fallback observation is retired');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetFallbackObservation.readyStreak, 13, 'city plan debug service should carry forward fallback-retirement observation when legacy coordinates are reintroduced');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.readyStreak, 0, 'city plan debug service should reset asset import retirement readiness when canonical planned assets regress and legacy import becomes necessary again');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportObservation.readyForAssetImportRemoval, false, 'city plan debug service should clear asset import retirement readiness when canonical planned assets regress');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRehearsal.readyForDisabledAssetImport, false, 'city plan debug service should report disabled-mode rehearsal not ready when canonical planned assets regress');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRehearsal.disabledModeWouldMissCanonicalAssets, true, 'city plan debug service should report disabled-mode rehearsal risk when canonical planned assets regress');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlanAssetImportRehearsal.missingCanonicalAssetRoles, ['controller_container'], 'city plan debug service should surface missing canonical asset roles from disabled-mode rehearsal without mutating room memory');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlan.plannedStructures.some((entry) => entry.role === 'controller_container'), false, 'city plan debug service should keep disabled rehearsal non-persistent when current-schema room memory is already missing canonical planned assets');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRetirementGate.readyForDefaultDisabled, false, 'city plan debug service should close the consolidated default-disabled gate when disabled rehearsal detects missing canonical assets');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRetirementGate.rehearsalReady, false, 'city plan debug service should mark rehearsal gate false when disabled mode would miss canonical assets');
+    assert.ok(Memory.rooms.W1N1.cityPlanAssetImportRetirementGate.blockingReasons.includes('disabled_rehearsal_missing_canonical_assets'), 'city plan debug service should report disabled rehearsal risk as a retirement-gate blocker when canonical assets regress');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollout.requestedMode, 'disabled', 'city plan debug service should preserve room-level disabled rollout requests when the gate regresses');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollout.effectiveMode, 'enabled', 'city plan debug service should force room-level rollout back to enabled when the retirement gate is not ready');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetImportRollout.readyForDisabled, false, 'city plan debug service should clear room-level rollout readiness when the retirement gate regresses');
+    assert.ok(Memory.rooms.W1N1.cityPlanAssetImportRollout.blockedReasons.includes('disabled_rehearsal_missing_canonical_assets'), 'city plan debug service should carry retirement-gate blockers into room-level rollout state when disabled rollout is blocked');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanWorkPositionCleanupObservation.readyStreak, 0, 'city plan debug service should reset the work-position cleanup readiness streak when canonical runtime readiness regresses');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanAssetFallbackObservation.readyByRole.controller_container, true, 'city plan debug service should keep adapter-fallback retirement separate from canonical asset completeness');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupReadiness.readyForControllerAssetFieldRemoval, false, 'city plan debug service should block controller asset-field removal when the canonical controller container is missing');
+    assert.ok(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupReadiness.blockedRoles.includes('controller_container'), 'city plan debug service should identify the canonical-missing controller role as cleanup-blocked');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupReadiness.reasons.controller_container, 'canonical_asset_missing', 'city plan debug service should explain that canonical completeness blocks legacy cleanup');
+    assert.deepStrictEqual(Memory.rooms.W1N1.cityPlan.controller.containerPos, { x: 24, y: 25, roomName: 'W1N1' }, 'city plan debug service should preserve the last legacy recovery coordinate when the canonical asset is missing');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.legacyCleanupReadiness.readyForSourceAssetFieldRemoval, true, 'city plan debug service should keep source asset-field removal readiness true when room-level asset cleanup remains complete');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.assetFallbackObservationStable, true, 'city plan debug service should preserve cleanup-derived asset fallback observation stability once debug fallback observation is retired');
+    assert.strictEqual(Memory.rooms.W1N1.cityPlanDebug.v3Readiness.readyForAssetFallbackDisable, true, 'city plan debug service should preserve asset fallback disable readiness once legacy coordinates are handled by cleanup rather than debug fallback observation');
+
+    const controllerOnlyCleanupReady = buildLegacyCleanupReadiness({
+        v3Readiness: {
+            schemaCurrent: true,
+            migrationObserved: true,
+            sourceRuntimeValid: true,
+            assetFallbackFree: true
+        },
+        assetFallbackReadiness: {
+            controller_container: { fallbackFree: true },
+            controller_link: { fallbackFree: true },
+            source_container: { fallbackFree: true },
+            source_link: { fallbackFree: true }
+        }
+    }, {
+        readyStreak: 3,
+        streakByRole: {
+            controller_container: 3,
+            controller_link: 3,
+            source_container: 2,
+            source_link: 2
+        }
+    });
+    assert.strictEqual(controllerOnlyCleanupReady.readyForControllerAssetFieldRemoval, true, 'legacy cleanup readiness should allow controller asset-field removal once both controller roles satisfy the streak gate');
+    assert.strictEqual(controllerOnlyCleanupReady.readyForSourceAssetFieldRemoval, false, 'legacy cleanup readiness should keep source asset-field removal gated until both source roles satisfy the streak gate');
+    assert.ok(controllerOnlyCleanupReady.blockedRoles.includes('source_container'), 'legacy cleanup readiness should report source_container blocked when its streak gate is not yet satisfied');
+    const canonicalMissingCleanupReady = buildLegacyCleanupReadiness({
+        v3Readiness: {
+            schemaCurrent: true,
+            migrationObserved: true,
+            sourceRuntimeValid: true,
+            assetFallbackFree: true
+        },
+        assetFallbackReadiness: {
+            controller_container: { fallbackFree: true },
+            controller_link: { fallbackFree: true },
+            source_container: { fallbackFree: true },
+            source_link: { fallbackFree: true }
+        },
+        assetImportRehearsal: {
+            missingCanonicalAssetRoles: ['controller_container']
+        }
+    }, {
+        readyStreak: 3,
+        streakByRole: {
+            controller_container: 3,
+            controller_link: 3,
+            source_container: 3,
+            source_link: 3
+        }
+    });
+    assert.strictEqual(canonicalMissingCleanupReady.readyForControllerAssetFieldRemoval, false, 'legacy cleanup readiness should preserve recovery input until every controller canonical asset exists');
+    assert.strictEqual(canonicalMissingCleanupReady.reasons.controller_container, 'canonical_asset_missing', 'legacy cleanup readiness should expose canonical completeness as the blocked reason');
+    const cleanupExecution = cleanupLegacyAssetFields({
+        controller: {
+            containerPos: { x: 24, y: 25, roomName: 'W1N1' },
+            linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+        },
+        sources: {
+            source1: {
+                containerPos: { x: 9, y: 10, roomName: 'W1N1' },
+                linkPos: { x: 10, y: 11, roomName: 'W1N1' }
+            }
+        }
+    }, {
+        readyForControllerAssetFieldRemoval: true,
+        readyForSourceAssetFieldRemoval: true
+    });
+    assert.strictEqual(cleanupExecution.changed, true, 'legacy cleanup execution should report changes once controller compat fields are removed');
+    assert.deepStrictEqual(cleanupExecution.removedFields, ['controller.containerPos', 'controller.linkPos'], 'legacy cleanup execution should only remove controller compat fields during the first cleanup wave');
+    assert.strictEqual(cleanupExecution.cityPlan.controller.containerPos, undefined, 'legacy cleanup execution should remove controller container compatibility storage');
+    assert.deepStrictEqual(cleanupExecution.cityPlan.sources.source1.containerPos, { x: 9, y: 10, roomName: 'W1N1' }, 'legacy cleanup execution should preserve source compatibility storage during the controller-only wave');
+    const sourceCleanupExecution = cleanupLegacyAssetFields({
+        controller: {
+            containerPos: { x: 24, y: 25, roomName: 'W1N1' },
+            linkPos: { x: 24, y: 24, roomName: 'W1N1' }
+        },
+        sources: {
+            source1: {
+                containerPos: { x: 9, y: 10, roomName: 'W1N1' },
+                linkPos: { x: 10, y: 11, roomName: 'W1N1' }
+            }
+        }
+    }, {
+        readyForControllerAssetFieldRemoval: true,
+        readyForSourceAssetFieldRemoval: true
+    }, {
+        cleanupSourceFields: true
+    });
+    assert.deepStrictEqual(sourceCleanupExecution.removedFields, ['controller.containerPos', 'controller.linkPos', 'sources.source1.containerPos', 'sources.source1.linkPos'], 'legacy cleanup execution should remove source compat fields once source cleanup is enabled');
+    assert.strictEqual(sourceCleanupExecution.sourceFieldsRemoved, true, 'legacy cleanup execution should report source field cleanup when source cleanup is enabled');
+    const workPositionCleanupReady = buildLegacyWorkPositionCleanupReadiness({
+        schemaVersion: CITY_PLAN_SCHEMA_VERSION,
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' }
+            }
+        },
+        controller: {
+            primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' }
+        },
+        workPositions: {
+            sources: {
+                source1: {
+                    mining: {
+                        primary: { x: 9, y: 10, roomName: 'W1N1' }
+                    }
+                }
+            },
+            controller: {
+                upgrade: {
+                    primary: { x: 24, y: 25, roomName: 'W1N1' }
+                }
+            }
+        }
+    }, {
+        v3Readiness: {
+            schemaCurrent: true,
+            migrationObserved: true
+        },
+        validation: {
+            valid: true
+        }
+    }, {
+        readyStreak: 3,
+        controllerReadyStreak: 3,
+        sourceReadyStreak: 3
+    });
+    assert.strictEqual(workPositionCleanupReady.readyForControllerWorkPositionFieldRemoval, true, 'work-position cleanup readiness should allow controller cleanup once canonical controller work positions stay stable through the observation window');
+    assert.strictEqual(workPositionCleanupReady.readyForSourceWorkPositionFieldRemoval, true, 'work-position cleanup readiness should allow source cleanup once canonical source work positions stay stable through the observation window');
+    const blockedWorkPositionCleanup = buildLegacyWorkPositionCleanupReadiness({
+        schemaVersion: CITY_PLAN_SCHEMA_VERSION,
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' }
+            }
+        },
+        controller: {
+            primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' }
+        },
+        workPositions: {
+            sources: {},
+            controller: {
+                upgrade: {
+                    primary: { x: 24, y: 25, roomName: 'W1N1' }
+                }
+            }
+        }
+    }, {
+        v3Readiness: {
+            schemaCurrent: true,
+            migrationObserved: true
+        },
+        validation: {
+            valid: true
+        }
+    }, {
+        readyStreak: 3,
+        controllerReadyStreak: 3,
+        sourceReadyStreak: 3
+    });
+    assert.strictEqual(blockedWorkPositionCleanup.readyForSourceWorkPositionFieldRemoval, false, 'work-position cleanup readiness should keep source cleanup gated when canonical source mining positions are missing');
+    assert.ok(blockedWorkPositionCleanup.blockedFields.includes('sources.source1.primaryMiningPos'), 'work-position cleanup readiness should report legacy source mining fields as blocked when canonical work positions are missing');
+    const workPositionCleanupExecution = cleanupLegacyWorkPositionFields({
+        sources: {
+            source1: {
+                primaryMiningPos: { x: 9, y: 10, roomName: 'W1N1' }
+            }
+        },
+        controller: {
+            primaryUpgradePos: { x: 24, y: 25, roomName: 'W1N1' }
+        }
+    }, {
+        readyForControllerWorkPositionFieldRemoval: true,
+        readyForSourceWorkPositionFieldRemoval: true
+    });
+    assert.deepStrictEqual(workPositionCleanupExecution.removedFields, ['controller.primaryUpgradePos', 'sources.source1.primaryMiningPos'], 'work-position cleanup execution should remove legacy work-position compatibility fields once cleanup is enabled');
+    assert.strictEqual(workPositionCleanupExecution.workPositionFieldsRemoved, true, 'work-position cleanup execution should report work-position cleanup once legacy work-position fields are removed');
 }
 
 runBehaviorChecks()

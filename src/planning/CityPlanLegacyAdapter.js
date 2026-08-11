@@ -1,18 +1,5 @@
 import { getActivePlannedStructure, samePos } from './CityPlanHelpers.js';
 
-function legacyAsset(role, structureType, pos, scope = null) {
-    if (!pos) return null;
-    const entry = {
-        id: `legacy:${role}:${pos.roomName}:${pos.x},${pos.y}`,
-        role,
-        structureType,
-        pos,
-        lifecycle: { state: 'active', activeFromRcl: 1 }
-    };
-    if (scope) entry.scope = scope;
-    return entry;
-}
-
 function resolvedAsset(asset, source) {
     return {
         asset,
@@ -29,26 +16,14 @@ function emptyResolvedAsset() {
     };
 }
 
-function missingResolvedAsset() {
-    return {
-        asset: null,
-        source: 'missing',
-        legacyFallbackUsed: false
-    };
-}
-
-function getPlannedOrLegacyAsset(planned, legacy, options = {}) {
-    const allowLegacyFallback = options.allowLegacyFallback !== false;
+function getPlannedAsset(planned) {
     if (planned) return resolvedAsset(planned, 'planned');
-    if (allowLegacyFallback && legacy) return resolvedAsset(legacy, 'legacy');
-    if (!allowLegacyFallback && legacy) return missingResolvedAsset();
     return emptyResolvedAsset();
 }
 
 function resolveControllerContainerAsset(cityPlan = {}, options = {}) {
     const planned = getActivePlannedStructure(cityPlan, 'controller_container');
-    const legacy = legacyAsset('controller_container', STRUCTURE_CONTAINER, cityPlan.controller && cityPlan.controller.containerPos);
-    return getPlannedOrLegacyAsset(planned, legacy, options);
+    return getPlannedAsset(planned);
 }
 
 function getControllerContainerAsset(cityPlan = {}, options = {}) {
@@ -57,9 +32,7 @@ function getControllerContainerAsset(cityPlan = {}, options = {}) {
 
 function resolveSourceContainerAsset(cityPlan = {}, sourceId, options = {}) {
     const planned = getActivePlannedStructure(cityPlan, 'source_container', { sourceId });
-    const legacySource = cityPlan.sources && cityPlan.sources[sourceId];
-    const legacy = legacyAsset('source_container', STRUCTURE_CONTAINER, legacySource && legacySource.containerPos, { sourceId });
-    return getPlannedOrLegacyAsset(planned, legacy, options);
+    return getPlannedAsset(planned);
 }
 
 function getSourceContainerAsset(cityPlan = {}, sourceId, options = {}) {
@@ -68,8 +41,7 @@ function getSourceContainerAsset(cityPlan = {}, sourceId, options = {}) {
 
 function resolveControllerLinkAsset(cityPlan = {}, options = {}) {
     const planned = getActivePlannedStructure(cityPlan, 'controller_link');
-    const legacy = legacyAsset('controller_link', STRUCTURE_LINK, cityPlan.controller && cityPlan.controller.linkPos);
-    return getPlannedOrLegacyAsset(planned, legacy, options);
+    return getPlannedAsset(planned);
 }
 
 function getControllerLinkAsset(cityPlan = {}, options = {}) {
@@ -78,9 +50,7 @@ function getControllerLinkAsset(cityPlan = {}, options = {}) {
 
 function resolveSourceLinkAsset(cityPlan = {}, sourceId, options = {}) {
     const planned = getActivePlannedStructure(cityPlan, 'source_link', { sourceId });
-    const legacySource = cityPlan.sources && cityPlan.sources[sourceId];
-    const legacy = legacyAsset('source_link', STRUCTURE_LINK, legacySource && legacySource.linkPos, { sourceId });
-    return getPlannedOrLegacyAsset(planned, legacy, options);
+    return getPlannedAsset(planned);
 }
 
 function getSourceLinkAsset(cityPlan = {}, sourceId, options = {}) {
@@ -102,13 +72,7 @@ function isSourceContainerAsset(cityPlan = {}, structure, sourceId, options = {}
     const planned = Array.isArray(cityPlan.plannedStructures) ?
         cityPlan.plannedStructures.find((entry) => entry.role === 'source_container' && entry.structureType === STRUCTURE_CONTAINER && samePos(entry.pos, structure.pos)) :
         null;
-    if (planned) return true;
-    if (options.allowLegacyFallback === false) return false;
-    if (!cityPlan.sources) return false;
-    for (const id of Object.keys(cityPlan.sources)) {
-        if (isSourceContainerAsset(cityPlan, structure, id, options)) return true;
-    }
-    return false;
+    return !!planned;
 }
 
 function isControllerLinkAsset(cityPlan = {}, structure) {
@@ -126,12 +90,7 @@ function isSourceLinkAsset(cityPlan = {}, structure, sourceId) {
     const planned = Array.isArray(cityPlan.plannedStructures) ?
         cityPlan.plannedStructures.find((entry) => entry.role === 'source_link' && entry.structureType === STRUCTURE_LINK && samePos(entry.pos, structure.pos)) :
         null;
-    if (planned) return true;
-    if (!cityPlan.sources) return false;
-    for (const id of Object.keys(cityPlan.sources)) {
-        if (isSourceLinkAsset(cityPlan, structure, id)) return true;
-    }
-    return false;
+    return !!planned;
 }
 
 export {

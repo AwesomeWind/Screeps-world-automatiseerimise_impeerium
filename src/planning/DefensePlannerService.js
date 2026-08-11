@@ -90,14 +90,14 @@ class DefensePlannerService extends BaseService {
 
         if (room.storage && room.storage.pos) assets.push(this.assetEntry(room.storage.pos, 'storage', 98));
 
-        const controllerContainerAsset = getControllerContainerAsset(cityPlan);
+        const controllerContainerAsset = getControllerContainerAsset(cityPlan, { allowLegacyFallback: false });
         if (controllerContainerAsset && controllerContainerAsset.pos) {
             assets.push(this.assetEntry(controllerContainerAsset.pos, 'controller_container', 80));
         }
 
         if (mode !== 'core_fortress' && cityPlan.sources) {
             for (const sourceId in cityPlan.sources) {
-                const sourceContainerAsset = getSourceContainerAsset(cityPlan, sourceId);
+                const sourceContainerAsset = getSourceContainerAsset(cityPlan, sourceId, { allowLegacyFallback: false });
                 if (sourceContainerAsset && sourceContainerAsset.pos) {
                     assets.push(this.assetEntry(sourceContainerAsset.pos, 'source_container', 70));
                 }

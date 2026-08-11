@@ -163,7 +163,7 @@ class UpgraderStrategyService extends BaseService {
         const cityPlan = Memory.rooms &&
             Memory.rooms[room.name] &&
             Memory.rooms[room.name].cityPlan;
-        const controllerContainerAsset = getControllerContainerAsset(cityPlan);
+        const controllerContainerAsset = getControllerContainerAsset(cityPlan, { allowLegacyFallback: false });
         if (controllerContainerAsset && controllerContainerAsset.pos) {
             const plannedContainer = containers.find((structure) => {
                 return structure.pos &&
@@ -212,7 +212,7 @@ class UpgraderStrategyService extends BaseService {
             Memory.rooms[room.name] &&
             Memory.rooms[room.name].cityPlan;
         if (!cityPlan) return 'active';
-        const controllerContainerAsset = getControllerContainerAsset(cityPlan);
+        const controllerContainerAsset = getControllerContainerAsset(cityPlan, { allowLegacyFallback: false });
         if (!controllerContainerAsset || !controllerContainerAsset.pos || controllerContainerAsset.role !== 'controller_container') return 'active';
         const sameContainer = controllerContainerAsset.pos.x === controllerContainer.pos.x &&
             controllerContainerAsset.pos.y === controllerContainer.pos.y &&

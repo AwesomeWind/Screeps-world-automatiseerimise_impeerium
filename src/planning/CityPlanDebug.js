@@ -1,15 +1,15 @@
 import { getSourceOutputPolicy } from './CityAssetPolicy.js';
-import {
-    resolveControllerContainerAsset,
-    resolveControllerLinkAsset,
-    resolveSourceContainerAsset,
-    resolveSourceLinkAsset
-} from './CityPlanLegacyAdapter.js';
 import { getCityWorkPositions } from './CityWorkPositionPolicy.js';
 import { getSourceIds, getSourceRuntimeState, SOURCE_RUNTIME_MODES } from './SourceRuntimeState.js';
 import { CITY_PLAN_SCHEMA_VERSION, validateCityPlan } from './CityPlanSchema.js';
 
 const MAX_TRANSITION_FAILURES = 20;
+const ASSET_FALLBACK_ROLES = [
+    'controller_container',
+    'controller_link',
+    'source_container',
+    'source_link'
+];
 
 function recordLifecycleTransitionFailure(roomName, failure) {
     if (typeof Memory === 'undefined' || !roomName || !failure) return;
@@ -41,13 +41,6 @@ function buildCityPlanDebug(roomName, cityPlan = {}) {
     }
 
     const legacyFallbacks = [];
-    collectResolvedFallback(legacyFallbacks, resolveControllerContainerAsset(cityPlan));
-    collectResolvedFallback(legacyFallbacks, resolveControllerLinkAsset(cityPlan));
-
-    for (const sourceId of getSourceIds(cityPlan)) {
-        collectResolvedFallback(legacyFallbacks, resolveSourceContainerAsset(cityPlan, sourceId), sourceId);
-        collectResolvedFallback(legacyFallbacks, resolveSourceLinkAsset(cityPlan, sourceId), sourceId);
-    }
 
     const sourceOutputPolicies = {};
     const sourceRuntime = {
@@ -99,18 +92,25 @@ function buildCityPlanDebug(roomName, cityPlan = {}) {
         workPositions.controller.upgrade &&
         workPositions.controller.upgrade.primary);
     const legacyFallbackSummary = summarizeLegacyFallbacks(legacyFallbacks);
+    const assetFallbackReadiness = buildAssetFallbackReadiness(legacyFallbackSummary);
     const validation = validateCityPlan(cityPlan);
     const v3Readiness = {
         schemaCurrent: cityPlan.schemaVersion === CITY_PLAN_SCHEMA_VERSION,
         migrationObserved: !!migration,
         legacyFallbackFree: legacyFallbackSummary.total === 0,
+        assetFallbackFree: legacyFallbackSummary.total === 0,
+        assetFallbackObservationStable: false,
         sourceRuntimeCanonicalComplete: sourceRuntime.canonical.missingSources.length === 0,
         sourceRuntimeStorageConsistent: sourceRuntime.canonical.mismatchedSources.length === 0,
         sourceRuntimeFallbackFree: sourceRuntime.canonical.fallbackSources.length === 0,
         sourceRuntimeValid: sourceRuntime.invalidSources.length === 0,
         readyForRuntimeFallbackDisable: false,
-        readyForFallbackDisable: false
+        readyForFallbackDisable: false,
+        readyForAssetFallbackDisable: false
     };
+    for (const role of ASSET_FALLBACK_ROLES) {
+        assetFallbackReadiness[role].readyForDisable = assetFallbackReadiness[role].fallbackFree;
+    }
     v3Readiness.readyForRuntimeFallbackDisable = v3Readiness.schemaCurrent &&
         v3Readiness.migrationObserved &&
         v3Readiness.sourceRuntimeCanonicalComplete &&
@@ -132,24 +132,23 @@ function buildCityPlanDebug(roomName, cityPlan = {}) {
             hasControllerUpgrade
         },
         sourceRuntime,
+        assetFallbackReadiness,
         legacyFallbacks,
         legacyFallbackSummary,
         migration,
+        assetImportObservation: null,
+        assetImportExecution: null,
+        assetImportRehearsal: null,
+        assetImportRetirementGate: null,
+        assetImportRollout: null,
+        assetImportRollbackGate: null,
         v3Readiness,
+        legacyCleanupReadiness: null,
+        legacyWorkPositionCleanupReadiness: null,
+        legacyCleanupExecution: null,
         transitionFailures,
         sourceOutputPolicies
     };
-}
-
-function collectResolvedFallback(results, resolved, sourceId = null) {
-    if (!resolved || !resolved.legacyFallbackUsed || !resolved.asset) return;
-    results.push({
-        role: resolved.asset.role,
-        structureType: resolved.asset.structureType,
-        source: resolved.source,
-        sourceId,
-        pos: resolved.asset.pos
-    });
 }
 
 function countSourceMiningWorkPositions(workPositions = {}) {
@@ -183,6 +182,22 @@ function summarizeLegacyFallbacks(legacyFallbacks = []) {
     }
 
     return summary;
+}
+
+function buildAssetFallbackReadiness(legacyFallbackSummary = {}) {
+    const byRole = legacyFallbackSummary.byRole || {};
+    const readiness = {};
+
+    for (const role of ASSET_FALLBACK_ROLES) {
+        const fallbackCount = byRole[role] || 0;
+        readiness[role] = {
+            fallbackCount,
+            fallbackFree: fallbackCount === 0,
+            readyForDisable: false
+        };
+    }
+
+    return readiness;
 }
 
 function countCanonicalSourceRuntimeSources(cityPlan = {}) {

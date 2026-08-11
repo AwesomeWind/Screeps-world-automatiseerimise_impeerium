@@ -5,7 +5,7 @@ function migrateCityPlanToCurrent(cityPlan = {}) {
     return migrateCityPlan(cityPlan, CITY_PLAN_SCHEMA_VERSION);
 }
 
-function migrateCityPlan(cityPlan = {}, targetVersion = CITY_PLAN_SCHEMA_VERSION) {
+function migrateCityPlan(cityPlan = {}, targetVersion = CITY_PLAN_SCHEMA_VERSION, options = {}) {
     if (!cityPlan || typeof cityPlan !== 'object') {
         return {
             changed: false,
@@ -13,7 +13,8 @@ function migrateCityPlan(cityPlan = {}, targetVersion = CITY_PLAN_SCHEMA_VERSION
             fromVersion: null,
             toVersion: targetVersion,
             warnings: ['cityPlan is not an object'],
-            changes: emptyChanges()
+            changes: emptyChanges(),
+            assetImportReadiness: emptyAssetImportReadiness()
         };
     }
 
@@ -25,7 +26,8 @@ function migrateCityPlan(cityPlan = {}, targetVersion = CITY_PLAN_SCHEMA_VERSION
             fromVersion,
             toVersion: targetVersion,
             warnings: [],
-            changes: emptyChanges()
+            changes: emptyChanges(),
+            assetImportReadiness: buildAssetImportReadiness(cityPlan)
         };
     }
 
@@ -39,12 +41,19 @@ function migrateCityPlan(cityPlan = {}, targetVersion = CITY_PLAN_SCHEMA_VERSION
     };
     const warnings = [];
     const changes = emptyChanges();
+    const assetImportReadiness = buildAssetImportReadiness(nextPlan);
+    const migrationOptions = normalizeMigrationOptions(options);
 
     migrateCanonicalSourceRuntime(nextPlan, changes);
     migrateWorkPositions(nextPlan, changes);
-    migratePlannedStructures(nextPlan, changes);
+    if (migrationOptions.assetImportMode === 'enabled') {
+        migratePlannedStructures(nextPlan, changes, assetImportReadiness);
+    }
 
     nextPlan.schemaVersion = targetVersion;
+    assetImportReadiness.legacyAssetImportUsed = assetImportReadiness.regeneratedAssetRoles.length > 0;
+    assetImportReadiness.readyForAssetImportRemoval = assetImportReadiness.canonicalCompleteBeforeImport &&
+        !assetImportReadiness.legacyAssetImportUsed;
 
     return {
         changed: true,
@@ -52,7 +61,8 @@ function migrateCityPlan(cityPlan = {}, targetVersion = CITY_PLAN_SCHEMA_VERSION
         fromVersion,
         toVersion: targetVersion,
         warnings,
-        changes
+        changes,
+        assetImportReadiness
     };
 }
 
@@ -63,6 +73,22 @@ function emptyChanges() {
         runtimeDefaultsAdded: 0,
         sourceRuntimeEntriesAdded: 0,
         legacyStoragePreserved: true
+    };
+}
+
+function emptyAssetImportReadiness() {
+    return {
+        canonicalCompleteBeforeImport: false,
+        legacyAssetImportUsed: false,
+        missingCanonicalAssetRoles: [],
+        regeneratedAssetRoles: [],
+        readyForAssetImportRemoval: false
+    };
+}
+
+function normalizeMigrationOptions(options = {}) {
+    return {
+        assetImportMode: options && options.assetImportMode === 'disabled' ? 'disabled' : 'enabled'
     };
 }
 
@@ -139,7 +165,7 @@ function migrateWorkPositions(cityPlan, changes) {
     }
 }
 
-function migratePlannedStructures(cityPlan, changes) {
+function migratePlannedStructures(cityPlan, changes, assetImportReadiness) {
     for (const sourceId of Object.keys(cityPlan.sources || {})) {
         const sourcePlan = cityPlan.sources[sourceId];
         if (!sourcePlan) continue;
@@ -158,7 +184,7 @@ function migratePlannedStructures(cityPlan, changes) {
                 replacement: `${sourceId}:link`,
                 retirementPolicy: 'defer_until_replacement_online'
             }
-        }, (entry) => entry.role === 'source_container' && entry.scope && entry.scope.sourceId === sourceId);
+        }, (entry) => entry.role === 'source_container' && entry.scope && entry.scope.sourceId === sourceId, assetImportReadiness);
         maybeAddStructure(cityPlan.plannedStructures, changes, {
             id: `${sourceId}:link`,
             role: 'source_link',
@@ -171,7 +197,7 @@ function migratePlannedStructures(cityPlan, changes) {
                 state: 'planned',
                 activeFromRcl: 5
             }
-        }, (entry) => entry.role === 'source_link' && entry.scope && entry.scope.sourceId === sourceId);
+        }, (entry) => entry.role === 'source_link' && entry.scope && entry.scope.sourceId === sourceId, assetImportReadiness);
     }
 
     maybeAddStructure(cityPlan.plannedStructures, changes, {
@@ -187,7 +213,7 @@ function migratePlannedStructures(cityPlan, changes) {
             replacement: 'controller:link',
             retirementPolicy: 'defer_until_replacement_online'
         }
-    }, (entry) => entry.role === 'controller_container');
+    }, (entry) => entry.role === 'controller_container', assetImportReadiness);
     maybeAddStructure(cityPlan.plannedStructures, changes, {
         id: 'controller:link',
         role: 'controller_link',
@@ -199,15 +225,67 @@ function migratePlannedStructures(cityPlan, changes) {
             state: 'planned',
             activeFromRcl: 5
         }
-    }, (entry) => entry.role === 'controller_link');
+    }, (entry) => entry.role === 'controller_link', assetImportReadiness);
 }
 
-function maybeAddStructure(plannedStructures, changes, entry, duplicateMatcher) {
-    if (!entry || !entry.pos) return;
-    if (plannedStructures.some((candidate) => candidate && candidate.id === entry.id)) return;
-    if (plannedStructures.some((candidate) => candidate && duplicateMatcher(candidate))) return;
+function maybeAddStructure(plannedStructures, changes, entry, duplicateMatcher, assetImportReadiness) {
+    if (!entry || !entry.pos) return false;
+    if (plannedStructures.some((candidate) => candidate && candidate.id === entry.id)) return false;
+    if (plannedStructures.some((candidate) => candidate && duplicateMatcher(candidate))) return false;
     plannedStructures.push(entry);
     changes.plannedStructuresAdded += 1;
+    if (assetImportReadiness) {
+        pushUnique(assetImportReadiness.regeneratedAssetRoles, entry.role);
+    }
+    return true;
+}
+
+function buildAssetImportReadiness(cityPlan = {}) {
+    const readiness = emptyAssetImportReadiness();
+    const missingRoles = new Set();
+    let missingAny = false;
+
+    for (const sourceId of Object.keys(cityPlan.sources || {})) {
+        const sourcePlan = cityPlan.sources[sourceId];
+        if (!sourcePlan) continue;
+        if (sourcePlan.containerPos && !hasPlannedStructure(cityPlan.plannedStructures, (entry) =>
+            entry.role === 'source_container' && entry.scope && entry.scope.sourceId === sourceId
+        )) {
+            missingRoles.add('source_container');
+            missingAny = true;
+        }
+        if (sourcePlan.linkPos && !hasPlannedStructure(cityPlan.plannedStructures, (entry) =>
+            entry.role === 'source_link' && entry.scope && entry.scope.sourceId === sourceId
+        )) {
+            missingRoles.add('source_link');
+            missingAny = true;
+        }
+    }
+
+    if (cityPlan.controller && cityPlan.controller.containerPos &&
+        !hasPlannedStructure(cityPlan.plannedStructures, (entry) => entry.role === 'controller_container')) {
+        missingRoles.add('controller_container');
+        missingAny = true;
+    }
+    if (cityPlan.controller && cityPlan.controller.linkPos &&
+        !hasPlannedStructure(cityPlan.plannedStructures, (entry) => entry.role === 'controller_link')) {
+        missingRoles.add('controller_link');
+        missingAny = true;
+    }
+
+    readiness.canonicalCompleteBeforeImport = !missingAny;
+    readiness.missingCanonicalAssetRoles = Array.from(missingRoles);
+    readiness.readyForAssetImportRemoval = readiness.canonicalCompleteBeforeImport;
+    return readiness;
+}
+
+function hasPlannedStructure(plannedStructures, matcher) {
+    return Array.isArray(plannedStructures) && plannedStructures.some((entry) => entry && matcher(entry));
+}
+
+function pushUnique(list, value) {
+    if (!Array.isArray(list) || list.includes(value)) return;
+    list.push(value);
 }
 
 export {
