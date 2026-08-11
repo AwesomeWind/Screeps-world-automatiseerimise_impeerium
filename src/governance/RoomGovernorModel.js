@@ -40,6 +40,9 @@ export function evaluateBudgets(facts, health, policy) {
     const threatened = facts.security.hostileStrength !== null && facts.security.hostileStrength > 0;
     const lowReserve = facts.hasStorage && facts.storageEnergy < policy.thresholds.reserveCritical;
     const constructionReasons = coreCritical ? ['core_capability_critical'] : [];
+    if (facts.constructionPressure !== null && facts.constructionPressure > policy.thresholds.constructionHigh) {
+        constructionReasons.push('construction_pressure_high');
+    }
     const upgradeReasons = [];
     if (coreCritical) upgradeReasons.push('core_capability_critical');
     if (lowReserve) upgradeReasons.push('reserve_below_critical');
@@ -194,13 +197,27 @@ function reservesHealth(facts, policy) {
     if (!facts.hasStorage) {
         return { score: null, status: 'unknown', reasons: ['storage_unavailable'], evidence: { storageEnergy: facts.storageEnergy } };
     }
+    const critical = policy.thresholds.reserveCritical;
     const target = policy.thresholds.reserveMature;
-    const score = target <= 0 ? 100 : Math.min(100, Math.round(facts.storageEnergy / target * 100));
+    let score;
+    let reasons;
+    if (critical > 0 && facts.storageEnergy < critical) {
+        score = Math.round(policy.thresholds.criticalScore * facts.storageEnergy / critical);
+        reasons = ['reserve_below_survival_floor'];
+    } else if (target > critical && facts.storageEnergy < target) {
+        const progress = (facts.storageEnergy - critical) / (target - critical);
+        const strainedSpan = Math.max(0, policy.thresholds.strainedScore - policy.thresholds.criticalScore - 1);
+        score = policy.thresholds.criticalScore + 1 + Math.round(strainedSpan * progress);
+        reasons = ['reserve_below_mature_target'];
+    } else {
+        score = 100;
+        reasons = [];
+    }
     return {
         score,
         status: statusForScore(score, policy),
-        reasons: score < 100 ? ['reserve_below_mature_target'] : [],
-        evidence: { storageEnergy: facts.storageEnergy, target }
+        reasons,
+        evidence: { storageEnergy: facts.storageEnergy, critical, target }
     };
 }
 

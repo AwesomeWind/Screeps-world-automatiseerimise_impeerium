@@ -340,6 +340,8 @@ assertNotContains(read('src/governance/SpawnDecisionComparator.js'), 'Memory', '
 assertNotContains(read('src/core/RuntimeTelemetry.js'), 'Memory.rooms', 'runtime telemetry should not mutate room strategy state');
 assertNotContains(read('src/core/ServiceScheduler.js'), 'creep.memory', 'scheduler should not mutate creep state');
 assertContains(read('src/AGENTS.md'), 'ServiceScheduler` 默认 `enforce: false', 'module guide should document shadow scheduling');
+assertContains(read('src/AGENTS.md'), 'RoomGovernorService` 只能生成影子建议', 'module guide should document the room governor shadow-only boundary');
+assertContains(read('src/AGENTS.md'), 'Memory.empire.control.rooms[roomName].shadow', 'module guide should document the room governor persistence path');
 const metricsSource = read('src/services/EmpireMetricsService.js');
 for (const forbidden of ['EventBus.publish', 'assignTask(', 'spawnCreep(', 'createConstructionSite(', 'Game.market.deal']) {
     assertNotContains(metricsSource, forbidden, 'empire metrics should remain read-only');

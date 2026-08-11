@@ -232,6 +232,11 @@ async function run() {
     const developingRequirements = requiredCapabilities(developingFacts, governorPolicy);
     const developingHealth = evaluateHealth(developingFacts, developingRequirements, governorPolicy);
     assert.strictEqual(candidateLifecycle(developingFacts, developingRequirements, developingHealth, governorPolicy), 'developing', 'storage rooms below mature reserve should be developing');
+    assert.strictEqual(developingHealth.reserves.status, 'strained', 'reserves above the survival floor but below the mature target should be strained');
+
+    const criticalReserveFacts = factsFor({ hasStorage: true, storageEnergy: 1000 });
+    const criticalReserveHealth = evaluateHealth(criticalReserveFacts, requiredCapabilities(criticalReserveFacts, governorPolicy), governorPolicy);
+    assert.strictEqual(criticalReserveHealth.reserves.status, 'critical', 'reserves below the survival floor should be critical');
 
     const matureFacts = factsFor({ hasStorage: true, storageEnergy: 60000 });
     const matureRequirements = requiredCapabilities(matureFacts, governorPolicy);
@@ -526,6 +531,14 @@ async function run() {
         priorityMismatches: 0,
         bodyProfileMismatches: 0
     }, 'metrics should summarize comparison counts without duplicating full evidence');
+
+    const constructionPressureEvaluation = evaluateRoomGovernor(factsFor({
+        constructionPressure: 6,
+        capabilities: { buildWork: 0 }
+    }), null, governorPolicy);
+    assert.strictEqual(constructionPressureEvaluation.capabilities.buildWork.required, 2, 'construction pressure should translate into a bounded build work requirement');
+    assert.strictEqual(constructionPressureEvaluation.capabilities.buildWork.gap, 2, 'construction pressure should expose the uncovered build capability');
+    assert.ok(constructionPressureEvaluation.budgets.construction.reasons.includes('construction_pressure_high'), 'construction budget should explain high construction pressure');
 
     console.log('room governor checks passed');
 }

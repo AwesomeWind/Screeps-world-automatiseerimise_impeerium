@@ -18,7 +18,7 @@
 
 新增服务时要确认它依赖的全局状态是否已经由前序服务写入。当前关键顺序是：
 
-`RoomCache -> WarIntel/WarStrategy/Combat/Security -> RoomPhase -> SpawnBureau/Spawn -> TaskGuard -> ResourceMarket -> role strategies -> Tower/Planning/Lab/Market/RemoteMining`
+`RoomCache -> WarIntel/WarStrategy/Combat/Security -> RoomPhase -> RoomGovernor -> SpawnBureau/Spawn -> TaskGuard -> ResourceMarket -> role strategies -> Tower/Planning/Lab/Market/RemoteMining -> EmpireMetrics`
 
 ## 帝国控制基础层
 
@@ -28,10 +28,21 @@
 - `EmpireMetricsService` 只读现有状态，不发布需求、不分配任务、不执行游戏动作。
 - CPU 阈值必须通过 policy 配置；在积累真实数据前不得以当前默认值宣称已经完成性能调优。
 
+## RoomGovernor 影子决策
+
+- `governance/RoomGovernorFacts.js` 只负责标准化己方可见房间事实；不得读取 cityPlan 或修改现有房间策略。
+- `governance/RoomGovernorModel.js` 是纯计算内核，负责生命周期、健康、预算、能力缺口和 spawn 建议。
+- `governance/SpawnDecisionComparator.js` 按 body 有效能力比较建议与现有 SpawnBureau intent，不能只比较 creep 数量。
+- `RoomGovernorService` 只能生成影子建议，不得发布 spawn 需求或执行游戏动作。
+- 当前 tick 输出位于 `global.RoomGovernor`；低频摘要位于 `Memory.empire.control.rooms[roomName].shadow`。
+- 当前只覆盖己方可见房间；未占领房间、远程矿与殖民生命周期由后续世界模型处理。
+- 第一版能力公式和 Policy 阈值是待线上数据校准的初始模型，不代表最优经济参数。
+
 ## 目录职责
 
 - `core`: 任务执行、事件总线、body 生成、任务元信息、工位规划等基础设施。
 - `services`: 房间状态、资源市场、spawn 调度、安全/战争、实验室/市场/远程采矿等跨角色服务。
+- `governance`: 帝国与房间控制层的事实、纯决策模型和影子差异比较。
 - `strategies`: creep role 级策略，只决定该 role 下一步任务。
 - `planning`: 城市、道路、防御、维护等长期规划，通常写入 `Memory.rooms[roomName]`。
 - `config`: Memory 默认值和房间级开关。
