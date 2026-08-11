@@ -480,6 +480,53 @@ async function run() {
     assert.strictEqual(governorControl.rooms.W5N5.shadow.marker, 'preserve', 'room errors should preserve the last valid snapshot');
     assert.ok(governorControl.events.some((event) => event.type === 'room_governor_error' && event.data.roomName === 'W5N5'), 'room errors should be recorded with room context');
 
+    const { default: ServiceScheduler } = await import('../core/ServiceScheduler.js');
+    governorControl.runtime.cpuMode = 'normal';
+    assert.strictEqual(ServiceScheduler.decision('RoomGovernor', 'analyze').tier, 'P1', 'room governor should be scheduled as a P1 service');
+
+    const { default: EventBus } = await import('../core/EventBus.js');
+    setHealthyGovernorWorld(900);
+    governorControl.runtime.cpuMode = 'normal';
+    const sentinelIntent = { role: 'hauler', priority: 45, body: [CARRY, MOVE] };
+    global.SpawnBureau = { W1N1: { intents: [sentinelIntent] } };
+    EventBus.topics = { SENTINEL: [{ id: 'sentinel' }] };
+    const bureauBeforeGovernor = JSON.stringify(global.SpawnBureau);
+    const topicsBeforeGovernor = JSON.stringify(EventBus.topics);
+    roomGovernorService.analyze();
+    assert.strictEqual(JSON.stringify(global.SpawnBureau), bureauBeforeGovernor, 'shadow governor integration should not change real spawn intents');
+    assert.strictEqual(JSON.stringify(EventBus.topics), topicsBeforeGovernor, 'shadow governor integration should not publish event bus requests');
+
+    const { default: EmpireMetricsService } = await import('../services/EmpireMetricsService.js');
+    governorControl.policy.telemetry.metricsInterval = 1;
+    governorControl.metrics = { rooms: {} };
+    global.RoomGovernor = {
+        W1N1: {
+            lifecycle: 'mature',
+            health: { overall: { status: 'healthy', score: 100 } },
+            staleFor: 0,
+            comparison: {
+                matched: [{ capability: 'harvestWork' }],
+                missing: [{ capability: 'logisticsCarry' }],
+                excess: [],
+                priorityMismatches: [],
+                bodyProfileMismatches: []
+            }
+        }
+    };
+    global.ResourceMarket = {};
+    new EmpireMetricsService('EmpireMetrics').cleanup();
+    const metricSnapshot = governorControl.metrics.rooms.W1N1;
+    assert.strictEqual(metricSnapshot.governorLifecycle, 'mature', 'metrics should retain the governor lifecycle summary');
+    assert.deepStrictEqual(metricSnapshot.governorHealth, { status: 'healthy', score: 100 }, 'metrics should retain only compact governor health');
+    assert.strictEqual(metricSnapshot.governorStaleFor, 0, 'metrics should retain governor snapshot age');
+    assert.deepStrictEqual(metricSnapshot.spawnDecisionDiff, {
+        matched: 1,
+        missing: 1,
+        excess: 0,
+        priorityMismatches: 0,
+        bodyProfileMismatches: 0
+    }, 'metrics should summarize comparison counts without duplicating full evidence');
+
     console.log('room governor checks passed');
 }
 

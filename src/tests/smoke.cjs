@@ -369,6 +369,7 @@ assertContains(main, 'WarIntelService', 'main should include war intel service')
 assertContains(main, 'WarStrategyService', 'main should include war strategy service');
 assertContains(main, 'CombatPlannerService', 'main should include combat planner service');
 assertContains(main, 'RoomPhaseService', 'main should include room phase service');
+assertContains(main, 'RoomGovernorService', 'main should include room governor service');
 assertContains(main, 'SpawnBureauService', 'main should include spawn bureau service');
 assertContains(main, 'TaskGuardService', 'main should include task guard service');
 assertContains(main, 'CreepRetirementService', 'main should include creep retirement service');
@@ -382,6 +383,13 @@ assertContains(main, 'RepairerStrategyService', 'main should include repairer st
 assertNotContains(main, "new LogisticsService('Logistics')", 'main should not run old logistics dispatcher');
 assert.ok(main.indexOf("new WarIntelService('WarIntel')") < main.indexOf("new SecurityService('Security')"), 'war intel should run before security bridge');
 assert.ok(main.indexOf("new RoomPhaseService('RoomPhase')") < main.indexOf("new SpawnBureauService('SpawnBureau')"), 'room phase should run before spawn bureau reads room state');
+assert.ok(main.indexOf("new RoomPhaseService('RoomPhase')") < main.indexOf("new RoomGovernorService('RoomGovernor')"), 'room phase should run before room governor reads room facts');
+assert.ok(main.indexOf("new RoomGovernorService('RoomGovernor')") < main.indexOf("new SpawnBureauService('SpawnBureau')"), 'room governor should recommend before spawn bureau creates real intents');
+assert.ok(main.indexOf("new RoomGovernorService('RoomGovernor')") < main.indexOf("new EmpireMetricsService('EmpireMetrics')"), 'room governor comparison should finish before empire metrics snapshots');
+assertContains(read('src/core/ServiceScheduler.js'), "const P1 = new Set(['EmpireMetrics', 'RoomGovernor'])", 'room governor should run as a P1 service');
+for (const field of ['governorLifecycle', 'governorHealth', 'governorStaleFor', 'spawnDecisionDiff']) {
+    assertContains(read('src/services/EmpireMetricsService.js'), field, 'empire metrics should include compact room governor summaries');
+}
 assert.ok(main.indexOf("new SecurityService('Security')") < main.indexOf("new SpawnBureauService('SpawnBureau')"), 'security bridge should run before spawn bureau');
 assert.ok(main.indexOf("new SpawnBureauService('SpawnBureau')") < main.indexOf("new SpawnService('Spawn')"), 'spawn bureau should publish before spawn service executes');
 assert.ok(main.indexOf("new TaskGuardService('TaskGuard')") < main.indexOf("new ResourceMarketService('ResourceMarket')"), 'task guard should run before resource market and role strategies');

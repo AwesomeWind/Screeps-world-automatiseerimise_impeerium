@@ -32,6 +32,10 @@ class EmpireMetricsService extends BaseService {
             const market = global.ResourceMarket && global.ResourceMarket[roomName]
                 ? global.ResourceMarket[roomName]
                 : null;
+            const governor = global.RoomGovernor && global.RoomGovernor[roomName]
+                ? global.RoomGovernor[roomName]
+                : null;
+            const comparison = governor && governor.comparison ? governor.comparison : null;
             const storageEnergy = room.storage && room.storage.store && typeof room.storage.store.getUsedCapacity === 'function'
                 ? (room.storage.store.getUsedCapacity(energyResource) || 0)
                 : 0;
@@ -48,7 +52,24 @@ class EmpireMetricsService extends BaseService {
                 maintenancePressure: phase.maintenancePressure || 0,
                 roleCounts: roleCountsByRoom[roomName] || {},
                 spawningCount: spawningByRoom[roomName] || 0,
-                resourceMarketStats: market && market.stats ? { ...market.stats } : {}
+                resourceMarketStats: market && market.stats ? { ...market.stats } : {},
+                governorLifecycle: governor ? governor.lifecycle || null : null,
+                governorHealth: governor && governor.health && governor.health.overall
+                    ? {
+                        status: governor.health.overall.status,
+                        score: governor.health.overall.score
+                    }
+                    : null,
+                governorStaleFor: governor && governor.staleFor !== undefined ? governor.staleFor : null,
+                spawnDecisionDiff: comparison
+                    ? {
+                        matched: comparison.matched.length,
+                        missing: comparison.missing.length,
+                        excess: comparison.excess.length,
+                        priorityMismatches: comparison.priorityMismatches.length,
+                        bodyProfileMismatches: comparison.bodyProfileMismatches.length
+                    }
+                    : null
             };
         }
     }

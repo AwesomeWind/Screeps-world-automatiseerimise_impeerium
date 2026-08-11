@@ -7,7 +7,7 @@ const P0 = new Set([
     'BuilderStrategy', 'RepairerStrategy', 'HaulerStrategy', 'UpgraderStrategy',
     'DefenderStrategy', 'Link', 'StructureLifecycle', 'CreepRetirement', 'TowerDefense'
 ]);
-const P1 = new Set(['EmpireMetrics']);
+const P1 = new Set(['EmpireMetrics', 'RoomGovernor']);
 const P2 = new Set(['CityPlanner', 'DefensePlanner', 'MaintenancePlanner', 'RoadPlanner', 'Lab', 'Market', 'RemoteMining']);
 const P3 = new Set(['CityPlanDebug']);
 
