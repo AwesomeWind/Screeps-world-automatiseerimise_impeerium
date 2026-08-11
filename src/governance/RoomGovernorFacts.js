@@ -131,45 +131,50 @@ export function collectRoomGovernorFacts(options = {}) {
     const metricsRooms = Memory.empire && Memory.empire.control && Memory.empire.control.metrics &&
         Memory.empire.control.metrics.rooms ? Memory.empire.control.metrics.rooms : {};
     const rooms = {};
+    const errors = {};
 
     for (const roomName in (Game.rooms || {})) {
         const room = Game.rooms[roomName];
         if (!room.controller || !room.controller.my) continue;
-        const cache = global.RoomCache && global.RoomCache[roomName] ? global.RoomCache[roomName] : null;
-        const phase = global.RoomPhase && global.RoomPhase[roomName] ? global.RoomPhase[roomName] : {};
-        const sources = cache && Array.isArray(cache.sources) ? cache.sources : null;
-        const structures = cache && cache.structures ? cache.structures : {};
-        const roomSpawns = spawnsByRoom[roomName] || [];
-        const labs = structures.lab || [];
-        const factories = structures.factory || [];
-        rooms[roomName] = {
-            roomName,
-            owned: true,
-            rcl: room.controller.level || 0,
-            hasSpawn: roomSpawns.length > 0,
-            spawnCount: roomSpawns.length,
-            hasStorage: !!room.storage,
-            hasTerminal: !!room.terminal,
-            hasIndustrialInfrastructure: labs.length >= 3 || factories.length > 0,
-            energyAvailable: room.energyAvailable || 0,
-            energyCapacity: room.energyCapacityAvailable || 0,
-            spawnEnergyRatio: phase.spawnEnergyRatio === undefined
-                ? ((room.energyCapacityAvailable || 0) > 0 ? (room.energyAvailable || 0) / room.energyCapacityAvailable : null)
-                : phase.spawnEnergyRatio,
-            storageEnergy: storageEnergy(room),
-            sourceCount: sources ? sources.length : null,
-            haulDistanceEstimate: haulDistanceEstimate(room, sources, roomSpawns),
-            constructionPressure: phase.constructionPressure === undefined
-                ? (cache && Array.isArray(cache.constructionSites) ? cache.constructionSites.length : null)
-                : phase.constructionPressure,
-            maintenancePressure: phase.maintenancePressure === undefined ? null : phase.maintenancePressure,
-            capabilities: creepCapabilities.stable[roomName] || emptyCapabilities(),
-            retiringCapabilities: creepCapabilities.retiring[roomName] || emptyCapabilities(),
-            spawningCapabilities: spawningCapabilities[roomName] || emptyCapabilities(),
-            security: roomSecurity(roomName),
-            previousMetrics: metricsRooms[roomName] || null
-        };
+        try {
+            const cache = global.RoomCache && global.RoomCache[roomName] ? global.RoomCache[roomName] : null;
+            const phase = global.RoomPhase && global.RoomPhase[roomName] ? global.RoomPhase[roomName] : {};
+            const sources = cache && Array.isArray(cache.sources) ? cache.sources : null;
+            const structures = cache && cache.structures ? cache.structures : {};
+            const roomSpawns = spawnsByRoom[roomName] || [];
+            const labs = structures.lab || [];
+            const factories = structures.factory || [];
+            rooms[roomName] = {
+                roomName,
+                owned: true,
+                rcl: room.controller.level || 0,
+                hasSpawn: roomSpawns.length > 0,
+                spawnCount: roomSpawns.length,
+                hasStorage: !!room.storage,
+                hasTerminal: !!room.terminal,
+                hasIndustrialInfrastructure: labs.length >= 3 || factories.length > 0,
+                energyAvailable: room.energyAvailable || 0,
+                energyCapacity: room.energyCapacityAvailable || 0,
+                spawnEnergyRatio: phase.spawnEnergyRatio === undefined
+                    ? ((room.energyCapacityAvailable || 0) > 0 ? (room.energyAvailable || 0) / room.energyCapacityAvailable : null)
+                    : phase.spawnEnergyRatio,
+                storageEnergy: storageEnergy(room),
+                sourceCount: sources ? sources.length : null,
+                haulDistanceEstimate: haulDistanceEstimate(room, sources, roomSpawns),
+                constructionPressure: phase.constructionPressure === undefined
+                    ? (cache && Array.isArray(cache.constructionSites) ? cache.constructionSites.length : null)
+                    : phase.constructionPressure,
+                maintenancePressure: phase.maintenancePressure === undefined ? null : phase.maintenancePressure,
+                capabilities: creepCapabilities.stable[roomName] || emptyCapabilities(),
+                retiringCapabilities: creepCapabilities.retiring[roomName] || emptyCapabilities(),
+                spawningCapabilities: spawningCapabilities[roomName] || emptyCapabilities(),
+                security: roomSecurity(roomName),
+                previousMetrics: metricsRooms[roomName] || null
+            };
+        } catch (error) {
+            errors[roomName] = { message: error && error.message ? error.message : String(error) };
+        }
     }
 
-    return { tick: Game.time, rooms };
+    return { tick: Game.time, rooms, errors };
 }

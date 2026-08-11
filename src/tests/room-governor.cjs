@@ -356,6 +356,130 @@ async function run() {
     }], 602);
     assert.strictEqual(safetyComparison.excess[0].classification, 'external_or_safety', 'external safety demands should not be treated as governor economic errors');
 
+    const { default: RoomGovernorService } = await import('../services/RoomGovernorService.js');
+    const roomGovernorService = new RoomGovernorService('RoomGovernor');
+    const setHealthyGovernorWorld = (time) => {
+        const room = {
+            name: 'W1N1',
+            controller: { my: true, level: 4 },
+            energyAvailable: 600,
+            energyCapacityAvailable: 600
+        };
+        Game.time = time;
+        Game.rooms = { W1N1: room };
+        Game.creeps = {
+            MinerHealthy: {
+                memory: { role: 'miner', homeRoom: 'W1N1' },
+                ticksToLive: 1000,
+                body: new Array(5).fill(null).map(() => ({ type: WORK, hits: 100 }))
+            },
+            HaulerHealthy: {
+                memory: { role: 'hauler', homeRoom: 'W1N1' },
+                ticksToLive: 1000,
+                body: new Array(4).fill(null).map(() => ({ type: CARRY, hits: 100 }))
+            },
+            UpgraderHealthy: {
+                memory: { role: 'upgrader', homeRoom: 'W1N1' },
+                ticksToLive: 1000,
+                body: [{ type: WORK, hits: 100 }]
+            }
+        };
+        Game.spawns = {
+            SpawnHealthy: { room, spawning: null, pos: { getRangeTo: () => 10 } }
+        };
+        Game.getObjectById = (id) => id === 'healthySource' ? { id: 'healthySource' } : null;
+        Memory.empire.spawningCreeps = {};
+        global.RoomCache = {
+            W1N1: { sources: ['healthySource'], structures: {}, constructionSites: [] }
+        };
+        global.RoomPhase = {
+            W1N1: { spawnEnergyRatio: 1, constructionPressure: 0, maintenancePressure: 0 }
+        };
+        global.WarIntel = {
+            W1N1: { hostileStrength: 0, totalDefenseStrength: 0 }
+        };
+        global.Security = {
+            W1N1: { defcon: 5, posture: 'peace' }
+        };
+        global.SpawnBureau = { W1N1: { intents: [] } };
+    };
+
+    const governorControl = ensureEmpireControl();
+    governorControl.rooms = {};
+    governorControl.events = [];
+    governorControl.runtime.cpuMode = 'normal';
+    governorControl.policy.roomGovernor = JSON.parse(JSON.stringify(DEFAULT_EMPIRE_POLICY.roomGovernor));
+    setHealthyGovernorWorld(700);
+    roomGovernorService.analyze();
+    assert.strictEqual(global.RoomGovernor.W1N1.lifecycle, 'self_sufficient', 'first room governor evaluation should produce a lifecycle');
+    assert.strictEqual(governorControl.rooms.W1N1.shadow.evaluatedAt, 700, 'first evaluation should persist a shadow snapshot');
+
+    Game.time = 701;
+    roomGovernorService.analyze();
+    assert.strictEqual(global.RoomGovernor.W1N1.staleFor, 1, 'non-evaluation ticks should restore the latest snapshot');
+    assert.strictEqual(governorControl.rooms.W1N1.shadow.evaluatedAt, 700, 'cache restoration should not rewrite the evaluation tick');
+
+    Game.time = 702;
+    delete Game.creeps.MinerHealthy;
+    roomGovernorService.analyze();
+    assert.strictEqual(governorControl.rooms.W1N1.shadow.evaluatedAt, 702, 'emergency core capability loss should bypass the normal interval');
+    assert.strictEqual(global.RoomGovernor.W1N1.lifecycle, 'bootstrap', 'emergency core loss should immediately downgrade lifecycle');
+    global.SpawnBureau = { W1N1: { intents: [] } };
+    roomGovernorService.cleanup();
+    assert.ok(governorControl.rooms.W1N1.shadow.comparison.missing.length > 0, 'cleanup should compare shadow recommendations with real spawn intents');
+    const lifecycleEventCount = governorControl.events.filter((event) => event.type === 'room_lifecycle_changed').length;
+
+    Game.time = 703;
+    roomGovernorService.analyze();
+    roomGovernorService.cleanup();
+    assert.strictEqual(governorControl.events.filter((event) => event.type === 'room_lifecycle_changed').length, lifecycleEventCount, 'repeated lifecycle state should not duplicate transition events');
+
+    setHealthyGovernorWorld(710);
+    governorControl.runtime.cpuMode = 'critical';
+    roomGovernorService.analyze();
+    assert.strictEqual(governorControl.rooms.W1N1.shadow.evaluatedAt, 703, 'critical cpu should defer a non-emergency full evaluation');
+    assert.strictEqual(global.RoomGovernor.W1N1.deferred, true, 'critical cpu cache restoration should explain that evaluation was deferred');
+
+    Game.time = 760;
+    roomGovernorService.analyze();
+    assert.ok(global.RoomGovernor.W1N1.staleFor > governorControl.policy.roomGovernor.maxSnapshotAge, 'old snapshots should expose their age');
+    assert.deepStrictEqual(global.RoomGovernor.W1N1.spawnRecommendations, [], 'expired snapshots should stop emitting spawn recommendations');
+
+    governorControl.runtime.cpuMode = 'normal';
+    governorControl.rooms.W5N5 = { schemaVersion: 1, shadow: { evaluatedAt: 799, marker: 'preserve' } };
+    Game.time = 800;
+    Game.creeps = {};
+    Game.spawns = {};
+    Game.rooms = {
+        W4N4: {
+            name: 'W4N4',
+            controller: { my: true, level: 1 },
+            energyAvailable: 300,
+            energyCapacityAvailable: 300
+        },
+        W5N5: {
+            name: 'W5N5',
+            controller: { my: true, level: 4 },
+            energyAvailable: 300,
+            energyCapacityAvailable: 550,
+            storage: { store: { getUsedCapacity: () => { throw new Error('broken storage'); } } }
+        }
+    };
+    global.RoomCache = {
+        W4N4: { sources: [], structures: {}, constructionSites: [] },
+        W5N5: { sources: [], structures: {}, constructionSites: [] }
+    };
+    global.RoomPhase = {
+        W4N4: { spawnEnergyRatio: 1, constructionPressure: 0, maintenancePressure: 0 },
+        W5N5: { spawnEnergyRatio: 1, constructionPressure: 0, maintenancePressure: 0 }
+    };
+    global.WarIntel = {};
+    global.Security = {};
+    roomGovernorService.analyze();
+    assert.ok(governorControl.rooms.W4N4.shadow, 'one broken room should not prevent other rooms from being evaluated');
+    assert.strictEqual(governorControl.rooms.W5N5.shadow.marker, 'preserve', 'room errors should preserve the last valid snapshot');
+    assert.ok(governorControl.events.some((event) => event.type === 'room_governor_error' && event.data.roomName === 'W5N5'), 'room errors should be recorded with room context');
+
     console.log('room governor checks passed');
 }
 

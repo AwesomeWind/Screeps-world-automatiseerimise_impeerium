@@ -58,6 +58,7 @@ const expectedFiles = [
     'src/services/MarketService.js',
     'src/services/RemoteMiningService.js',
     'src/services/EmpireMetricsService.js',
+    'src/services/RoomGovernorService.js',
     'src/strategies/MinerStrategyService.js',
     'src/strategies/BuilderStrategyService.js',
     'src/strategies/RepairerStrategyService.js',
@@ -342,6 +343,10 @@ assertContains(read('src/AGENTS.md'), 'ServiceScheduler` 默认 `enforce: false'
 const metricsSource = read('src/services/EmpireMetricsService.js');
 for (const forbidden of ['EventBus.publish', 'assignTask(', 'spawnCreep(', 'createConstructionSite(', 'Game.market.deal']) {
     assertNotContains(metricsSource, forbidden, 'empire metrics should remain read-only');
+}
+const governorServiceSource = read('src/services/RoomGovernorService.js');
+for (const forbidden of ['EventBus.publish', 'REQ_SPAWN', 'spawnCreep(', 'assignTask(', 'creep.memory =', 'cityPlan']) {
+    assertNotContains(governorServiceSource, forbidden, 'room governor service should remain shadow-only');
 }
 
 const main = read('src/main.js');
