@@ -2,7 +2,7 @@ function requirement(required, confidence = 'measured', reasons = []) {
     return { required, confidence, reasons };
 }
 
-export function requiredCapabilities(facts, policy) {
+export function requiredCapabilities(facts, policy, lifecycle = null, budgets = null) {
     const thresholds = policy.thresholds;
     const sourceCount = facts.sourceCount;
     const harvestRequired = sourceCount === null ? null : sourceCount * thresholds.sourceWorkPerSource;
@@ -14,14 +14,106 @@ export function requiredCapabilities(facts, policy) {
         : Math.ceil(thresholds.sourceEnergyPerTick * 2 * estimatedDistance / thresholds.carryCapacityPerPart);
     const constructionPressure = facts.constructionPressure;
     const maintenancePressure = facts.maintenancePressure;
+    let upgradeRequired = 0;
+    if (lifecycle === 'self_sufficient') upgradeRequired = 1;
+    else if (lifecycle === 'developing') upgradeRequired = 3;
+    else if (lifecycle === 'mature' || lifecycle === 'industrial') upgradeRequired = 5;
+    if (budgets && budgets.upgrade.blocked) upgradeRequired = 0;
     return {
         harvestWork: requirement(harvestRequired, sourceCount === null ? 'unknown' : 'measured', sourceCount === null ? ['source_count_unknown'] : []),
         logisticsCarry: requirement(logisticsRequired, facts.haulDistanceEstimate === null ? 'estimated' : 'measured', facts.haulDistanceEstimate === null ? ['estimated_distance'] : []),
         buildWork: requirement(constructionPressure === null ? null : (constructionPressure === 0 ? 0 : Math.min(6, Math.max(1, Math.ceil(constructionPressure / 3))))),
         repairWork: requirement(maintenancePressure === null ? null : (maintenancePressure === 0 ? 0 : Math.min(4, Math.max(1, Math.ceil(maintenancePressure / 3))))),
-        upgradeWork: requirement(0),
+        upgradeWork: requirement(upgradeRequired),
         defenseScore: requirement(facts.security.hostileStrength)
     };
+}
+
+function budget(posture, weight, blocked = false, reasons = []) {
+    return { posture, weight, energyCap: null, blocked, reasons };
+}
+
+export function evaluateBudgets(facts, health, policy) {
+    const coreCritical = health.survival.status === 'critical' ||
+        health.harvest.status === 'critical' ||
+        health.logistics.status === 'critical';
+    const threatened = facts.security.hostileStrength !== null && facts.security.hostileStrength > 0;
+    const lowReserve = facts.hasStorage && facts.storageEnergy < policy.thresholds.reserveCritical;
+    const constructionReasons = coreCritical ? ['core_capability_critical'] : [];
+    const upgradeReasons = [];
+    if (coreCritical) upgradeReasons.push('core_capability_critical');
+    if (lowReserve) upgradeReasons.push('reserve_below_critical');
+    const supportReasons = [...upgradeReasons];
+    return {
+        survival: budget('protected', 100, false, ['safety_floor']),
+        defense: budget(threatened ? 'protected' : 'normal', threatened ? 100 : 40, false, threatened ? ['active_threat'] : []),
+        spawn: budget(coreCritical ? 'protected' : 'normal', coreCritical ? 95 : 80, false, coreCritical ? ['core_replacement'] : []),
+        maintenance: budget(
+            facts.maintenancePressure !== null && facts.maintenancePressure > policy.thresholds.maintenanceHigh ? 'protected' : 'normal',
+            65,
+            false,
+            facts.maintenancePressure !== null && facts.maintenancePressure > policy.thresholds.maintenanceHigh ? ['maintenance_pressure_high'] : []
+        ),
+        construction: budget(coreCritical ? 'limited' : 'normal', 50, coreCritical, constructionReasons),
+        upgrade: budget(upgradeReasons.length > 0 ? 'limited' : 'normal', 35, upgradeReasons.length > 0, upgradeReasons),
+        reserve: budget(lowReserve ? 'protected' : 'normal', lowReserve ? 90 : 55, false, lowReserve ? ['reserve_below_critical'] : []),
+        support: budget(supportReasons.length > 0 ? 'limited' : 'normal', 20, supportReasons.length > 0, supportReasons)
+    };
+}
+
+function currentCapability(facts, capability) {
+    if (capability === 'defenseScore' && facts.security.defenseStrength !== null) {
+        return facts.security.defenseStrength;
+    }
+    return facts.capabilities[capability] || 0;
+}
+
+export function evaluateCapabilityGaps(facts, requirements) {
+    const result = {};
+    for (const capability in requirements) {
+        const current = currentCapability(facts, capability);
+        const spawning = facts.spawningCapabilities[capability] || 0;
+        const retiring = facts.retiringCapabilities[capability] || 0;
+        const required = requirements[capability].required;
+        result[capability] = {
+            current,
+            spawning,
+            retiring,
+            required,
+            gap: required === null ? null : Math.max(0, required - current - spawning),
+            confidence: requirements[capability].confidence,
+            reasons: [...requirements[capability].reasons]
+        };
+    }
+    return result;
+}
+
+const RECOMMENDATION_POLICY = {
+    harvestWork: { suggestedRole: 'miner', bodyProfile: 'miner', priority: 80, budget: 'spawn' },
+    logisticsCarry: { suggestedRole: 'hauler', bodyProfile: 'hauler', priority: 70, budget: 'spawn' },
+    buildWork: { suggestedRole: 'builder', bodyProfile: 'builder', priority: 50, budget: 'construction' },
+    repairWork: { suggestedRole: 'repairer', bodyProfile: 'repairer', priority: 55, budget: 'maintenance' },
+    upgradeWork: { suggestedRole: 'upgrader', bodyProfile: 'upgrader', priority: 35, budget: 'upgrade' },
+    defenseScore: { suggestedRole: 'defender', bodyProfile: 'melee_defender', priority: 85, budget: 'defense' }
+};
+
+export function buildSpawnRecommendations(capabilities, budgets) {
+    const recommendations = [];
+    for (const capability in RECOMMENDATION_POLICY) {
+        const state = capabilities[capability];
+        const mapping = RECOMMENDATION_POLICY[capability];
+        if (!state || state.gap === null || state.gap <= 0) continue;
+        if (budgets[mapping.budget] && budgets[mapping.budget].blocked) continue;
+        recommendations.push({
+            capability,
+            suggestedRole: mapping.suggestedRole,
+            bodyProfile: mapping.bodyProfile,
+            priority: mapping.priority,
+            requiredCapacity: state.gap,
+            reasons: [`${capability}_gap`, ...state.reasons]
+        });
+    }
+    return recommendations.sort((a, b) => b.priority - a.priority);
 }
 
 function statusForScore(score, policy) {
@@ -189,19 +281,26 @@ export function resolveLifecycle(previousState, candidate, emergency, policy) {
 }
 
 export function evaluateRoomGovernor(facts, previousState, policy) {
-    const requirements = requiredCapabilities(facts, policy);
-    const health = evaluateHealth(facts, requirements, policy);
-    const candidate = candidateLifecycle(facts, requirements, health, policy);
+    const baseRequirements = requiredCapabilities(facts, policy);
+    const health = evaluateHealth(facts, baseRequirements, policy);
+    const candidate = candidateLifecycle(facts, baseRequirements, health, policy);
     const emergency = !facts.hasSpawn ||
-        (requirements.harvestWork.required !== null && requirements.harvestWork.required > 0 && facts.capabilities.harvestWork <= 0) ||
-        (requirements.logisticsCarry.required !== null && requirements.logisticsCarry.required > 0 && facts.capabilities.logisticsCarry <= 0);
+        (baseRequirements.harvestWork.required !== null && baseRequirements.harvestWork.required > 0 && facts.capabilities.harvestWork <= 0) ||
+        (baseRequirements.logisticsCarry.required !== null && baseRequirements.logisticsCarry.required > 0 && facts.capabilities.logisticsCarry <= 0);
     const lifecycleState = resolveLifecycle(previousState, candidate, emergency, policy);
+    const budgets = evaluateBudgets(facts, health, policy);
+    const requirements = requiredCapabilities(facts, policy, lifecycleState.lifecycle, budgets);
+    const capabilities = evaluateCapabilityGaps(facts, requirements);
+    const spawnRecommendations = buildSpawnRecommendations(capabilities, budgets);
     return {
         candidateLifecycle: candidate,
         lifecycle: lifecycleState.lifecycle,
         lifecycleState,
         emergency,
         health,
-        requirements
+        requirements,
+        budgets,
+        capabilities,
+        spawnRecommendations
     };
 }

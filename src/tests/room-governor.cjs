@@ -273,6 +273,46 @@ async function run() {
     assert.strictEqual(evaluation.candidateLifecycle, 'mature', 'combined evaluation should expose the candidate lifecycle');
     assert.strictEqual(JSON.stringify(frozenFacts), frozenSnapshot, 'room governor model should not mutate input facts');
 
+    const nearRequirements = requiredCapabilities(factsFor({ haulDistanceEstimate: 15 }), governorPolicy);
+    const farRequirements = requiredCapabilities(factsFor({ haulDistanceEstimate: 30 }), governorPolicy);
+    assert.strictEqual(nearRequirements.logisticsCarry.required, 6, 'logistics requirements should derive carry parts from source throughput and range');
+    assert.strictEqual(farRequirements.logisticsCarry.required, 12, 'longer haul ranges should increase required carry capability');
+
+    const incomingLogistics = evaluateRoomGovernor(factsFor({
+        capabilities: { logisticsCarry: 0 },
+        retiringCapabilities: { logisticsCarry: 3 },
+        spawningCapabilities: { logisticsCarry: 2 }
+    }), null, governorPolicy);
+    assert.deepStrictEqual(incomingLogistics.capabilities.logisticsCarry, {
+        current: 0,
+        spawning: 2,
+        retiring: 3,
+        required: 6,
+        gap: 4,
+        confidence: 'measured',
+        reasons: []
+    }, 'spawning capability should reduce gaps while retiring capability remains replacement evidence');
+
+    const noMinerEvaluation = evaluateRoomGovernor(noMinerFacts, null, governorPolicy);
+    assert.strictEqual(noMinerEvaluation.budgets.survival.posture, 'protected', 'survival budget should remain protected');
+    assert.strictEqual(noMinerEvaluation.budgets.construction.blocked, true, 'construction should pause during a core capability crisis');
+    assert.strictEqual(noMinerEvaluation.budgets.upgrade.blocked, true, 'upgrade should pause during a core capability crisis');
+    assert.strictEqual(noMinerEvaluation.budgets.support.blocked, true, 'external support should pause during a core capability crisis');
+
+    const lowReserveEvaluation = evaluateRoomGovernor(factsFor({ hasStorage: true, storageEnergy: 1000 }), null, governorPolicy);
+    assert.strictEqual(lowReserveEvaluation.budgets.reserve.posture, 'protected', 'low storage should protect the reserve budget');
+    assert.strictEqual(lowReserveEvaluation.budgets.support.blocked, true, 'low storage should block external support');
+
+    const harvestRecommendation = noMinerEvaluation.spawnRecommendations.find((item) => item.capability === 'harvestWork');
+    assert.ok(harvestRecommendation, 'harvest gaps should produce a shadow spawn recommendation');
+    assert.strictEqual(harvestRecommendation.suggestedRole, 'miner', 'harvest recommendations should map to miner');
+    assert.strictEqual(harvestRecommendation.requiredCapacity, 10, 'recommendations should express capability rather than creep count');
+    assert.ok(harvestRecommendation.reasons.includes('harvestWork_gap'), 'recommendations should explain their capability gap');
+
+    const coveredEvaluation = evaluateRoomGovernor(baseFacts, null, governorPolicy);
+    assert.strictEqual(coveredEvaluation.spawnRecommendations.some((item) => item.capability === 'harvestWork'), false, 'covered capabilities should not produce spawn recommendations');
+    assert.strictEqual(coveredEvaluation.spawnRecommendations.some((item) => item.capability === 'logisticsCarry'), false, 'covered logistics should not produce spawn recommendations');
+
     console.log('room governor checks passed');
 }
 

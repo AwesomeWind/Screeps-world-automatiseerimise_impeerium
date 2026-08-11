@@ -331,6 +331,8 @@ assertNotContains(read('src/governance/RoomGovernorFacts.js'), 'PathFinder.searc
 assertNotContains(read('src/governance/RoomGovernorModel.js'), 'global.', 'room governor model should remain independent from global state');
 assertNotContains(read('src/governance/RoomGovernorModel.js'), 'Memory', 'room governor model should remain independent from Memory');
 assertNotContains(read('src/governance/RoomGovernorModel.js'), 'Game.', 'room governor model should remain independent from Game');
+assertNotContains(read('src/governance/RoomGovernorModel.js'), 'EventBus', 'room governor model should not publish execution requests');
+assertNotContains(read('src/governance/RoomGovernorModel.js'), 'REQ_SPAWN', 'room governor model should not create real spawn requests');
 assertNotContains(read('src/core/RuntimeTelemetry.js'), 'Memory.rooms', 'runtime telemetry should not mutate room strategy state');
 assertNotContains(read('src/core/ServiceScheduler.js'), 'creep.memory', 'scheduler should not mutate creep state');
 assertContains(read('src/AGENTS.md'), 'ServiceScheduler` 默认 `enforce: false', 'module guide should document shadow scheduling');
