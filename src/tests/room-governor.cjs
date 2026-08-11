@@ -313,6 +313,49 @@ async function run() {
     assert.strictEqual(coveredEvaluation.spawnRecommendations.some((item) => item.capability === 'harvestWork'), false, 'covered capabilities should not produce spawn recommendations');
     assert.strictEqual(coveredEvaluation.spawnRecommendations.some((item) => item.capability === 'logisticsCarry'), false, 'covered logistics should not produce spawn recommendations');
 
+    const { compareSpawnDecisions } = await import('../governance/SpawnDecisionComparator.js');
+    const logisticsRecommendation = [{
+        capability: 'logisticsCarry',
+        suggestedRole: 'hauler',
+        bodyProfile: 'hauler',
+        priority: 70,
+        requiredCapacity: 4,
+        reasons: ['logisticsCarry_gap']
+    }];
+    const smallHaulerIntent = {
+        role: 'hauler',
+        bodyProfile: 'emergency_hauler',
+        priority: 45,
+        body: [CARRY, MOVE, CARRY],
+        reason: 'hauler_capacity'
+    };
+    const shortfallComparison = compareSpawnDecisions(logisticsRecommendation, [smallHaulerIntent], 600);
+    assert.strictEqual(shortfallComparison.matched.length, 0, 'equal intent counts should not match when body capability is insufficient');
+    assert.strictEqual(shortfallComparison.missing[0].reason, 'capacity_shortfall', 'insufficient body capability should be reported explicitly');
+    assert.strictEqual(shortfallComparison.missing[0].actualCapacity, 2, 'comparison should report aggregate intent capability');
+
+    const comparisonInput = [
+        smallHaulerIntent,
+        { ...smallHaulerIntent, body: [CARRY, MOVE, CARRY] }
+    ];
+    const comparisonSnapshot = JSON.stringify(comparisonInput);
+    const matchedComparison = compareSpawnDecisions(logisticsRecommendation, comparisonInput, 601);
+    assert.strictEqual(matchedComparison.matched.length, 1, 'multiple intents should combine to cover one capability recommendation');
+    assert.strictEqual(matchedComparison.priorityMismatches.length, 1, 'priority differences should be reported separately from capability coverage');
+    assert.strictEqual(matchedComparison.bodyProfileMismatches.length, 1, 'body profile differences should be reported separately from capability coverage');
+    assert.strictEqual(matchedComparison.comparedAt, 601, 'comparison should retain the supplied tick without reading global state');
+    assert.strictEqual(JSON.stringify(comparisonInput), comparisonSnapshot, 'comparison should not mutate intent inputs');
+
+    const safetyComparison = compareSpawnDecisions([], [{
+        owner: 'war',
+        role: 'defender',
+        bodyProfile: 'melee_defender',
+        priority: 85,
+        body: [ATTACK, MOVE],
+        reason: 'war_defend'
+    }], 602);
+    assert.strictEqual(safetyComparison.excess[0].classification, 'external_or_safety', 'external safety demands should not be treated as governor economic errors');
+
     console.log('room governor checks passed');
 }
 
