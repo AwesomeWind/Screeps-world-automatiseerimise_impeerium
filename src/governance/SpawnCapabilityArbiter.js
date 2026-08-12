@@ -53,16 +53,16 @@ function fallback(legacyIntents, requestedMode, reasons) {
     };
 }
 
-function invalidInputReasons({ roomName, legacyIntents, governorCandidate, governorDecision, readiness, safety }) {
+function invalidInputReasons({ roomName, legacyIntents, governorCandidate, governorDecision, readiness, safety }, candidateRequired) {
     const reasons = [];
     const quotaKey = `upgrader:${roomName}:controller`;
     if (typeof roomName !== 'string' || roomName.length === 0) reasons.push('invalid_room_name');
     if (!Array.isArray(legacyIntents)) reasons.push('invalid_legacy_intents');
-    if (!isRecord(governorCandidate) || governorCandidate.quotaKey !== quotaKey || governorCandidate.role !== 'upgrader' ||
+    if (candidateRequired && (!isRecord(governorCandidate) || governorCandidate.quotaKey !== quotaKey || governorCandidate.role !== 'upgrader' ||
         !Array.isArray(governorCandidate.body) || governorCandidate.body.length === 0 ||
         !governorCandidate.body.every(isValidBodyPart) ||
         !isRecord(governorCandidate.memory) || !isNonNegativeNumber(governorCandidate.priority) ||
-        !isRecord(governorDecision) || governorCandidate.priority !== governorDecision.priority) {
+        !isRecord(governorDecision) || governorCandidate.priority !== governorDecision.priority)) {
         reasons.push('invalid_governor_candidate');
     }
     if (!isRecord(governorDecision) || !isNonNegativeNumber(governorDecision.gap) ||
@@ -111,28 +111,46 @@ export function arbitrateUpgradeWork({
     safety,
     requestedMode
 }) {
+    const normalizedLegacyIntents = Array.isArray(legacyIntents) ? legacyIntents : [];
     if (requestedMode === 'shadow') {
         return {
-            intents: [...legacyIntents],
+            intents: [...normalizedLegacyIntents],
             requestedMode,
             effectiveMode: 'shadow',
             adoptedSource: 'legacy',
             action: 'keep',
-            reasons: []
+            reasons: Array.isArray(legacyIntents) ? [] : ['invalid_legacy_intents']
         };
     }
 
     if (requestedMode === 'active') {
-        const invalidReasons = invalidInputReasons({ roomName, legacyIntents, governorCandidate, governorDecision, readiness, safety });
-        if (invalidReasons.length > 0) return fallback(legacyIntents, requestedMode, invalidReasons);
+        if (isRecord(safety) && safety.emergencyDisable === true) {
+            return {
+                intents: [...normalizedLegacyIntents],
+                requestedMode,
+                effectiveMode: 'shadow',
+                adoptedSource: 'legacy',
+                action: 'keep',
+                reasons: ['capability_control_hold']
+            };
+        }
+        const shouldSuppress = isRecord(governorDecision) &&
+            (governorDecision.budgetBlocked === true ||
+                (isNonNegativeNumber(governorDecision.gap) && governorDecision.gap <= 0));
+        const emergencyCandidateRequired = shouldSuppress && isRecord(safety) && safety.controllerEmergency === true &&
+            isRecord(governorDecision) && isNonNegativeNumber(governorDecision.current) &&
+            isNonNegativeNumber(governorDecision.spawning) && governorDecision.current + governorDecision.spawning === 0;
+        const invalidReasons = invalidInputReasons(
+            { roomName, legacyIntents, governorCandidate, governorDecision, readiness, safety },
+            !shouldSuppress || emergencyCandidateRequired
+        );
+        if (invalidReasons.length > 0) return fallback(normalizedLegacyIntents, requestedMode, invalidReasons);
         const unsafeReasons = safetyFallbackReasons(readiness, safety);
-        if (unsafeReasons.length > 0) return fallback(legacyIntents, requestedMode, unsafeReasons);
+        if (unsafeReasons.length > 0) return fallback(normalizedLegacyIntents, requestedMode, unsafeReasons);
         const quotaKey = `upgrader:${roomName}:controller`;
-        const shouldSuppress = governorDecision.budgetBlocked || governorDecision.gap <= 0;
-        const emergencyCandidateRequired = safety.controllerEmergency && governorDecision.current + governorDecision.spawning === 0;
         if (shouldSuppress && safety.controllerEmergency && !emergencyCandidateRequired) {
             return {
-                intents: [...legacyIntents],
+                intents: [...normalizedLegacyIntents],
                 requestedMode,
                 effectiveMode: 'active',
                 adoptedSource: 'legacy',
@@ -142,7 +160,7 @@ export function arbitrateUpgradeWork({
         }
         if (shouldSuppress && !emergencyCandidateRequired) {
             return {
-                intents: legacyIntents.filter((intent) => !intent || intent.quotaKey !== quotaKey),
+                intents: normalizedLegacyIntents.filter((intent) => !intent || intent.quotaKey !== quotaKey),
                 requestedMode,
                 effectiveMode: 'active',
                 adoptedSource: 'governor',
@@ -152,7 +170,7 @@ export function arbitrateUpgradeWork({
         }
         const intents = [];
         let replaced = false;
-        for (const intent of legacyIntents) {
+        for (const intent of normalizedLegacyIntents) {
             if (intent && intent.quotaKey === quotaKey) {
                 if (!replaced) intents.push(governorCandidate);
                 replaced = true;
@@ -173,7 +191,7 @@ export function arbitrateUpgradeWork({
         };
     }
 
-    return fallback(legacyIntents, requestedMode, ['invalid_requested_mode']);
+    return fallback(normalizedLegacyIntents, requestedMode, ['invalid_requested_mode']);
 }
 
 export function advanceUpgradeWorkControl({
@@ -196,16 +214,24 @@ export function advanceUpgradeWorkControl({
         ? prior.fallbackCount
         : 0;
     const isFallback = effectiveDecision.action === 'fallback';
+    const isGlobalHold = requestedMode === 'active' &&
+        effectiveDecision.action === 'keep' &&
+        effectiveDecision.effectiveMode === 'shadow' &&
+        effectiveDecision.reasons.includes('capability_control_hold');
     const wasSuspended = prior.autoSuspended === true;
-    const rearmed = wasSuspended && prior.requestedMode === 'shadow' && requestedMode === 'active';
+    const rearmed = !isGlobalHold && wasSuspended && prior.requestedMode === 'shadow' && requestedMode === 'active';
     const lockedSuspended = wasSuspended && !rearmed;
     const previousConsecutiveFallbacks = rearmed ? 0 : previousFallbackCount;
-    const fallbackCount = lockedSuspended ? previousFallbackCount : isFallback ? previousConsecutiveFallbacks + 1 : 0;
+    const fallbackCount = isGlobalHold
+        ? previousFallbackCount
+        : lockedSuspended ? previousFallbackCount : isFallback ? previousConsecutiveFallbacks + 1 : 0;
     const suspendThreshold = Number.isSafeInteger(fallbackSuspendCount) && fallbackSuspendCount > 0
         ? fallbackSuspendCount
         : DEFAULT_FALLBACK_SUSPEND_COUNT;
-    const autoSuspended = lockedSuspended || (!rearmed && fallbackCount >= suspendThreshold);
-    const newlySuspended = !lockedSuspended && autoSuspended;
+    const autoSuspended = isGlobalHold
+        ? wasSuspended
+        : lockedSuspended || (!rearmed && fallbackCount >= suspendThreshold);
+    const newlySuspended = !isGlobalHold && !lockedSuspended && autoSuspended;
     const reasons = [...effectiveDecision.reasons];
     const transitionEvents = [];
     if (rearmed) transitionEvents.push({ type: 'upgrade_work_rearmed', at: tick });
@@ -218,9 +244,11 @@ export function advanceUpgradeWorkControl({
         action: effectiveDecision.action,
         reasons,
         fallbackCount,
-        fallbackReason: lockedSuspended ? prior.fallbackReason || null : isFallback ? reasons[0] || null : null,
+        fallbackReason: isGlobalHold || lockedSuspended
+            ? prior.fallbackReason || null
+            : isFallback ? reasons[0] || null : null,
         autoSuspended,
-        suspendedAt: newlySuspended ? tick : lockedSuspended ? prior.suspendedAt : null,
+        suspendedAt: newlySuspended ? tick : (isGlobalHold || lockedSuspended) ? prior.suspendedAt : null,
         lastDecisionAt: tick,
         rearmed,
         transitionEvents

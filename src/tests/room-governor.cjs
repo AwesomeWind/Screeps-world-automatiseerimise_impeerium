@@ -18,7 +18,8 @@ async function run() {
     const {
         DEFAULT_EMPIRE_POLICY,
         ensureEmpireControl,
-        resolveCapabilityMode
+        resolveCapabilityMode,
+        validateCapabilityControlPolicy
     } = await import('../config/EmpirePolicy.js');
 
     assert.ok(DEFAULT_EMPIRE_POLICY.roomGovernor, 'room governor policy defaults should exist');
@@ -26,6 +27,22 @@ async function run() {
     assert.strictEqual(DEFAULT_EMPIRE_POLICY.roomGovernor.thresholds.sourceWorkPerSource, 5, 'room governor should expose initial capability thresholds through policy');
     assert.strictEqual(DEFAULT_EMPIRE_POLICY.capabilityControl.capabilities.upgradeWork.defaultMode, 'shadow', 'upgrade work should default to shadow mode');
     assert.strictEqual(DEFAULT_EMPIRE_POLICY.capabilityControl.readiness.minSamples, 50, 'capability readiness should require enough samples by default');
+    assert.deepStrictEqual(validateCapabilityControlPolicy(DEFAULT_EMPIRE_POLICY.capabilityControl), [], 'the default capability policy should satisfy the centralized validator');
+    for (const [label, policyOverride, expectedBlocker] of [
+        ['string enabled flag', { enabled: 'false' }, 'invalid_capability_control_enabled'],
+        ['string emergency flag', { emergencyDisable: 'true' }, 'invalid_capability_control_emergency_disable'],
+        ['negative controller threshold', { controllerEmergencyTicks: -1 }, 'invalid_controller_emergency_ticks'],
+        ['fractional fallback threshold', { fallbackSuspendCount: 2.5 }, 'invalid_fallback_suspend_count'],
+        ['negative readiness sample threshold', { readiness: { ...DEFAULT_EMPIRE_POLICY.capabilityControl.readiness, minSamples: -1 } }, 'invalid_readiness_policy'],
+        ['readiness ratio above one', { readiness: { ...DEFAULT_EMPIRE_POLICY.capabilityControl.readiness, minKnownRatio: 1.1 } }, 'invalid_readiness_policy'],
+        ['negative readiness snapshot age', { readiness: { ...DEFAULT_EMPIRE_POLICY.capabilityControl.readiness, maxSnapshotAge: -1 } }, 'invalid_readiness_policy']
+    ]) {
+        const invalidPolicy = {
+            ...DEFAULT_EMPIRE_POLICY.capabilityControl,
+            ...policyOverride
+        };
+        assert.ok(validateCapabilityControlPolicy(invalidPolicy).includes(expectedBlocker), `${label} should be rejected without coercion`);
+    }
 
     const {
         CAPABILITY_ROLLOUT_FIELDS,
@@ -91,6 +108,14 @@ async function run() {
     assert.strictEqual(shadowArbitration.effectiveMode, 'shadow', 'shadow arbitration should remain in shadow mode');
     assert.deepStrictEqual(shadowArbitration.intents, safeArbitrationInput.legacyIntents, 'shadow arbitration should return the complete legacy intents');
     assert.notStrictEqual(shadowArbitration.intents, safeArbitrationInput.legacyIntents, 'shadow arbitration should return a new intents array');
+    const malformedShadowArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        legacyIntents: null,
+        requestedMode: 'shadow'
+    });
+    assert.strictEqual(malformedShadowArbitration.action, 'keep', 'shadow arbitration should remain a safe no-op for a malformed legacy intent list');
+    assert.deepStrictEqual(malformedShadowArbitration.intents, [], 'shadow arbitration should normalize a malformed legacy intent list to an empty list');
+    assert.ok(malformedShadowArbitration.reasons.includes('invalid_legacy_intents'), 'shadow arbitration should explain a malformed legacy intent list without throwing');
 
     const externalUpgradeIntent = {
         role: 'upgrader',
@@ -124,6 +149,14 @@ async function run() {
     assert.strictEqual(budgetSuppressArbitration.action, 'suppress', 'a blocked upgrade budget should suppress the target quota');
     assert.strictEqual(budgetSuppressArbitration.adoptedSource, 'governor', 'safe suppression should adopt the governor decision');
     assert.deepStrictEqual(budgetSuppressArbitration.intents, [legacyHaulerIntent, externalUpgradeIntent], 'budget suppression should remove only the exact target quota');
+    const nullCandidateBudgetSuppressArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        legacyIntents: suppressLegacyIntents,
+        governorCandidate: null,
+        governorDecision: { ...safeArbitrationInput.governorDecision, budgetBlocked: true }
+    });
+    assert.strictEqual(nullCandidateBudgetSuppressArbitration.action, 'suppress', 'budget suppression must not require a governor candidate');
+    assert.deepStrictEqual(nullCandidateBudgetSuppressArbitration.intents, [legacyHaulerIntent, externalUpgradeIntent], 'candidate-free budget suppression should still preserve unrelated intents');
     const coveredSuppressArbitration = arbitrateUpgradeWork({
         ...safeArbitrationInput,
         legacyIntents: suppressLegacyIntents,
@@ -131,6 +164,14 @@ async function run() {
     });
     assert.strictEqual(coveredSuppressArbitration.action, 'suppress', 'a covered upgrade capability should suppress the target quota');
     assert.deepStrictEqual(coveredSuppressArbitration.intents, [legacyHaulerIntent, externalUpgradeIntent], 'covered capability suppression should preserve unrelated intent order');
+    const nullCandidateCoveredSuppressArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        legacyIntents: [legacyHaulerIntent, externalUpgradeIntent],
+        governorCandidate: null,
+        governorDecision: { ...safeArbitrationInput.governorDecision, gap: 0 }
+    });
+    assert.strictEqual(nullCandidateCoveredSuppressArbitration.action, 'suppress', 'an empty covered quota should be a safe candidate-free suppression no-op');
+    assert.deepStrictEqual(nullCandidateCoveredSuppressArbitration.intents, [legacyHaulerIntent, externalUpgradeIntent], 'an empty covered quota should retain all unrelated intents');
 
     const fallbackCases = [
         ['null gap', { governorDecision: { ...safeArbitrationInput.governorDecision, gap: null } }],
@@ -140,7 +181,6 @@ async function run() {
         ['ineligible lifecycle', { safety: { ...safeArbitrationInput.safety, lifecycleEligible: false } }],
         ['critical CPU', { safety: { ...safeArbitrationInput.safety, cpuMode: 'critical' } }],
         ['not ready', { readiness: { ready: false, blockers: ['insufficient_samples'] } }],
-        ['emergency disable', { safety: { ...safeArbitrationInput.safety, emergencyDisable: true } }],
         ['automatic suspension', { safety: { ...safeArbitrationInput.safety, autoSuspended: true } }],
         ['invalid decision field', { governorDecision: { ...safeArbitrationInput.governorDecision, current: -1 } }],
         ['empty candidate body', { governorCandidate: { ...governorUpgradeCandidate, body: [] } }],
@@ -165,6 +205,16 @@ async function run() {
         assert.ok(fallbackArbitration.reasons.length > 0, `${label} should explain the fallback`);
     }
 
+    const globalHoldArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        safety: { ...safeArbitrationInput.safety, emergencyDisable: true }
+    });
+    assert.strictEqual(globalHoldArbitration.action, 'keep', 'a global hold should be a legacy no-op rather than an ordinary fallback');
+    assert.strictEqual(globalHoldArbitration.effectiveMode, 'shadow', 'a global hold should force the effective mode to shadow');
+    assert.strictEqual(globalHoldArbitration.requestedMode, 'active', 'a global hold should retain the active request');
+    assert.deepStrictEqual(globalHoldArbitration.intents, safeArbitrationInput.legacyIntents, 'a global hold should preserve the complete legacy intents');
+    assert.ok(globalHoldArbitration.reasons.includes('capability_control_hold'), 'a global hold should expose its distinct reason');
+
     const standardBodyCandidate = {
         ...governorUpgradeCandidate,
         body: ['move', 'work', 'carry', 'attack', 'ranged_attack', 'heal', 'claim', 'tough', { type: 'work' }]
@@ -184,6 +234,13 @@ async function run() {
     assert.strictEqual(emergencyKeepArbitration.adoptedSource, 'legacy', 'controller emergency keep should adopt legacy');
     assert.deepStrictEqual(emergencyKeepArbitration.intents, safeArbitrationInput.legacyIntents, 'controller emergency keep should preserve the complete legacy list');
     assert.ok(emergencyKeepArbitration.reasons.includes('controller_emergency_keep_legacy'), 'controller emergency keep should expose its safety reason');
+    const nullCandidateEmergencyKeepArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        governorCandidate: null,
+        governorDecision: { ...safeArbitrationInput.governorDecision, gap: 0 },
+        safety: { ...safeArbitrationInput.safety, controllerEmergency: true }
+    });
+    assert.strictEqual(nullCandidateEmergencyKeepArbitration.action, 'keep', 'controller emergency legacy keep must not require a governor candidate');
 
     const emergencyReplaceArbitration = arbitrateUpgradeWork({
         ...safeArbitrationInput,
@@ -232,6 +289,17 @@ async function run() {
         tick: 101
     });
     assert.strictEqual(fallbackControl2.fallbackCount, 2, 'the second consecutive fallback should increment the fallback count');
+    const heldControl = advanceUpgradeWorkControl({
+        previous: fallbackControl2,
+        requestedMode: 'active',
+        decision: globalHoldArbitration,
+        fallbackSuspendCount: 3,
+        tick: 102
+    });
+    assert.strictEqual(heldControl.fallbackCount, 2, 'a global hold should preserve an existing fallback count');
+    assert.strictEqual(heldControl.autoSuspended, false, 'a global hold must not turn a prior fallback count into automatic suspension');
+    assert.strictEqual(heldControl.fallbackReason, 'snapshot_stale', 'a global hold should preserve the prior fallback reason');
+    assert.deepStrictEqual(heldControl.transitionEvents, [], 'a global hold should not emit fallback or suspension transitions');
 
     const nullDecisionControl = advanceUpgradeWorkControl({
         previous: fallbackControl1,
@@ -632,6 +700,26 @@ async function run() {
         reason: 'single_room_pilot',
         expiresAt: 150
     }, 'active room capability overrides should retain their explanation metadata');
+    first.policy.overrides.rooms.W1N1['capability:upgradeWork'] = {
+        value: 'active',
+        reason: '   '
+    };
+    assert.deepStrictEqual(resolveCapabilityMode('W1N1', 'upgradeWork').blockers, [
+        'invalid_capability_override_reason'
+    ], 'active capability overrides must include a non-empty reason');
+    first.policy.overrides.rooms.W1N1['capability:upgradeWork'] = {
+        value: 'active',
+        reason: 'negative_expiry',
+        expiresAt: -1
+    };
+    assert.deepStrictEqual(resolveCapabilityMode('W1N1', 'upgradeWork').blockers, [
+        'invalid_capability_override_expires_at'
+    ], 'negative capability override expiry ticks must be rejected instead of treated as expired');
+    first.policy.overrides.rooms.W1N1['capability:upgradeWork'] = {
+        value: 'active',
+        reason: 'single_room_pilot',
+        expiresAt: 150
+    };
     Game.time = 151;
     assert.strictEqual(resolveCapabilityMode('W1N1', 'upgradeWork').value, 'shadow', 'expired capability overrides should fall back to shadow mode');
     const second = ensureEmpireControl();
@@ -1401,9 +1489,17 @@ async function run() {
                 control: {
                     policy: {
                         capabilityControl: {
+                            enabled: true,
                             controllerEmergencyTicks: 5000,
                             emergencyDisable: false,
-                            readiness: { maxSnapshotAge: 20 },
+                            fallbackSuspendCount: 3,
+                            readiness: {
+                                minSamples: 50,
+                                minKnownRatio: 0.95,
+                                maxCriticalRatio: 0.05,
+                                maxFlipRatio: 0.10,
+                                maxSnapshotAge: 20
+                            },
                             capabilities: { upgradeWork: { defaultMode: 'shadow' } }
                         },
                         overrides: { empire: {}, rooms: {} }
@@ -1416,6 +1512,20 @@ async function run() {
         global.RoomGovernor = {};
         EventBus.topics = {};
     };
+    const readyRolloutAt = (tick) => ({
+        sampleCount: 50,
+        knownSampleCount: 50,
+        criticalSampleCount: 0,
+        recommendationPresentCount: 50,
+        recommendationFlipCount: 0,
+        legacyMatchCount: 50,
+        legacyMissingCount: 0,
+        lastRecommendationPresent: true,
+        lastSampleAt: tick,
+        lastErrorAt: null,
+        ready: true,
+        blockers: []
+    });
     const serializedSpawnRequests = () => (EventBus.topics.REQ_SPAWN || []).map((event) => ({
         priority: event.priority,
         data: event.data
@@ -1485,7 +1595,7 @@ async function run() {
         };
         Memory.empire.control.rooms.W1N1 = {
             ...(Memory.empire.control.rooms.W1N1 || {}),
-            capabilityRollout: { upgradeWork: { ready: true, blockers: [] } }
+            capabilityRollout: { upgradeWork: readyRolloutAt(Game.time) }
         };
         const base = {
             evaluatedAt: Game.time,
@@ -1548,6 +1658,125 @@ async function run() {
             `active arbitration should not alter ${role} intents`
         );
     }
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork, 'rearmed'), false, 'persisted capability control must strip the transient rearmed flag');
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork, 'transitionEvents'), false, 'persisted capability control must strip transient transition events');
+
+    setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot();
+    bureauIntegration.analyze();
+    Memory.empire.spawningCreeps.W1Upgrade = {
+        memory: { role: 'upgrader', homeRoom: 'W1N1', quotaKey: 'upgrader:W1N1:controller' },
+        expireAt: 1200
+    };
+    Game.time = 1001;
+    global.RoomGovernor.W1N1.staleFor = 1;
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'suppress', 'live spawning coverage must prevent a second replacement from the same Governor snapshot');
+    assert.ok(global.SpawnBureau.W1N1.arbitration.upgradeWork.reasons.includes('controller_quota_already_covered'), 'fulfillment protection should explain why the stale positive gap was suppressed');
+    assert.strictEqual(global.SpawnBureau.W1N1.intents.filter((intent) => intent.quotaKey === 'upgrader:W1N1:controller').length, 0, 'a spawning controller quota must not receive another economic intent');
+
+    for (const [label, snapshotOverride] of [
+        ['covered gap', {
+            capabilities: { upgradeWork: { gap: 0, current: 1, spawning: 0 } },
+            spawnRecommendations: []
+        }],
+        ['blocked budget', {
+            budgets: { upgrade: { blocked: true } },
+            capabilities: { upgradeWork: { gap: 1, current: 1, spawning: 0 } },
+            spawnRecommendations: []
+        }]
+    ]) {
+        setupSpawnBureauIntegrationWorld();
+        Game.creeps.W1Upgrader = {
+            memory: { role: 'upgrader', homeRoom: 'W1N1', quotaKey: 'upgrader:W1N1:controller' },
+            body: [{ type: WORK }, { type: CARRY }, { type: MOVE }]
+        };
+        setActiveGovernorSnapshot(snapshotOverride);
+        for (let tick = 1000; tick < 1004; tick++) {
+            Game.time = tick;
+            global.RoomGovernor.W1N1.evaluatedAt = tick;
+            global.RoomGovernor.W1N1.staleFor = 0;
+            bureauIntegration.analyze();
+            const controlState = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
+            assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'suppress', `${label} should stay a normal no-op without a candidate on tick ${tick}`);
+            assert.strictEqual(controlState.fallbackCount, 0, `${label} should not accumulate fallback count on tick ${tick}`);
+            assert.strictEqual(controlState.autoSuspended, false, `${label} should not auto-suspend on tick ${tick}`);
+        }
+    }
+
+    setupSpawnBureauIntegrationWorld();
+    const neutralRoom = integrationRoom('W9N9');
+    delete neutralRoom.controller;
+    Game.rooms.W9N9 = neutralRoom;
+    global.RoomCache.W9N9 = { sources: [] };
+    global.RoomPhase.W9N9 = { phase: 'early', hasStorage: false };
+    bureauIntegration.analyze();
+    assert.ok(global.SpawnBureau.W9N9, 'rooms without a controller should retain their pre-existing SpawnBureau processing');
+    assert.strictEqual(Memory.empire.control.rooms.W9N9, undefined, 'capability control must not be persisted for rooms without an owned controller');
+
+    for (const [label, rolloutMutation] of [
+        ['legacy readiness schema', () => ({ ready: true, blockers: [] })],
+        ['missing readiness field', () => {
+            const rollout = readyRolloutAt(Game.time);
+            delete rollout.lastErrorAt;
+            return rollout;
+        }],
+        ['invalid readiness count', () => ({ ...readyRolloutAt(Game.time), knownSampleCount: -1 })]
+    ]) {
+        setupSpawnBureauIntegrationWorld();
+        setActiveGovernorSnapshot();
+        Memory.empire.control.rooms.W1N1.capabilityRollout.upgradeWork = rolloutMutation();
+        bureauIntegration.analyze();
+        assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'fallback', `${label} must not authorize active takeover`);
+        assert.ok(global.SpawnBureau.W1N1.arbitration.upgradeWork.reasons.includes('invalid_input'), `${label} should expose the readiness validation failure`);
+        assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, expectedW1ShadowIntents, `${label} must retain the complete legacy intents`);
+    }
+
+    setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot();
+    Memory.empire.control.policy.capabilityControl.readiness.minSamples = 51;
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'fallback', 'a readiness policy threshold change must be re-evaluated on the current tick');
+    assert.ok(global.SpawnBureau.W1N1.arbitration.upgradeWork.reasons.includes('insufficient_samples'), 'a changed sample threshold should explain why the stored rollout is no longer ready');
+
+    for (const [label, configure, expectedReason] of [
+        ['empty active override reason', () => {
+            Memory.empire.control.policy.overrides.rooms.W1N1['capability:upgradeWork'].reason = '   ';
+        }, 'invalid_capability_override_reason'],
+        ['negative active override expiry', () => {
+            Memory.empire.control.policy.overrides.rooms.W1N1['capability:upgradeWork'].expiresAt = -1;
+        }, 'invalid_capability_override_expires_at'],
+        ['string enabled flag', () => {
+            Memory.empire.control.policy.capabilityControl.enabled = 'false';
+        }, 'invalid_capability_control_enabled'],
+        ['string emergency flag', () => {
+            Memory.empire.control.policy.capabilityControl.emergencyDisable = 'true';
+        }, 'invalid_capability_control_emergency_disable'],
+        ['invalid enabled flag masked by emergency hold', () => {
+            Memory.empire.control.policy.capabilityControl.enabled = 'false';
+            Memory.empire.control.policy.capabilityControl.emergencyDisable = true;
+        }, 'invalid_capability_control_enabled'],
+        ['negative controller threshold', () => {
+            Memory.empire.control.policy.capabilityControl.controllerEmergencyTicks = -1;
+        }, 'invalid_controller_emergency_ticks'],
+        ['negative readiness threshold', () => {
+            Memory.empire.control.policy.capabilityControl.readiness.maxSnapshotAge = -1;
+        }, 'invalid_readiness_policy']
+    ]) {
+        setupSpawnBureauIntegrationWorld();
+        setActiveGovernorSnapshot();
+        configure();
+        bureauIntegration.analyze();
+        assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'fallback', `${label} must force a safe fallback`);
+        assert.ok(global.SpawnBureau.W1N1.arbitration.upgradeWork.reasons.includes(expectedReason), `${label} should expose its configuration reason`);
+        assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, expectedW1ShadowIntents, `${label} must preserve complete legacy intents`);
+    }
+
+    setupSpawnBureauIntegrationWorld();
+    Memory.empire.control.policy.capabilityControl.enabled = 'false';
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.effectiveMode, 'shadow', 'invalid capability policy should remain safely shadow without an active override');
+    assert.ok(global.SpawnBureau.W1N1.arbitration.upgradeWork.reasons.includes('invalid_capability_control_enabled'), 'invalid capability policy in shadow mode should remain explicitly diagnosable');
 
     setupSpawnBureauIntegrationWorld();
     setActiveGovernorSnapshot({
@@ -1598,6 +1827,14 @@ async function run() {
     assert.strictEqual(invalidCandidateState.arbitration.upgradeWork.action, 'fallback', 'an unbuildable active governor candidate must fall back');
     assert.deepStrictEqual(invalidCandidateState.intents, expectedW1ShadowIntents, 'an unbuildable candidate must leave the complete legacy intent list intact');
 
+    const duplicateBlockedState = {
+        intents: expectedW1ShadowIntents.map((intent) => ({ ...intent, body: [...intent.body], memory: { ...intent.memory } })),
+        legacyIntents: expectedW1ShadowIntents.map((intent) => ({ ...intent, body: [...intent.body], memory: { ...intent.memory } })),
+        blockedDemands: [{ role: 'upgrader', quotaKey: 'upgrader:W1N1:controller', reason: 'no_valid_body' }]
+    };
+    bureauIntegration.applyUpgradeWorkArbitration(Game.rooms.W1N1, duplicateBlockedState);
+    assert.strictEqual(duplicateBlockedState.blockedDemands.filter((entry) => entry.quotaKey === 'upgrader:W1N1:controller').length, 1, 'candidate build failure should deduplicate blocked demand records for the same quota');
+
     setupSpawnBureauIntegrationWorld();
     setActiveGovernorSnapshot({ spawnRecommendations: [] });
     Memory.empire.control.policy.telemetry = { eventLimit: 10 };
@@ -1606,7 +1843,7 @@ async function run() {
         'capability:upgradeWork': { value: 'active', reason: 'independent_room', expiresAt: 1100 }
     };
     Memory.empire.control.rooms.W2N2 = {
-        capabilityRollout: { upgradeWork: { ready: true, blockers: [] } }
+        capabilityRollout: { upgradeWork: readyRolloutAt(Game.time) }
     };
     global.RoomGovernor.W2N2 = {
         ...global.RoomGovernor.W1N1,
@@ -1649,14 +1886,15 @@ async function run() {
     bureauIntegration.analyze();
     persistedW1Control = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
     assert.strictEqual(persistedW1Control.autoSuspended, true, 'a shadow request alone must not clear suspension');
-    assert.strictEqual(persistedW1Control.rearmed, false, 'the shadow request should only prepare a later rearm');
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(persistedW1Control, 'rearmed'), false, 'the shadow request should not persist the transient rearmed flag');
 
     Memory.empire.control.policy.overrides.rooms.W1N1['capability:upgradeWork'].value = 'active';
     Game.time += 1;
     bureauIntegration.analyze();
     persistedW1Control = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
     assert.strictEqual(persistedW1Control.autoSuspended, false, 'a shadow-to-active request should rearm the suspended room');
-    assert.strictEqual(persistedW1Control.rearmed, true, 'a rearmed room should expose the transition on that tick');
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(persistedW1Control, 'rearmed'), false, 'a rearmed room should not persist the transient transition flag');
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.control.rearmed, true, 'a rearmed room should expose the transient transition in this tick global state');
     assert.strictEqual(persistedW1Control.fallbackCount, 0, 'a safe rearmed active decision should reset fallback counting');
     assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'replace', 'a safe rearmed request should resume active replacement');
     const capabilityEvents = Memory.empire.control.events.filter((event) => event.data.capability === 'upgradeWork' && event.data.roomName === 'W1N1');
@@ -1680,21 +1918,49 @@ async function run() {
     assert.strictEqual(persistedW1Control.fallbackCount, 1, 'a fallback after one safe active tick must restart counting at one');
     assert.ok(Memory.empire.control.events.length <= 4, 'capability transition events must respect telemetry eventLimit');
 
-    setupSpawnBureauIntegrationWorld();
-    setActiveGovernorSnapshot();
-    Memory.empire.control.policy.capabilityControl.enabled = false;
-    bureauIntegration.analyze();
-    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.effectiveMode, 'shadow', 'globally disabled capability control must force shadow mode');
-    assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, expectedW1ShadowIntents, 'globally disabled capability control must preserve complete legacy intents');
-    assert.strictEqual(Memory.empire.control.policy.overrides.rooms.W1N1['capability:upgradeWork'].value, 'active', 'globally disabled capability control must retain the active override request');
+    for (const [label, engageHold, releaseHold] of [
+        ['globally disabled capability control', () => {
+            Memory.empire.control.policy.capabilityControl.enabled = false;
+        }, () => {
+            Memory.empire.control.policy.capabilityControl.enabled = true;
+        }],
+        ['emergency disable', () => {
+            Memory.empire.control.policy.capabilityControl.emergencyDisable = true;
+        }, () => {
+            Memory.empire.control.policy.capabilityControl.emergencyDisable = false;
+        }]
+    ]) {
+        setupSpawnBureauIntegrationWorld();
+        setActiveGovernorSnapshot();
+        Memory.empire.control.policy.telemetry = { eventLimit: 50 };
+        engageHold();
+        for (let tick = 1000; tick < 1004; tick++) {
+            Game.time = tick;
+            global.RoomGovernor.W1N1.evaluatedAt = tick;
+            global.RoomGovernor.W1N1.staleFor = 0;
+            bureauIntegration.analyze();
+            const heldState = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
+            assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'keep', `${label} should remain a legacy hold on tick ${tick}`);
+            assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.effectiveMode, 'shadow', `${label} must force shadow mode on tick ${tick}`);
+            assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, expectedW1ShadowIntents, `${label} must preserve complete legacy intents on tick ${tick}`);
+            assert.strictEqual(heldState.requestedMode, 'active', `${label} must retain the active request on tick ${tick}`);
+            assert.strictEqual(heldState.fallbackCount, 0, `${label} must not accumulate fallback count on tick ${tick}`);
+            assert.strictEqual(heldState.autoSuspended, false, `${label} must not auto-suspend on tick ${tick}`);
+        }
+        const holdEvents = Memory.empire.control.events || [];
+        assert.strictEqual(holdEvents.some((event) => event.type === 'capability_control_fallback' || event.type === 'capability_control_suspended'), false, `${label} must not emit ordinary fallback or suspension events`);
+        assert.strictEqual(Memory.empire.control.policy.overrides.rooms.W1N1['capability:upgradeWork'].value, 'active', `${label} must retain the active override request`);
 
-    setupSpawnBureauIntegrationWorld();
-    setActiveGovernorSnapshot();
-    Memory.empire.control.policy.capabilityControl.emergencyDisable = true;
-    bureauIntegration.analyze();
-    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.effectiveMode, 'shadow', 'emergency disable must force shadow mode');
-    assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, expectedW1ShadowIntents, 'emergency disable must preserve complete legacy intents');
-    assert.strictEqual(Memory.empire.control.policy.overrides.rooms.W1N1['capability:upgradeWork'].value, 'active', 'emergency disable must retain the active override request');
+        releaseHold();
+        Game.time = 1004;
+        global.RoomGovernor.W1N1.evaluatedAt = Game.time;
+        global.RoomGovernor.W1N1.staleFor = 0;
+        bureauIntegration.analyze();
+        const releasedState = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
+        assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'replace', `${label} release should re-arbitrate the retained active request immediately`);
+        assert.strictEqual(releasedState.autoSuspended, false, `${label} release should not require a shadow-to-active rearm`);
+        assert.strictEqual((Memory.empire.control.events || []).some((event) => event.type === 'capability_control_rearmed'), false, `${label} release should not emit a rearm event`);
+    }
 
     const constructionPressureEvaluation = evaluateRoomGovernor(factsFor({
         constructionPressure: 6,

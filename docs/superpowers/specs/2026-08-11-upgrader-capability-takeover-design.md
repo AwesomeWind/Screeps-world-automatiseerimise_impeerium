@@ -91,7 +91,7 @@ shadow → active → shadow
 
 - `shadow`：采样和对比，但真实 intent 保持旧逻辑；
 - `active`：仅在 readiness 和安全门槛同时通过时允许接管；
-- `emergencyDisable`：帝国级即时停用，所有房间回到 shadow。
+- `enabled = false` 或 `emergencyDisable = true`：人工全局 hold，所有房间当 tick 采用完整旧逻辑并回到 shadow，但不清除房间 active 请求。
 
 房间级 active 请求使用统一 override 合约，包含 value、reason 和可选 expiresAt。首版不自动把 ready 房间切到 active。
 
@@ -131,6 +131,8 @@ readiness 必须同时满足：
 `legacyMatchCount` 和 `legacyMissingCount` 只用于解释旧、新决策差异，不作为必须一致的 readiness 门槛。稳定且持续的差异可能正是接管价值所在。
 
 计数器使用固定字段，不保留逐样本数组，防止 Memory 无界增长。
+
+持久化的 `ready` 只记录最近一次评估结果，不是 active 授权凭据。SpawnBureau 在每个 active 请求 tick 都必须使用完整 rollout 固定 schema、当前 Governor 快照的 lifecycle/staleFor、当前 readiness policy 与 `Game.time` 重新调用 readiness 计算。旧 schema、缺字段、非法计数或 Policy 阈值变化均按 not ready 处理。
 
 ## 5. Upgrader 接管范围
 
@@ -195,6 +197,8 @@ active 且安全门槛通过时：
 
 Governor 候选使用 Governor recommendation 的 priority，使用现有 body profile、BodyBuilder、quotaKey 和 memory。
 
+Governor 候选只在 replace 或 Controller 紧急 replace 时必需。普通 suppress 以及 Controller 紧急 keep 可以在候选为空时安全完成；目标 quota 本来为空的 suppress 也是正常 no-op，不能因此转成 fallback。
+
 ## 7. 安全底线
 
 以下任一条件成立，本 tick `effectiveMode` 立即回到 shadow 并采用完整旧 intents：
@@ -216,6 +220,8 @@ Controller 安全规则：
 - 当前和孵化中的 `upgradeWork` 都为零、且采集物流健康时，允许构造一个紧急 upgrader intent；
 - 核心采集或物流崩溃时仍优先恢复 miner/hauler，不让 Controller 逻辑抢占生存恢复。
 
+Governor 的 gap 以 WORK 能力计算，但首版每 tick 最多发布一个经济 upgrader intent。SpawnBureau 因此还要用当前 creep、accepted/upcoming 和 spawning 事实检查精确 Controller quota 是否已有履约覆盖；已有非 retiring 或 upcoming 覆盖时，不得依据同一旧 Governor 正 gap 再追加第二个 intent，本 tick保守 suppress/keep，并等待后续 Governor 快照重新计算能力 gap。
+
 这些 Controller 仲裁规则只在请求 active 时生效；shadow 模式仍完整保持旧行为。
 
 ## 8. 自动回退与暂停
@@ -226,6 +232,8 @@ Controller 安全规则：
 2. 连续 3 次 fallback：能力状态进入 `autoSuspended`，后续保持 shadow，直到人工重新请求 active。
 
 一次安全的 active 仲裁会把连续 fallback 计数清零，因此只有连续失败会触发自动暂停。
+
+人工全局 hold 不属于 fallback。hold 期间采用完整 legacy、有效模式为 shadow，并保持进入 hold 前的 `fallbackCount`、`fallbackReason`、`autoSuspended` 和 `suspendedAt`；未暂停状态不会因 hold 持续 3 tick 而自动暂停，也不记录普通 fallback/暂停事件。解除 hold 后保留的 active 请求直接重新经过 readiness 与安全仲裁，不要求额外 rearm；若进入 hold 前已经 autoSuspended，则原暂停仍然有效。
 
 状态写入：
 
@@ -244,7 +252,9 @@ Memory.empire.control.rooms[roomName].capabilityControl.upgradeWork = {
 }
 ```
 
-人工恢复必须先把房间 override 改回 shadow，再重新改为 active。检测到这个明确模式转换后清除 `autoSuspended` 和连续 fallback 计数，但仍须重新通过 readiness 与安全门槛。
+`rearmed` 和 `transitionEvents` 只属于当前 tick 的临时状态机输出，供事件边沿处理和全局观测使用，不写入 Memory。
+
+自动暂停后的人工恢复必须先把房间 override 改回 shadow，再重新改为 active。检测到这个明确模式转换后清除 `autoSuspended` 和连续 fallback 计数，但仍须重新通过 readiness 与安全门槛。
 
 回退不删除 creep、任务、Governor 快照、旧 intent 公式或 rollout 样本。
 

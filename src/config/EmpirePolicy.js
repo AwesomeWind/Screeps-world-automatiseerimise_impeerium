@@ -107,9 +107,67 @@ export function resolvePolicy(key, context = {}, fallback) {
     return policy[key] === undefined ? fallback : policy[key];
 }
 
+function isRecord(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isNonNegativeFinite(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function isUnitRatio(value) {
+    return isNonNegativeFinite(value) && value <= 1;
+}
+
+function isValidReadinessPolicy(readiness) {
+    return isRecord(readiness) &&
+        Number.isSafeInteger(readiness.minSamples) && readiness.minSamples >= 0 &&
+        isUnitRatio(readiness.minKnownRatio) &&
+        isUnitRatio(readiness.maxCriticalRatio) &&
+        isUnitRatio(readiness.maxFlipRatio) &&
+        isNonNegativeFinite(readiness.maxSnapshotAge);
+}
+
+export function validateCapabilityControlPolicy(policy) {
+    if (!isRecord(policy)) return ['invalid_capability_control_policy'];
+    const blockers = [];
+    if (typeof policy.enabled !== 'boolean') blockers.push('invalid_capability_control_enabled');
+    if (typeof policy.emergencyDisable !== 'boolean') blockers.push('invalid_capability_control_emergency_disable');
+    if (!Number.isSafeInteger(policy.fallbackSuspendCount) || policy.fallbackSuspendCount <= 0) {
+        blockers.push('invalid_fallback_suspend_count');
+    }
+    if (!isNonNegativeFinite(policy.controllerEmergencyTicks)) blockers.push('invalid_controller_emergency_ticks');
+    if (!isValidReadinessPolicy(policy.readiness)) blockers.push('invalid_readiness_policy');
+    const upgradeWork = policy.capabilities && policy.capabilities.upgradeWork;
+    if (!isRecord(upgradeWork) || !['shadow', 'active'].includes(upgradeWork.defaultMode)) {
+        blockers.push('invalid_upgrade_work_default_mode');
+    }
+    return blockers;
+}
+
 function resolveCapabilityOverride(entry, source) {
-    if (!entry || typeof entry !== 'object' || entry.expiresAt < Game.time) return null;
-    if (entry.value !== 'shadow' && entry.value !== 'active') return null;
+    const blockers = [];
+    if (!isRecord(entry)) blockers.push('invalid_capability_override');
+    if (isRecord(entry) && entry.value !== 'shadow' && entry.value !== 'active') {
+        blockers.push('invalid_capability_override_value');
+    }
+    if (isRecord(entry) && entry.value === 'active' &&
+        (typeof entry.reason !== 'string' || entry.reason.trim().length === 0)) {
+        blockers.push('invalid_capability_override_reason');
+    }
+    if (isRecord(entry) && entry.expiresAt !== undefined && !isNonNegativeFinite(entry.expiresAt)) {
+        blockers.push('invalid_capability_override_expires_at');
+    }
+    if (blockers.length > 0) {
+        return {
+            value: isRecord(entry) && entry.value === 'active' ? 'active' : 'shadow',
+            source,
+            reason: isRecord(entry) ? entry.reason : undefined,
+            expiresAt: isRecord(entry) ? entry.expiresAt : undefined,
+            blockers
+        };
+    }
+    if (entry.expiresAt !== undefined && entry.expiresAt < Game.time) return null;
     return {
         value: entry.value,
         source,
@@ -134,10 +192,14 @@ export function resolveCapabilityMode(roomName, capability) {
     const roomOverrides = policy && policy.overrides && policy.overrides.rooms
         ? policy.overrides.rooms[roomName]
         : null;
-    const roomMode = roomOverrides && resolveCapabilityOverride(roomOverrides[key], 'room');
+    const roomMode = roomOverrides && Object.prototype.hasOwnProperty.call(roomOverrides, key)
+        ? resolveCapabilityOverride(roomOverrides[key], 'room')
+        : null;
     if (roomMode) return roomMode;
     const empireOverrides = policy && policy.overrides ? policy.overrides.empire : null;
-    const empireMode = empireOverrides && resolveCapabilityOverride(empireOverrides[key], 'empire');
+    const empireMode = empireOverrides && Object.prototype.hasOwnProperty.call(empireOverrides, key)
+        ? resolveCapabilityOverride(empireOverrides[key], 'empire')
+        : null;
     if (empireMode) return empireMode;
     return {
         value: fallback,

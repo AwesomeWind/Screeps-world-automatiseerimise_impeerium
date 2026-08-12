@@ -52,9 +52,10 @@
   ```
 
   `expiresAt` 可省略；`reason` 应说明试点原因，便于回溯。
-- 将 `policy.capabilityControl.emergencyDisable` 设为 `true` 会在该 tick 立即把所有房间有效模式回退为 `shadow`，并保留既有 active 请求，待人工关闭紧急停用后再按正常安全门槛判断。
-- 连续 fallback 达阈值后会进入 `autoSuspended`。恢复不是直接再次写 `active`：必须先显式改为 `shadow`，再显式改回 `active`，随后仍需重新通过 readiness 和安全门槛。
+- 将 `policy.capabilityControl.enabled` 设为 `false`，或将 `emergencyDisable` 设为 `true`，都表示人工全局 hold：该 tick 立即采用完整旧逻辑并把有效模式置为 `shadow`，但保留既有 active 请求、`fallbackCount` 和 `autoSuspended` 状态。hold 期间不累计 fallback、不触发自动暂停，也不记录普通 fallback/暂停事件。
+- 解除全局 hold 后，未暂停房间会以原 active 请求重新经过 readiness 和全部安全门槛，不要求额外执行 `shadow -> active`。只有此前已经进入 `autoSuspended` 的房间仍需先显式改为 `shadow`，再显式改回 `active` 才能恢复。
 - readiness 的比较和采样始终以 `legacyIntents` 为基线，不以已经仲裁后的 intent 作为基线。
+- active 仲裁每 tick 都用完整 rollout 固定 schema、当前 Governor 生命周期/新鲜度和当前 readiness policy 重新计算 readiness；持久化的 `ready: true` 只是上次评估结果，不能单独授权接管。
 - 真实试点尚未执行：先保持单房 `shadow`，积累至少 50 个完整样本且 `ready === true`；再显式启用该房 `active` 并观察至少 500 ticks。验收前不得扩大到第二个房间，也不得接管 builder、repairer 或其他能力。
 
 ## 目录职责
