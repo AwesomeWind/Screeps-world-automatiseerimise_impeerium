@@ -1,4 +1,6 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
 async function run() {
     global.Game = { time: 100 };
@@ -30,6 +32,338 @@ async function run() {
         appendCapabilitySample,
         evaluateCapabilityReadiness
     } = await import('../governance/CapabilityRolloutReadiness.js');
+    const {
+        arbitrateUpgradeWork,
+        advanceUpgradeWorkControl
+    } = await import('../governance/SpawnCapabilityArbiter.js');
+
+    const legacyUpgradeIntent = {
+        role: 'upgrader',
+        quotaKey: 'upgrader:W1N1:controller',
+        priority: 35,
+        body: ['work', 'carry', 'move'],
+        memory: { role: 'upgrader', homeRoom: 'W1N1' }
+    };
+    const legacyHaulerIntent = {
+        role: 'hauler',
+        quotaKey: 'hauler:W1N1:source1',
+        priority: 45,
+        body: ['carry', 'move']
+    };
+    const governorUpgradeCandidate = {
+        role: 'upgrader',
+        quotaKey: 'upgrader:W1N1:controller',
+        priority: 36,
+        body: ['work', 'work', 'carry', 'move'],
+        memory: { role: 'upgrader', homeRoom: 'W1N1', source: 'governor' }
+    };
+    const safeArbitrationInput = {
+        roomName: 'W1N1',
+        legacyIntents: [legacyHaulerIntent, legacyUpgradeIntent],
+        governorCandidate: governorUpgradeCandidate,
+        governorDecision: {
+            gap: 2,
+            budgetBlocked: false,
+            priority: 36,
+            current: 1,
+            spawning: 0,
+            reasons: ['upgrade_gap']
+        },
+        readiness: { ready: true, blockers: [] },
+        safety: {
+            emergencyDisable: false,
+            snapshotPresent: true,
+            snapshotFresh: true,
+            coreHealthy: true,
+            lifecycleEligible: true,
+            cpuMode: 'normal',
+            controllerEmergency: false,
+            autoSuspended: false
+        },
+        requestedMode: 'active'
+    };
+    const shadowArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        requestedMode: 'shadow'
+    });
+    assert.strictEqual(shadowArbitration.action, 'keep', 'shadow arbitration should keep legacy intents');
+    assert.strictEqual(shadowArbitration.adoptedSource, 'legacy', 'shadow arbitration should adopt the legacy source');
+    assert.strictEqual(shadowArbitration.effectiveMode, 'shadow', 'shadow arbitration should remain in shadow mode');
+    assert.deepStrictEqual(shadowArbitration.intents, safeArbitrationInput.legacyIntents, 'shadow arbitration should return the complete legacy intents');
+    assert.notStrictEqual(shadowArbitration.intents, safeArbitrationInput.legacyIntents, 'shadow arbitration should return a new intents array');
+
+    const externalUpgradeIntent = {
+        role: 'upgrader',
+        quotaKey: 'upgrader:W2N2:controller',
+        priority: 34,
+        body: ['work', 'carry', 'move']
+    };
+    const secondLocalUpgradeIntent = {
+        ...legacyUpgradeIntent,
+        priority: 33,
+        marker: 'duplicate-local-quota'
+    };
+    const replaceLegacyIntents = [legacyHaulerIntent, legacyUpgradeIntent, externalUpgradeIntent, secondLocalUpgradeIntent];
+    const replaceArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        legacyIntents: replaceLegacyIntents
+    });
+    assert.strictEqual(replaceArbitration.action, 'replace', 'safe active arbitration should replace the target quota when a gap exists');
+    assert.strictEqual(replaceArbitration.adoptedSource, 'governor', 'safe active replacement should adopt the governor source');
+    assert.strictEqual(replaceArbitration.effectiveMode, 'active', 'safe active replacement should remain active');
+    assert.deepStrictEqual(replaceArbitration.intents, [legacyHaulerIntent, governorUpgradeCandidate, externalUpgradeIntent], 'replacement should occupy the first target position and preserve all non-target intent order');
+    assert.strictEqual(replaceArbitration.intents[0], legacyHaulerIntent, 'replacement should preserve unrelated intent objects');
+    assert.strictEqual(replaceArbitration.intents[2], externalUpgradeIntent, 'replacement should preserve external upgrader demand');
+
+    const suppressLegacyIntents = [legacyUpgradeIntent, legacyHaulerIntent, externalUpgradeIntent, secondLocalUpgradeIntent];
+    const budgetSuppressArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        legacyIntents: suppressLegacyIntents,
+        governorDecision: { ...safeArbitrationInput.governorDecision, budgetBlocked: true }
+    });
+    assert.strictEqual(budgetSuppressArbitration.action, 'suppress', 'a blocked upgrade budget should suppress the target quota');
+    assert.strictEqual(budgetSuppressArbitration.adoptedSource, 'governor', 'safe suppression should adopt the governor decision');
+    assert.deepStrictEqual(budgetSuppressArbitration.intents, [legacyHaulerIntent, externalUpgradeIntent], 'budget suppression should remove only the exact target quota');
+    const coveredSuppressArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        legacyIntents: suppressLegacyIntents,
+        governorDecision: { ...safeArbitrationInput.governorDecision, gap: 0 }
+    });
+    assert.strictEqual(coveredSuppressArbitration.action, 'suppress', 'a covered upgrade capability should suppress the target quota');
+    assert.deepStrictEqual(coveredSuppressArbitration.intents, [legacyHaulerIntent, externalUpgradeIntent], 'covered capability suppression should preserve unrelated intent order');
+
+    const fallbackCases = [
+        ['null gap', { governorDecision: { ...safeArbitrationInput.governorDecision, gap: null } }],
+        ['missing snapshot', { safety: { ...safeArbitrationInput.safety, snapshotPresent: false } }],
+        ['stale snapshot', { safety: { ...safeArbitrationInput.safety, snapshotFresh: false } }],
+        ['core critical', { safety: { ...safeArbitrationInput.safety, coreHealthy: false } }],
+        ['ineligible lifecycle', { safety: { ...safeArbitrationInput.safety, lifecycleEligible: false } }],
+        ['critical CPU', { safety: { ...safeArbitrationInput.safety, cpuMode: 'critical' } }],
+        ['not ready', { readiness: { ready: false, blockers: ['insufficient_samples'] } }],
+        ['emergency disable', { safety: { ...safeArbitrationInput.safety, emergencyDisable: true } }],
+        ['automatic suspension', { safety: { ...safeArbitrationInput.safety, autoSuspended: true } }],
+        ['invalid decision field', { governorDecision: { ...safeArbitrationInput.governorDecision, current: -1 } }],
+        ['empty candidate body', { governorCandidate: { ...governorUpgradeCandidate, body: [] } }],
+        ['missing candidate memory', { governorCandidate: { ...governorUpgradeCandidate, memory: undefined } }],
+        ['candidate priority mismatch', { governorCandidate: { ...governorUpgradeCandidate, priority: 37 } }]
+    ];
+    for (const [label, override] of fallbackCases) {
+        const fallbackArbitration = arbitrateUpgradeWork({
+            ...safeArbitrationInput,
+            ...override
+        });
+        assert.strictEqual(fallbackArbitration.action, 'fallback', `${label} should fall back`);
+        assert.strictEqual(fallbackArbitration.effectiveMode, 'fallback', `${label} should expose fallback as the effective mode`);
+        assert.strictEqual(fallbackArbitration.adoptedSource, 'legacy', `${label} should adopt the legacy source`);
+        assert.deepStrictEqual(fallbackArbitration.intents, safeArbitrationInput.legacyIntents, `${label} should return the complete legacy intents`);
+        assert.notStrictEqual(fallbackArbitration.intents, safeArbitrationInput.legacyIntents, `${label} should return a new intents array`);
+        assert.ok(fallbackArbitration.reasons.length > 0, `${label} should explain the fallback`);
+    }
+
+    const emergencyKeepArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        governorDecision: { ...safeArbitrationInput.governorDecision, gap: 0 },
+        safety: { ...safeArbitrationInput.safety, controllerEmergency: true }
+    });
+    assert.strictEqual(emergencyKeepArbitration.action, 'keep', 'controller emergency should keep a legacy upgrader instead of suppressing it');
+    assert.strictEqual(emergencyKeepArbitration.adoptedSource, 'legacy', 'controller emergency keep should adopt legacy');
+    assert.deepStrictEqual(emergencyKeepArbitration.intents, safeArbitrationInput.legacyIntents, 'controller emergency keep should preserve the complete legacy list');
+    assert.ok(emergencyKeepArbitration.reasons.includes('controller_emergency_keep_legacy'), 'controller emergency keep should expose its safety reason');
+
+    const emergencyReplaceArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        legacyIntents: [legacyHaulerIntent],
+        governorDecision: {
+            ...safeArbitrationInput.governorDecision,
+            gap: 0,
+            budgetBlocked: true,
+            current: 0,
+            spawning: 0
+        },
+        safety: { ...safeArbitrationInput.safety, controllerEmergency: true }
+    });
+    assert.strictEqual(emergencyReplaceArbitration.action, 'replace', 'an uncovered controller emergency should allow a valid governor candidate');
+    assert.strictEqual(emergencyReplaceArbitration.adoptedSource, 'governor', 'an uncovered controller emergency should adopt the governor candidate');
+    assert.deepStrictEqual(emergencyReplaceArbitration.intents, [legacyHaulerIntent, governorUpgradeCandidate], 'an emergency candidate should append when no target quota exists');
+
+    const fallbackDecision = {
+        requestedMode: 'active',
+        effectiveMode: 'fallback',
+        adoptedSource: 'legacy',
+        action: 'fallback',
+        reasons: ['snapshot_stale']
+    };
+    const fallbackControl1 = advanceUpgradeWorkControl({
+        previous: null,
+        requestedMode: 'active',
+        decision: fallbackDecision,
+        fallbackSuspendCount: 3,
+        tick: 100
+    });
+    assert.strictEqual(fallbackControl1.fallbackCount, 1, 'the first consecutive fallback should set the fallback count to one');
+    assert.strictEqual(fallbackControl1.autoSuspended, false, 'the first fallback should not suspend control');
+    const fallbackControl2 = advanceUpgradeWorkControl({
+        previous: fallbackControl1,
+        requestedMode: 'active',
+        decision: fallbackDecision,
+        fallbackSuspendCount: 3,
+        tick: 101
+    });
+    assert.strictEqual(fallbackControl2.fallbackCount, 2, 'the second consecutive fallback should increment the fallback count');
+    const fallbackControl3 = advanceUpgradeWorkControl({
+        previous: fallbackControl2,
+        requestedMode: 'active',
+        decision: fallbackDecision,
+        fallbackSuspendCount: 3,
+        tick: 102
+    });
+    assert.strictEqual(fallbackControl3.fallbackCount, 3, 'the third consecutive fallback should increment the fallback count');
+    assert.strictEqual(fallbackControl3.fallbackReason, 'snapshot_stale', 'fallback control should retain the leading fallback reason');
+    assert.strictEqual(fallbackControl3.autoSuspended, true, 'the third consecutive fallback should automatically suspend active control');
+    assert.strictEqual(fallbackControl3.suspendedAt, 102, 'automatic suspension should record the transition tick');
+    assert.deepStrictEqual(fallbackControl3.transitionEvents.map((event) => event.type), ['upgrade_work_auto_suspended'], 'automatic suspension should expose one transition event');
+    assert.deepStrictEqual(Object.keys(fallbackControl3).sort(), [
+        'action',
+        'adoptedSource',
+        'autoSuspended',
+        'effectiveMode',
+        'fallbackCount',
+        'fallbackReason',
+        'lastDecisionAt',
+        'rearmed',
+        'reasons',
+        'requestedMode',
+        'suspendedAt',
+        'transitionEvents'
+    ], 'upgrade work control should expose only the fixed persistence schema plus transition outputs');
+
+    const activeDecision = {
+        requestedMode: 'active',
+        effectiveMode: 'active',
+        adoptedSource: 'governor',
+        action: 'replace',
+        reasons: ['upgrade_gap']
+    };
+    const recoveredActiveControl = advanceUpgradeWorkControl({
+        previous: fallbackControl2,
+        requestedMode: 'active',
+        decision: activeDecision,
+        fallbackSuspendCount: 3,
+        tick: 102
+    });
+    assert.strictEqual(recoveredActiveControl.fallbackCount, 0, 'one safe active decision should clear the consecutive fallback count');
+    assert.strictEqual(recoveredActiveControl.fallbackReason, null, 'one safe active decision should clear the fallback reason');
+    assert.strictEqual(recoveredActiveControl.autoSuspended, false, 'a safe active decision before the threshold should remain unsuspended');
+
+    const stillSuspendedControl = advanceUpgradeWorkControl({
+        previous: fallbackControl3,
+        requestedMode: 'active',
+        decision: activeDecision,
+        fallbackSuspendCount: 3,
+        tick: 103
+    });
+    assert.strictEqual(stillSuspendedControl.autoSuspended, true, 'an active request should remain paused after automatic suspension');
+    assert.strictEqual(stillSuspendedControl.fallbackCount, 3, 'an active request should not erase the fallback count while paused');
+    assert.strictEqual(stillSuspendedControl.fallbackReason, 'snapshot_stale', 'an active request should retain the suspension reason while paused');
+    assert.strictEqual(stillSuspendedControl.suspendedAt, 102, 'an active request should retain the original suspension tick');
+    assert.strictEqual(stillSuspendedControl.rearmed, false, 'a repeated active request should not rearm control');
+
+    const shadowDecision = {
+        requestedMode: 'shadow',
+        effectiveMode: 'shadow',
+        adoptedSource: 'legacy',
+        action: 'keep',
+        reasons: []
+    };
+    const suspendedShadowControl = advanceUpgradeWorkControl({
+        previous: stillSuspendedControl,
+        requestedMode: 'shadow',
+        decision: shadowDecision,
+        fallbackSuspendCount: 3,
+        tick: 104
+    });
+    assert.strictEqual(suspendedShadowControl.requestedMode, 'shadow', 'a suspended control should record the explicit shadow request');
+    assert.strictEqual(suspendedShadowControl.autoSuspended, true, 'one shadow tick should not clear automatic suspension');
+    assert.strictEqual(suspendedShadowControl.fallbackCount, 3, 'one shadow tick should retain the suspension count');
+    assert.strictEqual(suspendedShadowControl.fallbackReason, 'snapshot_stale', 'one shadow tick should retain the suspension reason');
+    assert.strictEqual(suspendedShadowControl.suspendedAt, 102, 'one shadow tick should retain the suspension tick');
+    assert.strictEqual(suspendedShadowControl.rearmed, false, 'a shadow request alone should not report rearming');
+    assert.deepStrictEqual(suspendedShadowControl.transitionEvents, [], 'a shadow request alone should not emit a transition event');
+
+    const rearmedActiveControl = advanceUpgradeWorkControl({
+        previous: suspendedShadowControl,
+        requestedMode: 'active',
+        decision: activeDecision,
+        fallbackSuspendCount: 3,
+        tick: 105
+    });
+    assert.strictEqual(rearmedActiveControl.requestedMode, 'active', 'the rearmed control should record the active request');
+    assert.strictEqual(rearmedActiveControl.autoSuspended, false, 'an explicit shadow to active transition should clear automatic suspension');
+    assert.strictEqual(rearmedActiveControl.fallbackCount, 0, 'rearming with a safe active decision should clear fallback count');
+    assert.strictEqual(rearmedActiveControl.fallbackReason, null, 'rearming should clear the stored fallback reason');
+    assert.strictEqual(rearmedActiveControl.suspendedAt, null, 'rearming should clear the suspension tick');
+    assert.strictEqual(rearmedActiveControl.rearmed, true, 'an explicit shadow to active transition should report rearming');
+    assert.deepStrictEqual(rearmedActiveControl.transitionEvents.map((event) => event.type), ['upgrade_work_rearmed'], 'rearming should expose exactly one transition event');
+
+    const frozenLegacyIntents = Object.freeze([
+        Object.freeze({ ...legacyHaulerIntent, body: Object.freeze([...legacyHaulerIntent.body]) }),
+        Object.freeze({
+            ...legacyUpgradeIntent,
+            body: Object.freeze([...legacyUpgradeIntent.body]),
+            memory: Object.freeze({ ...legacyUpgradeIntent.memory })
+        })
+    ]);
+    const frozenGovernorCandidate = Object.freeze({
+        ...governorUpgradeCandidate,
+        body: Object.freeze([...governorUpgradeCandidate.body]),
+        memory: Object.freeze({ ...governorUpgradeCandidate.memory })
+    });
+    const frozenGovernorDecision = Object.freeze({
+        ...safeArbitrationInput.governorDecision,
+        reasons: Object.freeze([...safeArbitrationInput.governorDecision.reasons])
+    });
+    const frozenReadiness = Object.freeze({ ready: true, blockers: Object.freeze([]) });
+    const frozenSafety = Object.freeze({ ...safeArbitrationInput.safety });
+    const frozenArbitrationInput = Object.freeze({
+        ...safeArbitrationInput,
+        legacyIntents: frozenLegacyIntents,
+        governorCandidate: frozenGovernorCandidate,
+        governorDecision: frozenGovernorDecision,
+        readiness: frozenReadiness,
+        safety: frozenSafety
+    });
+    const frozenInputSnapshot = JSON.stringify(frozenArbitrationInput);
+    const frozenArbitration = arbitrateUpgradeWork(frozenArbitrationInput);
+    assert.strictEqual(JSON.stringify(frozenArbitrationInput), frozenInputSnapshot, 'arbitration should not mutate deeply frozen input objects');
+    assert.notStrictEqual(frozenArbitration.intents, frozenLegacyIntents, 'arbitration should return a new intents array for frozen input');
+    assert.notStrictEqual(frozenArbitration.reasons, frozenGovernorDecision.reasons, 'arbitration should return a new reasons array for frozen input');
+
+    const frozenPreviousControl = Object.freeze({
+        ...fallbackControl2,
+        reasons: Object.freeze([...fallbackControl2.reasons]),
+        transitionEvents: Object.freeze([...fallbackControl2.transitionEvents])
+    });
+    const frozenActiveDecision = Object.freeze({
+        ...activeDecision,
+        reasons: Object.freeze([...activeDecision.reasons])
+    });
+    const frozenControlSnapshot = JSON.stringify({ frozenPreviousControl, frozenActiveDecision });
+    const frozenAdvancedControl = advanceUpgradeWorkControl({
+        previous: frozenPreviousControl,
+        requestedMode: 'active',
+        decision: frozenActiveDecision,
+        fallbackSuspendCount: 3,
+        tick: 106
+    });
+    assert.strictEqual(JSON.stringify({ frozenPreviousControl, frozenActiveDecision }), frozenControlSnapshot, 'control advancement should not mutate deeply frozen inputs');
+    assert.notStrictEqual(frozenAdvancedControl.reasons, frozenActiveDecision.reasons, 'control advancement should return a new reasons array');
+    assert.notStrictEqual(frozenAdvancedControl.transitionEvents, frozenPreviousControl.transitionEvents, 'control advancement should return a new transition event array');
+
+    const forbiddenCapabilityDependency = /\b(Game|Memory|global|EventBus)\b|REQ_SPAWN|\.spawnCreep\s*\(/;
+    for (const sourceFile of ['SpawnCapabilityArbiter.js', 'CapabilityRolloutReadiness.js']) {
+        const sourceText = fs.readFileSync(path.join(__dirname, '..', 'governance', sourceFile), 'utf8');
+        assert.strictEqual(forbiddenCapabilityDependency.test(sourceText), false, `${sourceFile} should remain independent of runtime and spawn side effects`);
+    }
     const readinessPolicy = DEFAULT_EMPIRE_POLICY.capabilityControl.readiness;
     const healthyCapabilitySample = {
         known: true,
