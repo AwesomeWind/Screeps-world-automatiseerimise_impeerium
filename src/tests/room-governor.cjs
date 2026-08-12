@@ -415,6 +415,30 @@ async function run() {
     assert.strictEqual(rearmedFallbackControl.rearmed, true, 'a fallback decision should not hide the explicit rearm transition');
     assert.deepStrictEqual(rearmedFallbackControl.transitionEvents.map((event) => event.type), ['upgrade_work_rearmed'], 'a fallback on the rearm tick should emit only the rearm event');
 
+    const thresholdOneRearmedFallback = advanceUpgradeWorkControl({
+        previous: suspendedShadowControl,
+        requestedMode: 'active',
+        decision: fallbackDecision,
+        fallbackSuspendCount: 1,
+        tick: 105
+    });
+    assert.strictEqual(thresholdOneRearmedFallback.fallbackCount, 1, 'a threshold-one fallback on the rearm tick should count the current fallback once');
+    assert.strictEqual(thresholdOneRearmedFallback.autoSuspended, false, 'a rearm tick should never immediately suspend even when the fallback threshold is one');
+    assert.strictEqual(thresholdOneRearmedFallback.rearmed, true, 'a threshold-one fallback should retain the rearm transition');
+    assert.deepStrictEqual(thresholdOneRearmedFallback.transitionEvents.map((event) => event.type), ['upgrade_work_rearmed'], 'a threshold-one fallback on the rearm tick should emit only rearmed');
+
+    const thresholdOneNextFallback = advanceUpgradeWorkControl({
+        previous: thresholdOneRearmedFallback,
+        requestedMode: 'active',
+        decision: fallbackDecision,
+        fallbackSuspendCount: 1,
+        tick: 106
+    });
+    assert.strictEqual(thresholdOneNextFallback.fallbackCount, 2, 'the next fallback after rearming should continue the new fallback sequence');
+    assert.strictEqual(thresholdOneNextFallback.autoSuspended, true, 'the next fallback after rearming should apply the configured threshold');
+    assert.strictEqual(thresholdOneNextFallback.rearmed, false, 'the next active fallback should not report another rearm');
+    assert.deepStrictEqual(thresholdOneNextFallback.transitionEvents.map((event) => event.type), ['upgrade_work_auto_suspended'], 'the next fallback after rearming should emit the suspension transition');
+
     const frozenLegacyIntents = Object.freeze([
         Object.freeze({ ...legacyHaulerIntent, body: Object.freeze([...legacyHaulerIntent.body]) }),
         Object.freeze({

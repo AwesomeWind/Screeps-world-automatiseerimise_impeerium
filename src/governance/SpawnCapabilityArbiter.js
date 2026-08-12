@@ -204,7 +204,7 @@ export function advanceUpgradeWorkControl({
     const suspendThreshold = Number.isSafeInteger(fallbackSuspendCount) && fallbackSuspendCount > 0
         ? fallbackSuspendCount
         : DEFAULT_FALLBACK_SUSPEND_COUNT;
-    const autoSuspended = lockedSuspended || fallbackCount >= suspendThreshold;
+    const autoSuspended = lockedSuspended || (!rearmed && fallbackCount >= suspendThreshold);
     const newlySuspended = !lockedSuspended && autoSuspended;
     const reasons = [...effectiveDecision.reasons];
     const transitionEvents = [];
