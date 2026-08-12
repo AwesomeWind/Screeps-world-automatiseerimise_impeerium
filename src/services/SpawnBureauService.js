@@ -1,6 +1,8 @@
 import BaseService from '../core/BaseService.js';
 import EventBus from '../core/EventBus.js';
 import BodyBuilder from '../core/BodyBuilder.js';
+import { resolveCapabilityMode } from '../config/EmpirePolicy.js';
+import { arbitrateUpgradeWork } from '../governance/SpawnCapabilityArbiter.js';
 import { getSourceOutputPolicy } from '../planning/CityAssetPolicy.js';
 import { getControllerContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
 import { shouldUseStrictSourceRuntime } from '../planning/RuntimeReadiness.js';
@@ -25,6 +27,14 @@ class SpawnBureauService extends BaseService {
 
             this.addEconomicIntents(room, state);
             this.addDemandIntents(room, state);
+
+            state.legacyIntents = state.intents.map((intent) => ({
+                ...intent,
+                body: [...intent.body],
+                memory: { ...intent.memory }
+            }));
+            state.legacyIntents.sort((a, b) => b.priority - a.priority);
+            this.applyUpgradeWorkArbitration(room, state);
 
             state.intents.sort((a, b) => b.priority - a.priority);
             for (const intent of state.intents) {
@@ -187,6 +197,11 @@ class SpawnBureauService extends BaseService {
     addIntent(room, state, intent) {
         if (state.intents.some((planned) => planned.quotaKey === intent.quotaKey)) return;
 
+        const builtIntent = this.buildIntent(room, state, intent);
+        if (builtIntent) state.intents.push(builtIntent);
+    }
+
+    buildIntent(room, state, intent) {
         const roomPhase = this.roomPhase(room);
         const bodySpec = BodyBuilder.build(intent.role, room, {
             phase: roomPhase.phase,
@@ -199,10 +214,10 @@ class SpawnBureauService extends BaseService {
                 quotaKey: intent.quotaKey,
                 reason: 'no_valid_body'
             });
-            return;
+            return null;
         }
 
-        state.intents.push({
+        return {
             roomName: room.name,
             role: intent.role,
             quotaKey: intent.quotaKey,
@@ -211,7 +226,88 @@ class SpawnBureauService extends BaseService {
             body: bodySpec.body,
             memory: Object.assign({ quotaKey: intent.quotaKey }, intent.memory),
             reason: intent.reason
+        };
+    }
+
+    applyUpgradeWorkArbitration(room, state) {
+        const mode = resolveCapabilityMode(room.name, 'upgradeWork');
+        const requestedMode = mode && mode.value;
+        const snapshot = global.RoomGovernor && global.RoomGovernor[room.name];
+        const control = typeof Memory !== 'undefined' && Memory.empire && Memory.empire.control;
+        const capabilityControl = control && control.policy && control.policy.capabilityControl;
+        const readiness = control && control.rooms && control.rooms[room.name] &&
+            control.rooms[room.name].capabilityRollout && control.rooms[room.name].capabilityRollout.upgradeWork;
+        const upgradeRecommendation = snapshot && Array.isArray(snapshot.spawnRecommendations)
+            ? snapshot.spawnRecommendations.find((recommendation) => recommendation.capability === 'upgradeWork')
+            : null;
+        const controllerEmergencyKnown = snapshot && Number.isFinite(snapshot.controllerTicksToDowngrade) &&
+            capabilityControl && Number.isFinite(capabilityControl.controllerEmergencyTicks);
+        const controllerEmergency = controllerEmergencyKnown &&
+            snapshot.controllerTicksToDowngrade < capabilityControl.controllerEmergencyTicks;
+        const candidatePriority = upgradeRecommendation && Number.isFinite(upgradeRecommendation.priority)
+            ? upgradeRecommendation.priority
+            : controllerEmergency ? 60 : undefined;
+        const governorCandidate = requestedMode === 'active' && Number.isFinite(candidatePriority)
+            ? this.buildIntent(room, state, {
+                role: 'upgrader',
+                quotaKey: `upgrader:${room.name}:controller`,
+                priority: candidatePriority,
+                bodyProfile: this.upgraderBodyProfile(room),
+                memory: { role: 'upgrader', homeRoom: room.name },
+                reason: 'controller_progress'
+            })
+            : null;
+        const health = snapshot && snapshot.health;
+        const coreHealth = health && [health.survival, health.harvest, health.logistics];
+        const readinessPolicy = capabilityControl && capabilityControl.readiness;
+        const safety = {
+            emergencyDisable: capabilityControl && typeof capabilityControl.emergencyDisable === 'boolean'
+                ? capabilityControl.emergencyDisable
+                : undefined,
+            snapshotPresent: !!snapshot && controllerEmergencyKnown,
+            snapshotFresh: !!snapshot && Number.isFinite(snapshot.staleFor) && readinessPolicy &&
+                Number.isFinite(readinessPolicy.maxSnapshotAge) && snapshot.staleFor <= readinessPolicy.maxSnapshotAge,
+            coreHealthy: Array.isArray(coreHealth) && coreHealth.every((entry) => entry &&
+                entry.status !== 'critical' && entry.status !== 'unknown'),
+            lifecycleEligible: !!snapshot && ['self_sufficient', 'developing', 'mature', 'industrial'].includes(snapshot.lifecycle),
+            cpuMode: control && control.runtime ? control.runtime.cpuMode : undefined,
+            controllerEmergency,
+            autoSuspended: false
+        };
+        const upgradeCapability = snapshot && snapshot.capabilities && snapshot.capabilities.upgradeWork;
+        const upgradeBudget = snapshot && snapshot.budgets && snapshot.budgets.upgrade;
+        const governorDecision = {
+            gap: upgradeCapability && upgradeCapability.gap,
+            budgetBlocked: upgradeBudget && typeof upgradeBudget.blocked === 'boolean'
+                ? upgradeBudget.blocked
+                : undefined,
+            priority: candidatePriority,
+            current: upgradeCapability && upgradeCapability.current,
+            spawning: upgradeCapability && upgradeCapability.spawning,
+            reasons: upgradeRecommendation && Array.isArray(upgradeRecommendation.reasons)
+                ? upgradeRecommendation.reasons
+                : []
+        };
+        const decision = arbitrateUpgradeWork({
+            roomName: room.name,
+            legacyIntents: state.legacyIntents,
+            governorCandidate,
+            governorDecision,
+            readiness: readiness ? {
+                ready: readiness.ready,
+                blockers: readiness.blockers
+            } : undefined,
+            safety,
+            requestedMode
         });
+        state.intents = decision.intents;
+        state.arbitration = {
+            ...(state.arbitration || {}),
+            upgradeWork: {
+                ...decision,
+                mode
+            }
+        };
     }
 
     upgraderBodyProfile(room) {

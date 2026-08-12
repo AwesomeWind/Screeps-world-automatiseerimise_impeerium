@@ -1254,6 +1254,154 @@ async function run() {
         bodyProfileMismatches: 0
     }, 'metrics should summarize comparison counts without duplicating full evidence');
 
+    const { default: SpawnBureauService } = await import('../services/SpawnBureauService.js');
+    global.CLAIM = 'claim';
+    global.ATTACK = 'attack';
+    global.RANGED_ATTACK = 'ranged_attack';
+    global.HEAL = 'heal';
+    global.TOUGH = 'tough';
+    global.BODYPART_COST = { work: 100, carry: 50, move: 50, claim: 600, attack: 80, ranged_attack: 150, heal: 250, tough: 10 };
+    global.FIND_SOURCES = 3;
+    global.FIND_STRUCTURES = 4;
+    global.FIND_CONSTRUCTION_SITES = 5;
+    global.STRUCTURE_CONTAINER = 'container';
+    const integrationRoom = (name) => ({
+        name,
+        controller: { my: true, ticksToDowngrade: 12000, pos: { x: 25, y: 25, roomName: name } },
+        energyAvailable: 550,
+        energyCapacityAvailable: 550,
+        find: (type) => type === FIND_CONSTRUCTION_SITES ? [{ id: `${name}:site` }] : []
+    });
+    const setupSpawnBureauIntegrationWorld = () => {
+        Game.time = 1000;
+        Game.rooms = { W1N1: integrationRoom('W1N1'), W2N2: integrationRoom('W2N2') };
+        Game.creeps = {
+            W1Miner: { memory: { role: 'miner', homeRoom: 'W1N1' }, body: [{ type: WORK }, { type: MOVE }] },
+            W1Hauler: { memory: { role: 'hauler', homeRoom: 'W1N1' }, body: [{ type: CARRY }, { type: MOVE }] },
+            W2Miner: { memory: { role: 'miner', homeRoom: 'W2N2' }, body: [{ type: WORK }, { type: MOVE }] },
+            W2Hauler: { memory: { role: 'hauler', homeRoom: 'W2N2' }, body: [{ type: CARRY }, { type: MOVE }] }
+        };
+        Game.getObjectById = () => null;
+        global.RoomCache = { W1N1: { sources: [] }, W2N2: { sources: [] } };
+        global.RoomPhase = {
+            W1N1: { phase: 'early', hasStorage: false },
+            W2N2: { phase: 'early', hasStorage: false }
+        };
+        global.SpawnDemands = {
+            W1N1: [{
+                role: 'upgrader',
+                quotaKey: 'upgrader:W1N1:external',
+                priority: 83,
+                bodyProfile: 'upgrader',
+                memory: { role: 'upgrader', homeRoom: 'W1N1', quotaKey: 'upgrader:W1N1:external', owner: 'external' },
+                reason: 'external_upgrade'
+            }]
+        };
+        global.Memory = {
+            creeps: {},
+            rooms: {
+                W1N1: {
+                    maintenancePlan: {
+                        quotas: { urgent: 0, routine: 0, longTerm: 0 },
+                        targets: [{ executor: 'repairer', urgency: 'urgent' }]
+                    }
+                },
+                W2N2: {
+                    maintenancePlan: {
+                        quotas: { urgent: 0, routine: 0, longTerm: 0 },
+                        targets: [{ executor: 'repairer', urgency: 'urgent' }]
+                    }
+                }
+            },
+            empire: {
+                spawningCreeps: {},
+                control: {
+                    policy: {
+                        capabilityControl: {
+                            controllerEmergencyTicks: 5000,
+                            emergencyDisable: false,
+                            readiness: { maxSnapshotAge: 20 },
+                            capabilities: { upgradeWork: { defaultMode: 'shadow' } }
+                        },
+                        overrides: { empire: {}, rooms: {} }
+                    },
+                    runtime: { cpuMode: 'normal' },
+                    rooms: {}
+                }
+            }
+        };
+        global.RoomGovernor = {};
+        EventBus.topics = {};
+    };
+    const serializedSpawnRequests = () => (EventBus.topics.REQ_SPAWN || []).map((event) => ({
+        priority: event.priority,
+        data: event.data
+    }));
+    const bureauIntegration = new SpawnBureauService('SpawnBureau');
+
+    setupSpawnBureauIntegrationWorld();
+    bureauIntegration.analyze();
+    const shadowW1 = global.SpawnBureau.W1N1;
+    const shadowW2 = global.SpawnBureau.W2N2;
+    assert.deepStrictEqual(shadowW1.intents, shadowW1.legacyIntents, 'default shadow must retain the complete W1N1 legacy intents');
+    assert.deepStrictEqual(shadowW2.intents, shadowW2.legacyIntents, 'default shadow must retain the complete W2N2 legacy intents');
+    assert.deepStrictEqual(serializedSpawnRequests(), [
+        ...shadowW1.legacyIntents,
+        ...shadowW2.legacyIntents
+    ].map((intent) => ({
+        priority: intent.priority,
+        data: { roomName: intent.roomName, role: intent.role, body: intent.body, memory: intent.memory }
+    })), 'default shadow must publish the legacy request order and contents unchanged');
+    assert.strictEqual(shadowW1.blockedDemands.length, 0, 'default shadow must not add candidate-build blocked demand side effects');
+
+    setupSpawnBureauIntegrationWorld();
+    Memory.empire.control.policy.overrides.rooms.W1N1 = {
+        'capability:upgradeWork': { value: 'active', reason: 'test_pilot', expiresAt: 1100 }
+    };
+    Memory.empire.control.rooms.W1N1 = {};
+    Memory.empire.control.rooms.W1N1.capabilityRollout = { upgradeWork: { ready: true, blockers: [] } };
+    global.RoomGovernor = {
+        W1N1: {
+            evaluatedAt: Game.time,
+            staleFor: 0,
+            lifecycle: 'self_sufficient',
+            health: {
+                survival: { status: 'healthy' },
+                harvest: { status: 'healthy' },
+                logistics: { status: 'healthy' }
+            },
+            budgets: { upgrade: { blocked: false } },
+            capabilities: { upgradeWork: { gap: 1, current: 0, spawning: 0 } },
+            controllerTicksToDowngrade: 12000,
+            spawnRecommendations: [{ capability: 'upgradeWork', priority: 77, reasons: ['upgradeWork_gap'] }]
+        }
+    };
+    bureauIntegration.analyze();
+    const activeW1 = global.SpawnBureau.W1N1;
+    const activeW2 = global.SpawnBureau.W2N2;
+    const targetQuota = 'upgrader:W1N1:controller';
+    const activeCandidate = activeW1.intents.find((intent) => intent.quotaKey === targetQuota);
+    const legacyCandidate = activeW1.legacyIntents.find((intent) => intent.quotaKey === targetQuota);
+    assert.strictEqual(activeW1.arbitration.upgradeWork.action, 'replace', 'a ready and safe active room should expose its replacement arbitration this tick');
+    assert.strictEqual(activeCandidate.priority, 77, 'active replacement should use the governor recommendation priority');
+    assert.strictEqual(activeCandidate.bodyProfile, bureauIntegration.upgraderBodyProfile(Game.rooms.W1N1), 'active replacement should retain the established upgrader body profile');
+    assert.deepStrictEqual(activeCandidate.body, legacyCandidate.body, 'active replacement should keep BodyBuilder output for the established upgrader profile');
+    assert.deepStrictEqual(activeCandidate.memory, legacyCandidate.memory, 'active replacement should keep the established upgrader memory and quota key');
+    assert.strictEqual(activeW1.intents.filter((intent) => intent.quotaKey === targetQuota).length, 1, 'active arbitration should leave at most one economic upgrader intent');
+    assert.deepStrictEqual(
+        activeW1.intents.find((intent) => intent.quotaKey === 'upgrader:W1N1:external'),
+        activeW1.legacyIntents.find((intent) => intent.quotaKey === 'upgrader:W1N1:external'),
+        'active arbitration should preserve external upgrader demands'
+    );
+    assert.deepStrictEqual(activeW2.intents, activeW2.legacyIntents, 'rooms without an active override must remain in shadow');
+    for (const role of ['miner', 'hauler', 'builder', 'repairer']) {
+        assert.deepStrictEqual(
+            activeW1.intents.filter((intent) => intent.role === role),
+            activeW1.legacyIntents.filter((intent) => intent.role === role),
+            `active arbitration should not alter ${role} intents`
+        );
+    }
+
     const constructionPressureEvaluation = evaluateRoomGovernor(factsFor({
         constructionPressure: 6,
         capabilities: { buildWork: 0 }

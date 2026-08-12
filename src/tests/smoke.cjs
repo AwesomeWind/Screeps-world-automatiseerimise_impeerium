@@ -38,6 +38,7 @@ const expectedFiles = [
     'src/governance/RoomGovernorFacts.js',
     'src/governance/RoomGovernorModel.js',
     'src/governance/SpawnDecisionComparator.js',
+    'src/governance/SpawnCapabilityArbiter.js',
     'src/services/RoomCacheService.js',
     'src/services/RoomPhaseService.js',
     'src/services/SpawnBureauService.js',
@@ -127,6 +128,9 @@ assertNotContains(read('src/services/LinkService.js'), '    shouldUseStrictSourc
 assertContains(read('src/services/LinkService.js'), 'resolveControllerContainerAsset(cityPlan, { allowLegacyFallback: false })', 'link service should use strict controller-container resolution for its first execution-layer fallback disable');
 assertContains(read('src/services/SpawnBureauService.js'), 'getControllerContainerAsset(cityPlan, { allowLegacyFallback: false })', 'spawn bureau should use strict controller-container reads during controller_container strict rollout');
 assertContains(read('src/services/SpawnBureauService.js'), "from '../planning/RuntimeReadiness.js'", 'spawn bureau should reuse the shared runtime readiness helper');
+assertContains(read('src/services/SpawnBureauService.js'), 'resolveCapabilityMode', 'spawn bureau should resolve the requested capability mode at its execution boundary');
+assertContains(read('src/services/SpawnBureauService.js'), 'arbitrateUpgradeWork', 'spawn bureau should delegate upgrade takeover to the pure arbiter');
+assertContains(read('src/services/SpawnBureauService.js'), 'legacyIntents', 'spawn bureau should retain the exact pre-arbitration legacy intent baseline');
 assertNotContains(read('src/services/SpawnBureauService.js'), '    shouldUseStrictSourceRuntime(roomMemory) {', 'spawn bureau should not keep a duplicated strict source-runtime readiness helper');
 assertContains(read('src/planning/MaintenancePlannerService.js'), 'getControllerContainerAsset(cityPlan, { allowLegacyFallback: false })', 'maintenance planner should use strict controller-container reads during controller_container strict rollout');
 assertContains(read('src/planning/MaintenancePlannerService.js'), 'getSourceContainerAsset(cityPlan, sourceId, { allowLegacyFallback: false })', 'maintenance planner should use strict source-container reads during source_container maintenance rollout');
