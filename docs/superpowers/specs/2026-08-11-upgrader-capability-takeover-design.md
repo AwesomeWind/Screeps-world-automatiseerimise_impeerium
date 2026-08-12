@@ -314,3 +314,9 @@ EmpireMetrics 增加紧凑字段：
 5. 验收通过前不启用第二个房间，不开始 builder/repairer 接管。
 
 若出现 Controller 风险、核心经济退化、连续 fallback 或数据未知，立即回到 shadow，并保留证据用于调整 Policy，而不是删除旧逻辑。
+
+## 13. 实现状态
+
+代码已完成：自动化测试与生产构建已通过，默认 shadow、显式单房 active、安全回退、自动暂停/显式恢复、legacy 基线 readiness，以及紧凑 metrics 均已实现。
+
+真实运行验收尚未完成。50 个 shadow 样本和单房 active 后连续 500 ticks 观察均尚未执行；在完成验收前，不扩展至第二个房间，也不接管其他能力。

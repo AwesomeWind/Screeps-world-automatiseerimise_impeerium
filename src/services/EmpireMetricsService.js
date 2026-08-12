@@ -1,6 +1,34 @@
 import BaseService from '../core/BaseService.js';
 import { ensureEmpireControl } from '../config/EmpirePolicy.js';
 
+function compactUpgradeWorkControl(roomName, governor, bureau, roomControl) {
+    const upgradeCapability = governor && governor.capabilities && governor.capabilities.upgradeWork;
+    const recommendation = governor && Array.isArray(governor.spawnRecommendations)
+        ? governor.spawnRecommendations.find((entry) => entry && entry.capability === 'upgradeWork')
+        : undefined;
+    const legacyIntents = bureau && Array.isArray(bureau.legacyIntents) ? bureau.legacyIntents : undefined;
+    const arbitration = bureau && bureau.arbitration && bureau.arbitration.upgradeWork;
+    const persistent = roomControl && roomControl.capabilityControl && roomControl.capabilityControl.upgradeWork;
+    const quotaKey = `upgrader:${roomName}:controller`;
+
+    return {
+        legacyIntentPresent: legacyIntents === undefined
+            ? null
+            : legacyIntents.some((intent) => intent && intent.quotaKey === quotaKey),
+        governorRecommended: recommendation === undefined && !(governor && Array.isArray(governor.spawnRecommendations))
+            ? null
+            : recommendation !== undefined,
+        adoptedSource: arbitration && typeof arbitration.adoptedSource === 'string' ? arbitration.adoptedSource : null,
+        action: arbitration && typeof arbitration.action === 'string' ? arbitration.action : null,
+        current: upgradeCapability && Number.isFinite(upgradeCapability.current) ? upgradeCapability.current : null,
+        spawning: upgradeCapability && Number.isFinite(upgradeCapability.spawning) ? upgradeCapability.spawning : null,
+        required: upgradeCapability && Number.isFinite(upgradeCapability.required) ? upgradeCapability.required : null,
+        gap: upgradeCapability && Number.isFinite(upgradeCapability.gap) ? upgradeCapability.gap : null,
+        fallbackCount: persistent && Number.isFinite(persistent.fallbackCount) ? persistent.fallbackCount : null,
+        autoSuspended: persistent && typeof persistent.autoSuspended === 'boolean' ? persistent.autoSuspended : null
+    };
+}
+
 class EmpireMetricsService extends BaseService {
     cleanup() {
         const control = ensureEmpireControl();
@@ -35,6 +63,10 @@ class EmpireMetricsService extends BaseService {
             const governor = global.RoomGovernor && global.RoomGovernor[roomName]
                 ? global.RoomGovernor[roomName]
                 : null;
+            const bureau = global.SpawnBureau && global.SpawnBureau[roomName]
+                ? global.SpawnBureau[roomName]
+                : null;
+            const roomControl = control.rooms && control.rooms[roomName] ? control.rooms[roomName] : null;
             const comparison = governor && governor.comparison ? governor.comparison : null;
             const storageEnergy = room.storage && room.storage.store && typeof room.storage.store.getUsedCapacity === 'function'
                 ? (room.storage.store.getUsedCapacity(energyResource) || 0)
@@ -69,7 +101,8 @@ class EmpireMetricsService extends BaseService {
                         priorityMismatches: comparison.priorityMismatches.length,
                         bodyProfileMismatches: comparison.bodyProfileMismatches.length
                     }
-                    : null
+                    : null,
+                upgradeWorkControl: compactUpgradeWorkControl(roomName, governor, bureau, roomControl)
             };
         }
     }

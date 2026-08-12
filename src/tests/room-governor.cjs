@@ -1231,6 +1231,10 @@ async function run() {
             lifecycle: 'mature',
             health: { overall: { status: 'healthy', score: 100 } },
             staleFor: 0,
+            capabilities: {
+                upgradeWork: { current: 1, spawning: 0, required: 3, gap: 2 }
+            },
+            spawnRecommendations: [{ capability: 'upgradeWork', priority: 36, reasons: ['upgrade_gap'] }],
             comparison: {
                 matched: [{ capability: 'harvestWork' }],
                 missing: [{ capability: 'logisticsCarry' }],
@@ -1238,6 +1242,37 @@ async function run() {
                 priorityMismatches: [],
                 bodyProfileMismatches: []
             }
+        }
+    };
+    global.SpawnBureau = {
+        W1N1: {
+            legacyIntents: [{
+                role: 'upgrader',
+                quotaKey: 'upgrader:W1N1:controller',
+                body: ['work', 'carry', 'move'],
+                memory: { role: 'upgrader', homeRoom: 'W1N1' }
+            }],
+            intents: [{ role: 'upgrader', quotaKey: 'upgrader:W1N1:controller', body: ['work', 'work', 'carry', 'move'] }],
+            arbitration: {
+                upgradeWork: {
+                    adoptedSource: 'governor',
+                    action: 'replace',
+                    blockers: ['not_persisted_in_metrics']
+                }
+            }
+        }
+    };
+    governorControl.rooms.W1N1 = {
+        ...governorControl.rooms.W1N1,
+        capabilityControl: {
+            upgradeWork: {
+                fallbackCount: 0,
+                autoSuspended: false,
+                blockers: ['not_persisted_in_metrics']
+            }
+        },
+        capabilityRollout: {
+            upgradeWork: { samples: [{ tick: Game.time, known: true }] }
         }
     };
     global.ResourceMarket = {};
@@ -1253,6 +1288,54 @@ async function run() {
         priorityMismatches: 0,
         bodyProfileMismatches: 0
     }, 'metrics should summarize comparison counts without duplicating full evidence');
+    assert.deepStrictEqual(metricSnapshot.upgradeWorkControl, {
+        legacyIntentPresent: true,
+        governorRecommended: true,
+        adoptedSource: 'governor',
+        action: 'replace',
+        current: 1,
+        spawning: 0,
+        required: 3,
+        gap: 2,
+        fallbackCount: 0,
+        autoSuspended: false
+    }, 'metrics should retain only the fixed compact upgradeWork control summary');
+    assert.deepStrictEqual(Object.keys(metricSnapshot.upgradeWorkControl).sort(), [
+        'action',
+        'adoptedSource',
+        'autoSuspended',
+        'current',
+        'fallbackCount',
+        'gap',
+        'governorRecommended',
+        'legacyIntentPresent',
+        'required',
+        'spawning'
+    ], 'upgradeWork metrics must not copy intent bodies, full intents, blocker history, or rollout samples');
+    global.SpawnBureau.W1N1 = {
+        legacyIntents: [{ role: 'upgrader', quotaKey: 'upgrader:W1N1:external', body: ['work', 'move'] }]
+    };
+    global.RoomGovernor.W1N1 = {
+        lifecycle: 'mature',
+        health: { overall: { status: 'healthy', score: 100 } },
+        staleFor: 0,
+        comparison: global.RoomGovernor.W1N1.comparison
+    };
+    governorControl.rooms.W1N1 = { marker: 'metrics-missing-control' };
+    Game.time += 1;
+    new EmpireMetricsService('EmpireMetrics').cleanup();
+    assert.deepStrictEqual(governorControl.metrics.rooms.W1N1.upgradeWorkControl, {
+        legacyIntentPresent: false,
+        governorRecommended: null,
+        adoptedSource: null,
+        action: null,
+        current: null,
+        spawning: null,
+        required: null,
+        gap: null,
+        fallbackCount: null,
+        autoSuspended: null
+    }, 'metrics should use the exact legacy economic quota and retain null for unavailable values instead of guessing zero');
 
     const { default: SpawnBureauService } = await import('../services/SpawnBureauService.js');
     global.CLAIM = 'claim';

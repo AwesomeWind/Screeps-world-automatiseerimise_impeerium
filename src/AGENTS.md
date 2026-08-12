@@ -38,6 +38,25 @@
 - 当前只覆盖己方可见房间；未占领房间、远程矿与殖民生命周期由后续世界模型处理。
 - 第一版能力公式和 Policy 阈值是待线上数据校准的初始模型，不代表最优经济参数。
 
+## upgradeWork 接管运维
+
+- `upgradeWork` 默认是 `shadow`；系统不会因为 readiness 通过而自动切到 `active`。`active` 还必须有显式请求、readiness 和全部安全门槛同时通过。
+- 单房试点通过 `Memory.empire.control.policy.overrides.rooms[roomName]['capability:upgradeWork']` 请求，例如：
+
+  ```js
+  Memory.empire.control.policy.overrides.rooms.W1N1['capability:upgradeWork'] = {
+      value: 'active',
+      reason: 'pilot_after_shadow_baseline',
+      expiresAt: Game.time + 500
+  };
+  ```
+
+  `expiresAt` 可省略；`reason` 应说明试点原因，便于回溯。
+- 将 `policy.capabilityControl.emergencyDisable` 设为 `true` 会在该 tick 立即把所有房间有效模式回退为 `shadow`，并保留既有 active 请求，待人工关闭紧急停用后再按正常安全门槛判断。
+- 连续 fallback 达阈值后会进入 `autoSuspended`。恢复不是直接再次写 `active`：必须先显式改为 `shadow`，再显式改回 `active`，随后仍需重新通过 readiness 和安全门槛。
+- readiness 的比较和采样始终以 `legacyIntents` 为基线，不以已经仲裁后的 intent 作为基线。
+- 真实试点尚未执行：先保持单房 `shadow`，积累至少 50 个完整样本且 `ready === true`；再显式启用该房 `active` 并观察至少 500 ticks。验收前不得扩大到第二个房间，也不得接管 builder、repairer 或其他能力。
+
 ## 目录职责
 
 - `core`: 任务执行、事件总线、body 生成、任务元信息、工位规划等基础设施。
