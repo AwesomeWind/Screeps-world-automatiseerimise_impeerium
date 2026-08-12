@@ -548,7 +548,7 @@ async function run() {
         global.Security = {
             W1N1: { defcon: 5, posture: 'peace' }
         };
-        global.SpawnBureau = { W1N1: { intents: [] } };
+        global.SpawnBureau = { W1N1: { intents: [], legacyIntents: [] } };
     };
 
     const governorControl = ensureEmpireControl();
@@ -616,25 +616,54 @@ async function run() {
     assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.sampleCount, 1, 'a full evaluation without a SpawnBureau snapshot should not be sampled');
 
     setHealthyGovernorWorld(730);
+    global.SpawnBureau = { W1N1: { intents: [{ role: 'upgrader', quotaKey: 'upgrader:W1N1:controller', body: [WORK, MOVE] }] } };
+    roomGovernorService.analyze();
+    roomGovernorService.cleanup();
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.sampleCount, 1, 'a bureau without legacyIntents must not use final intents for rollout sampling');
+
+    setHealthyGovernorWorld(740);
+    delete Game.creeps.UpgraderHealthy;
+    global.SpawnBureau = {
+        W1N1: {
+            intents: [],
+            legacyIntents: [{
+                role: 'upgrader',
+                quotaKey: 'upgrader:W2N2:controller',
+                body: [WORK, MOVE]
+            }]
+        }
+    };
+    roomGovernorService.analyze();
+    roomGovernorService.cleanup();
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.legacyMatchCount, 1, 'a remote upgrader demand must not match the local controller quota');
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.legacyMissingCount, 1, 'a remote upgrader demand must be recorded as missing the local controller quota');
+
+    setHealthyGovernorWorld(750);
     Game.rooms.W1N1.controller.ticksToDowngrade = 12000;
     global.RoomCache.W1N1.sources = null;
     roomGovernorService.analyze();
     roomGovernorService.cleanup();
-    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.sampleCount, 2, 'a complete evaluation with a bureau should still record an unknown-health sample');
-    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.knownSampleCount, 1, 'an unknown core health dimension should not increase known samples');
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.sampleCount, 3, 'a complete evaluation with a bureau should still record an unknown-health sample');
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.knownSampleCount, 2, 'an unknown core health dimension should not increase known samples');
 
-    setHealthyGovernorWorld(740);
+    setHealthyGovernorWorld(760);
     delete Game.creeps.MinerHealthy;
     roomGovernorService.analyze();
     roomGovernorService.cleanup();
     assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.criticalSampleCount, 1, 'a critical core health dimension should increase critical samples');
 
-    setHealthyGovernorWorld(751);
+    setHealthyGovernorWorld(771);
     Game.rooms.W1N1.storage = { store: { getUsedCapacity: () => { throw new Error('broken rollout facts'); } } };
     roomGovernorService.analyze();
-    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.lastErrorAt, 751, 'a governor error should persist its tick on the rollout');
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.lastErrorAt, 771, 'a governor error should persist its tick on the rollout');
     assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.ready, false, 'a recent governor error should block readiness');
     assert.ok(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.blockers.includes('recent_governor_error'), 'the persisted readiness blockers should explain the recent governor error');
+
+    setHealthyGovernorWorld(801);
+    Game.rooms.W1N1.storage = { store: { getUsedCapacity: () => { throw new Error('second broken rollout facts'); } } };
+    roomGovernorService.analyze();
+    assert.strictEqual(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.lastErrorAt, 801, 'a second governor error inside event cooldown must refresh rollout error time');
+    assert.ok(governorControl.rooms.W1N1.capabilityRollout.upgradeWork.blockers.includes('recent_governor_error'), 'a second governor error inside event cooldown must keep readiness blocked');
 
     governorControl.rooms = {};
     governorControl.events = [];

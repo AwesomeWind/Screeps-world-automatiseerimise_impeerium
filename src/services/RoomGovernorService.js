@@ -168,7 +168,7 @@ class RoomGovernorService extends BaseService {
                 : (bureau && Array.isArray(bureau.intents) ? bureau.intents : []);
             const comparison = compareSpawnDecisions(shadow.spawnRecommendations || [], legacyIntents, Game.time);
             shadow.comparison = comparison;
-            this.sampleCapabilityRollout(control, roomName, shadow, bureau, comparison);
+            this.sampleCapabilityRollout(control, roomName, shadow, bureau);
             if (global.RoomGovernor && global.RoomGovernor[roomName]) {
                 global.RoomGovernor[roomName].comparison = comparison;
                 const rollout = shadow.capabilityRollout && shadow.capabilityRollout.upgradeWork;
@@ -190,20 +190,24 @@ class RoomGovernorService extends BaseService {
         }
     }
 
-    sampleCapabilityRollout(control, roomName, shadow, bureau, comparison) {
-        if (!bureau) return;
+    sampleCapabilityRollout(control, roomName, shadow, bureau) {
+        if (!bureau || !Array.isArray(bureau.legacyIntents)) return;
         const currentRollout = shadow.capabilityRollout && shadow.capabilityRollout.upgradeWork;
         if (currentRollout && currentRollout.lastSampleAt === Game.time) return;
 
-        const legacyIntents = Array.isArray(bureau.legacyIntents)
-            ? bureau.legacyIntents
-            : (Array.isArray(bureau.intents) ? bureau.intents : []);
+        const legacyIntents = bureau.legacyIntents;
         const recommendations = shadow.spawnRecommendations || [];
         const quotaKey = `upgrader:${roomName}:controller`;
-        const legacyPresent = legacyIntents.some((intent) => intent.quotaKey === quotaKey);
+        const localUpgradeIntents = legacyIntents.filter((intent) => intent.quotaKey === quotaKey);
+        const legacyPresent = localUpgradeIntents.length > 0;
         const recommendationPresent = recommendations.some((item) => item.capability === 'upgradeWork');
+        const localUpgradeComparison = compareSpawnDecisions(
+            recommendations.filter((item) => item.capability === 'upgradeWork'),
+            localUpgradeIntents,
+            Game.time
+        );
         const legacyMatched = recommendationPresent
-            ? comparison.matched.some((item) => item.capability === 'upgradeWork')
+            ? localUpgradeComparison.matched.some((item) => item.capability === 'upgradeWork')
             : !legacyPresent;
         const coreHealth = shadow.health || {};
         const known = Number.isFinite(shadow.capabilities && shadow.capabilities.upgradeWork && shadow.capabilities.upgradeWork.gap) &&
@@ -218,7 +222,7 @@ class RoomGovernorService extends BaseService {
             legacyMatched,
             legacyMissing: !legacyMatched,
             sampledAt: Game.time,
-            lastErrorAt: shadow.eventTicks && shadow.eventTicks.error
+            lastErrorAt: shadow.lastGovernorErrorAt
         });
         const readiness = evaluateCapabilityReadiness(sampled, {
             lifecycle: shadow.lifecycle,
@@ -242,8 +246,10 @@ class RoomGovernorService extends BaseService {
     persistGovernorErrorReadiness(control, roomName) {
         const shadow = roomControl(control, roomName).shadow;
         const existing = shadow && shadow.capabilityRollout && shadow.capabilityRollout.upgradeWork;
-        const errorAt = shadow && shadow.eventTicks && shadow.eventTicks.error;
-        if (!existing || !Number.isFinite(errorAt)) return;
+        if (!shadow) return;
+        shadow.lastGovernorErrorAt = Game.time;
+        if (!existing) return;
+        const errorAt = shadow.lastGovernorErrorAt;
         const rolloutWithError = { ...existing, lastErrorAt: errorAt };
         const readiness = evaluateCapabilityReadiness(rolloutWithError, {
             lifecycle: shadow.lifecycle,
