@@ -244,10 +244,25 @@ class SpawnBureauService extends BaseService {
             capabilityControl && Number.isFinite(capabilityControl.controllerEmergencyTicks);
         const controllerEmergency = controllerEmergencyKnown &&
             snapshot.controllerTicksToDowngrade < capabilityControl.controllerEmergencyTicks;
-        const candidatePriority = upgradeRecommendation && Number.isFinite(upgradeRecommendation.priority)
-            ? upgradeRecommendation.priority
-            : controllerEmergency ? 60 : undefined;
-        const governorCandidate = requestedMode === 'active' && Number.isFinite(candidatePriority)
+        const upgradeCapability = snapshot && snapshot.capabilities && snapshot.capabilities.upgradeWork;
+        const upgradeBudget = snapshot && snapshot.budgets && snapshot.budgets.upgrade;
+        const gap = upgradeCapability && upgradeCapability.gap;
+        const current = upgradeCapability && upgradeCapability.current;
+        const spawning = upgradeCapability && upgradeCapability.spawning;
+        const budgetBlocked = upgradeBudget && typeof upgradeBudget.blocked === 'boolean'
+            ? upgradeBudget.blocked
+            : undefined;
+        const emergencyCandidateRequired = controllerEmergency && Number.isFinite(current) &&
+            Number.isFinite(spawning) && current + spawning === 0;
+        const hasGovernorReplacement = Number.isFinite(gap) && gap > 0 && upgradeRecommendation &&
+            Number.isFinite(upgradeRecommendation.priority);
+        const shouldBuildGovernorCandidate = requestedMode === 'active' &&
+            (hasGovernorReplacement || emergencyCandidateRequired);
+        const shouldSuppress = budgetBlocked === true || (Number.isFinite(gap) && gap <= 0);
+        const candidatePriority = shouldBuildGovernorCandidate
+            ? hasGovernorReplacement ? upgradeRecommendation.priority : 60
+            : 0;
+        const governorCandidate = shouldBuildGovernorCandidate
             ? this.buildIntent(room, state, {
                 role: 'upgrader',
                 quotaKey: `upgrader:${room.name}:controller`,
@@ -256,7 +271,9 @@ class SpawnBureauService extends BaseService {
                 memory: { role: 'upgrader', homeRoom: room.name },
                 reason: 'controller_progress'
             })
-            : null;
+            : shouldSuppress && !emergencyCandidateRequired
+                ? this.suppressionPlaceholder(state.legacyIntents, room.name, candidatePriority)
+                : null;
         const health = snapshot && snapshot.health;
         const coreHealth = health && [health.survival, health.harvest, health.logistics];
         const readinessPolicy = capabilityControl && capabilityControl.readiness;
@@ -268,22 +285,18 @@ class SpawnBureauService extends BaseService {
             snapshotFresh: !!snapshot && Number.isFinite(snapshot.staleFor) && readinessPolicy &&
                 Number.isFinite(readinessPolicy.maxSnapshotAge) && snapshot.staleFor <= readinessPolicy.maxSnapshotAge,
             coreHealthy: Array.isArray(coreHealth) && coreHealth.every((entry) => entry &&
-                entry.status !== 'critical' && entry.status !== 'unknown'),
+                ['healthy', 'strained'].includes(entry.status)),
             lifecycleEligible: !!snapshot && ['self_sufficient', 'developing', 'mature', 'industrial'].includes(snapshot.lifecycle),
             cpuMode: control && control.runtime ? control.runtime.cpuMode : undefined,
             controllerEmergency,
             autoSuspended: false
         };
-        const upgradeCapability = snapshot && snapshot.capabilities && snapshot.capabilities.upgradeWork;
-        const upgradeBudget = snapshot && snapshot.budgets && snapshot.budgets.upgrade;
         const governorDecision = {
-            gap: upgradeCapability && upgradeCapability.gap,
-            budgetBlocked: upgradeBudget && typeof upgradeBudget.blocked === 'boolean'
-                ? upgradeBudget.blocked
-                : undefined,
+            gap,
+            budgetBlocked,
             priority: candidatePriority,
-            current: upgradeCapability && upgradeCapability.current,
-            spawning: upgradeCapability && upgradeCapability.spawning,
+            current,
+            spawning,
             reasons: upgradeRecommendation && Array.isArray(upgradeRecommendation.reasons)
                 ? upgradeRecommendation.reasons
                 : []
@@ -307,6 +320,18 @@ class SpawnBureauService extends BaseService {
                 ...decision,
                 mode
             }
+        };
+    }
+
+    suppressionPlaceholder(legacyIntents, roomName, priority) {
+        const quotaKey = `upgrader:${roomName}:controller`;
+        const legacyIntent = legacyIntents.find((intent) => intent && intent.quotaKey === quotaKey);
+        if (!legacyIntent) return null;
+        return {
+            ...legacyIntent,
+            priority,
+            body: [...legacyIntent.body],
+            memory: { ...legacyIntent.memory }
         };
     }
 

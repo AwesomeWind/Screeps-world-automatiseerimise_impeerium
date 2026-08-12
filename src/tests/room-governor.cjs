@@ -1338,30 +1338,72 @@ async function run() {
         data: event.data
     }));
     const bureauIntegration = new SpawnBureauService('SpawnBureau');
-
-    setupSpawnBureauIntegrationWorld();
-    bureauIntegration.analyze();
-    const shadowW1 = global.SpawnBureau.W1N1;
-    const shadowW2 = global.SpawnBureau.W2N2;
-    assert.deepStrictEqual(shadowW1.intents, shadowW1.legacyIntents, 'default shadow must retain the complete W1N1 legacy intents');
-    assert.deepStrictEqual(shadowW2.intents, shadowW2.legacyIntents, 'default shadow must retain the complete W2N2 legacy intents');
-    assert.deepStrictEqual(serializedSpawnRequests(), [
-        ...shadowW1.legacyIntents,
-        ...shadowW2.legacyIntents
-    ].map((intent) => ({
-        priority: intent.priority,
-        data: { roomName: intent.roomName, role: intent.role, body: intent.body, memory: intent.memory }
-    })), 'default shadow must publish the legacy request order and contents unchanged');
-    assert.strictEqual(shadowW1.blockedDemands.length, 0, 'default shadow must not add candidate-build blocked demand side effects');
-
-    setupSpawnBureauIntegrationWorld();
-    Memory.empire.control.policy.overrides.rooms.W1N1 = {
-        'capability:upgradeWork': { value: 'active', reason: 'test_pilot', expiresAt: 1100 }
-    };
-    Memory.empire.control.rooms.W1N1 = {};
-    Memory.empire.control.rooms.W1N1.capabilityRollout = { upgradeWork: { ready: true, blockers: [] } };
-    global.RoomGovernor = {
-        W1N1: {
+    const expectedW1ShadowIntents = [
+        {
+            roomName: 'W1N1', role: 'upgrader', quotaKey: 'upgrader:W1N1:external', priority: 83,
+            bodyProfile: 'upgrader', body: [WORK, WORK, WORK, CARRY, CARRY, MOVE, MOVE],
+            memory: { role: 'upgrader', homeRoom: 'W1N1', quotaKey: 'upgrader:W1N1:external', owner: 'external' },
+            reason: 'external_upgrade'
+        },
+        {
+            roomName: 'W1N1', role: 'upgrader', quotaKey: 'upgrader:W1N1:controller', priority: 60,
+            bodyProfile: 'upgrader', body: [WORK, WORK, WORK, CARRY, CARRY, MOVE, MOVE],
+            memory: { role: 'upgrader', homeRoom: 'W1N1', quotaKey: 'upgrader:W1N1:controller' },
+            reason: 'controller_progress'
+        },
+        {
+            roomName: 'W1N1', role: 'repairer', quotaKey: 'repairer:W1N1:maintenance', priority: 58,
+            bodyProfile: 'repairer', body: [WORK, WORK, WORK, CARRY, CARRY, MOVE, MOVE, MOVE],
+            memory: { role: 'repairer', homeRoom: 'W1N1', quotaKey: 'repairer:W1N1:maintenance' },
+            reason: 'maintenance_coverage'
+        },
+        {
+            roomName: 'W1N1', role: 'builder', quotaKey: 'builder:W1N1:construction', priority: 55,
+            bodyProfile: 'mobile_builder', body: [WORK, WORK, WORK, CARRY, CARRY, MOVE, MOVE],
+            memory: { role: 'builder', homeRoom: 'W1N1', quotaKey: 'builder:W1N1:construction' },
+            reason: 'construction'
+        },
+        {
+            roomName: 'W1N1', role: 'hauler', quotaKey: 'hauler:W1N1:core', priority: 45,
+            bodyProfile: 'hauler', body: [CARRY, CARRY, CARRY, CARRY, MOVE, MOVE, MOVE, MOVE],
+            memory: { role: 'hauler', homeRoom: 'W1N1', quotaKey: 'hauler:W1N1:core' },
+            reason: 'hauler_capacity'
+        }
+    ];
+    const expectedW2ShadowIntents = [
+        {
+            roomName: 'W2N2', role: 'upgrader', quotaKey: 'upgrader:W2N2:controller', priority: 60,
+            bodyProfile: 'upgrader', body: [WORK, WORK, WORK, CARRY, CARRY, MOVE, MOVE],
+            memory: { role: 'upgrader', homeRoom: 'W2N2', quotaKey: 'upgrader:W2N2:controller' },
+            reason: 'controller_progress'
+        },
+        {
+            roomName: 'W2N2', role: 'repairer', quotaKey: 'repairer:W2N2:maintenance', priority: 58,
+            bodyProfile: 'repairer', body: [WORK, WORK, WORK, CARRY, CARRY, MOVE, MOVE, MOVE],
+            memory: { role: 'repairer', homeRoom: 'W2N2', quotaKey: 'repairer:W2N2:maintenance' },
+            reason: 'maintenance_coverage'
+        },
+        {
+            roomName: 'W2N2', role: 'builder', quotaKey: 'builder:W2N2:construction', priority: 55,
+            bodyProfile: 'mobile_builder', body: [WORK, WORK, WORK, CARRY, CARRY, MOVE, MOVE],
+            memory: { role: 'builder', homeRoom: 'W2N2', quotaKey: 'builder:W2N2:construction' },
+            reason: 'construction'
+        },
+        {
+            roomName: 'W2N2', role: 'hauler', quotaKey: 'hauler:W2N2:core', priority: 45,
+            bodyProfile: 'hauler', body: [CARRY, CARRY, CARRY, CARRY, MOVE, MOVE, MOVE, MOVE],
+            memory: { role: 'hauler', homeRoom: 'W2N2', quotaKey: 'hauler:W2N2:core' },
+            reason: 'hauler_capacity'
+        }
+    ];
+    const setActiveGovernorSnapshot = (override = {}) => {
+        Memory.empire.control.policy.overrides.rooms.W1N1 = {
+            'capability:upgradeWork': { value: 'active', reason: 'test_pilot', expiresAt: 1100 }
+        };
+        Memory.empire.control.rooms.W1N1 = {
+            capabilityRollout: { upgradeWork: { ready: true, blockers: [] } }
+        };
+        const base = {
             evaluatedAt: Game.time,
             staleFor: 0,
             lifecycle: 'self_sufficient',
@@ -1374,8 +1416,29 @@ async function run() {
             capabilities: { upgradeWork: { gap: 1, current: 0, spawning: 0 } },
             controllerTicksToDowngrade: 12000,
             spawnRecommendations: [{ capability: 'upgradeWork', priority: 77, reasons: ['upgradeWork_gap'] }]
-        }
+        };
+        global.RoomGovernor = { W1N1: { ...base, ...override } };
     };
+
+    setupSpawnBureauIntegrationWorld();
+    bureauIntegration.analyze();
+    const shadowW1 = global.SpawnBureau.W1N1;
+    const shadowW2 = global.SpawnBureau.W2N2;
+    assert.deepStrictEqual(shadowW1.legacyIntents, expectedW1ShadowIntents, 'default shadow should retain the fixed W1N1 old economic intents field by field');
+    assert.deepStrictEqual(shadowW2.legacyIntents, expectedW2ShadowIntents, 'default shadow should retain the fixed W2N2 old economic intents field by field');
+    assert.deepStrictEqual(shadowW1.intents, expectedW1ShadowIntents, 'default shadow must retain the complete W1N1 legacy intents');
+    assert.deepStrictEqual(shadowW2.intents, expectedW2ShadowIntents, 'default shadow must retain the complete W2N2 legacy intents');
+    assert.deepStrictEqual(serializedSpawnRequests(), [
+        ...expectedW1ShadowIntents,
+        ...expectedW2ShadowIntents
+    ].map((intent) => ({
+        priority: intent.priority,
+        data: { roomName: intent.roomName, role: intent.role, body: intent.body, memory: intent.memory }
+    })), 'default shadow must publish the legacy request order and contents unchanged');
+    assert.strictEqual(shadowW1.blockedDemands.length, 0, 'default shadow must not add candidate-build blocked demand side effects');
+
+    setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot();
     bureauIntegration.analyze();
     const activeW1 = global.SpawnBureau.W1N1;
     const activeW2 = global.SpawnBureau.W2N2;
@@ -1401,6 +1464,55 @@ async function run() {
             `active arbitration should not alter ${role} intents`
         );
     }
+
+    setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot({
+        capabilities: { upgradeWork: { gap: 0, current: 1, spawning: 0 } },
+        spawnRecommendations: []
+    });
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'suppress', 'a covered upgrade capability without a recommendation should suppress the local controller quota');
+    assert.ok(!global.SpawnBureau.W1N1.intents.some((intent) => intent.quotaKey === 'upgrader:W1N1:controller'), 'covered active control should remove only the local economic controller intent');
+
+    setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot({
+        budgets: { upgrade: { blocked: true } },
+        capabilities: { upgradeWork: { gap: 1, current: 0, spawning: 0 } },
+        spawnRecommendations: []
+    });
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'suppress', 'a budget-blocked upgrade capability without a recommendation should suppress the local controller quota');
+
+    setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot({ spawnRecommendations: [] });
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'fallback', 'a positive gap without a governor recommendation should fall back instead of inventing a priority');
+    assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, expectedW1ShadowIntents, 'a missing positive-gap recommendation must retain the complete legacy intents');
+
+    setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot({
+        health: {
+            survival: { status: 'healthy' },
+            harvest: {},
+            logistics: { status: 'healthy' }
+        }
+    });
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'fallback', 'a missing core health status must fall back rather than be treated as healthy');
+    assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, expectedW1ShadowIntents, 'an incomplete core health snapshot must retain the complete legacy intents');
+
+    setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot();
+    Game.rooms.W1N1.energyAvailable = 0;
+    Game.rooms.W1N1.energyCapacityAvailable = 0;
+    const invalidCandidateState = {
+        intents: expectedW1ShadowIntents.map((intent) => ({ ...intent, body: [...intent.body], memory: { ...intent.memory } })),
+        legacyIntents: expectedW1ShadowIntents.map((intent) => ({ ...intent, body: [...intent.body], memory: { ...intent.memory } })),
+        blockedDemands: []
+    };
+    bureauIntegration.applyUpgradeWorkArbitration(Game.rooms.W1N1, invalidCandidateState);
+    assert.strictEqual(invalidCandidateState.arbitration.upgradeWork.action, 'fallback', 'an unbuildable active governor candidate must fall back');
+    assert.deepStrictEqual(invalidCandidateState.intents, expectedW1ShadowIntents, 'an unbuildable candidate must leave the complete legacy intent list intact');
 
     const constructionPressureEvaluation = evaluateRoomGovernor(factsFor({
         constructionPressure: 6,
