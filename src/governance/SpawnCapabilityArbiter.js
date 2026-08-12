@@ -1,3 +1,15 @@
+const DEFAULT_FALLBACK_SUSPEND_COUNT = 3;
+const VALID_BODY_PART_TYPES = new Set([
+    'move',
+    'work',
+    'carry',
+    'attack',
+    'ranged_attack',
+    'heal',
+    'claim',
+    'tough'
+]);
+
 function isRecord(value) {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -10,11 +22,31 @@ function isStringArray(value) {
     return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
+function isValidBodyPart(part) {
+    if (typeof part === 'string') return VALID_BODY_PART_TYPES.has(part);
+    return isRecord(part) && VALID_BODY_PART_TYPES.has(part.type);
+}
+
+function isValidControlDecision(decision) {
+    if (!isRecord(decision) || !isStringArray(decision.reasons)) return false;
+    if (decision.action === 'fallback') {
+        return decision.effectiveMode === 'shadow' && decision.adoptedSource === 'legacy';
+    }
+    if (decision.action === 'replace' || decision.action === 'suppress') {
+        return decision.effectiveMode === 'active' && decision.adoptedSource === 'governor';
+    }
+    if (decision.action === 'keep') {
+        return decision.adoptedSource === 'legacy' &&
+            (decision.effectiveMode === 'active' || decision.effectiveMode === 'shadow');
+    }
+    return false;
+}
+
 function fallback(legacyIntents, requestedMode, reasons) {
     return {
         intents: Array.isArray(legacyIntents) ? [...legacyIntents] : [],
         requestedMode,
-        effectiveMode: 'fallback',
+        effectiveMode: 'shadow',
         adoptedSource: 'legacy',
         action: 'fallback',
         reasons: [...reasons]
@@ -28,6 +60,7 @@ function invalidInputReasons({ roomName, legacyIntents, governorCandidate, gover
     if (!Array.isArray(legacyIntents)) reasons.push('invalid_legacy_intents');
     if (!isRecord(governorCandidate) || governorCandidate.quotaKey !== quotaKey || governorCandidate.role !== 'upgrader' ||
         !Array.isArray(governorCandidate.body) || governorCandidate.body.length === 0 ||
+        !governorCandidate.body.every(isValidBodyPart) ||
         !isRecord(governorCandidate.memory) || !isNonNegativeNumber(governorCandidate.priority) ||
         !isRecord(governorDecision) || governorCandidate.priority !== governorDecision.priority) {
         reasons.push('invalid_governor_candidate');
@@ -151,26 +184,38 @@ export function advanceUpgradeWorkControl({
     tick
 }) {
     const prior = isRecord(previous) ? previous : {};
+    const effectiveDecision = isValidControlDecision(decision)
+        ? decision
+        : {
+            effectiveMode: 'shadow',
+            adoptedSource: 'legacy',
+            action: 'fallback',
+            reasons: ['invalid_control_decision']
+        };
     const previousFallbackCount = Number.isSafeInteger(prior.fallbackCount) && prior.fallbackCount >= 0
         ? prior.fallbackCount
         : 0;
-    const isFallback = decision.action === 'fallback' || decision.effectiveMode === 'fallback';
+    const isFallback = effectiveDecision.action === 'fallback';
     const wasSuspended = prior.autoSuspended === true;
     const rearmed = wasSuspended && prior.requestedMode === 'shadow' && requestedMode === 'active';
     const lockedSuspended = wasSuspended && !rearmed;
-    const fallbackCount = lockedSuspended ? previousFallbackCount : isFallback ? previousFallbackCount + 1 : 0;
-    const autoSuspended = lockedSuspended || fallbackCount >= fallbackSuspendCount;
+    const previousConsecutiveFallbacks = rearmed ? 0 : previousFallbackCount;
+    const fallbackCount = lockedSuspended ? previousFallbackCount : isFallback ? previousConsecutiveFallbacks + 1 : 0;
+    const suspendThreshold = Number.isSafeInteger(fallbackSuspendCount) && fallbackSuspendCount > 0
+        ? fallbackSuspendCount
+        : DEFAULT_FALLBACK_SUSPEND_COUNT;
+    const autoSuspended = lockedSuspended || fallbackCount >= suspendThreshold;
     const newlySuspended = !lockedSuspended && autoSuspended;
-    const reasons = Array.isArray(decision.reasons) ? [...decision.reasons] : [];
+    const reasons = [...effectiveDecision.reasons];
     const transitionEvents = [];
     if (rearmed) transitionEvents.push({ type: 'upgrade_work_rearmed', at: tick });
     if (newlySuspended) transitionEvents.push({ type: 'upgrade_work_auto_suspended', at: tick });
 
     return {
         requestedMode,
-        effectiveMode: decision.effectiveMode,
-        adoptedSource: decision.adoptedSource,
-        action: decision.action,
+        effectiveMode: effectiveDecision.effectiveMode,
+        adoptedSource: effectiveDecision.adoptedSource,
+        action: effectiveDecision.action,
         reasons,
         fallbackCount,
         fallbackReason: lockedSuspended ? prior.fallbackReason || null : isFallback ? reasons[0] || null : null,

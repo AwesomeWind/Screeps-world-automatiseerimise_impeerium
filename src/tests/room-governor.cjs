@@ -144,6 +144,11 @@ async function run() {
         ['automatic suspension', { safety: { ...safeArbitrationInput.safety, autoSuspended: true } }],
         ['invalid decision field', { governorDecision: { ...safeArbitrationInput.governorDecision, current: -1 } }],
         ['empty candidate body', { governorCandidate: { ...governorUpgradeCandidate, body: [] } }],
+        ['null candidate body part', { governorCandidate: { ...governorUpgradeCandidate, body: [null] } }],
+        ['empty candidate body part', { governorCandidate: { ...governorUpgradeCandidate, body: [''] } }],
+        ['unknown candidate body part', { governorCandidate: { ...governorUpgradeCandidate, body: ['boosted_work'] } }],
+        ['missing object body type', { governorCandidate: { ...governorUpgradeCandidate, body: [{}] } }],
+        ['unknown object body type', { governorCandidate: { ...governorUpgradeCandidate, body: [{ type: 'boosted_work' }] } }],
         ['missing candidate memory', { governorCandidate: { ...governorUpgradeCandidate, memory: undefined } }],
         ['candidate priority mismatch', { governorCandidate: { ...governorUpgradeCandidate, priority: 37 } }]
     ];
@@ -153,12 +158,22 @@ async function run() {
             ...override
         });
         assert.strictEqual(fallbackArbitration.action, 'fallback', `${label} should fall back`);
-        assert.strictEqual(fallbackArbitration.effectiveMode, 'fallback', `${label} should expose fallback as the effective mode`);
+        assert.strictEqual(fallbackArbitration.effectiveMode, 'shadow', `${label} should expose shadow as the effective fallback mode`);
         assert.strictEqual(fallbackArbitration.adoptedSource, 'legacy', `${label} should adopt the legacy source`);
         assert.deepStrictEqual(fallbackArbitration.intents, safeArbitrationInput.legacyIntents, `${label} should return the complete legacy intents`);
         assert.notStrictEqual(fallbackArbitration.intents, safeArbitrationInput.legacyIntents, `${label} should return a new intents array`);
         assert.ok(fallbackArbitration.reasons.length > 0, `${label} should explain the fallback`);
     }
+
+    const standardBodyCandidate = {
+        ...governorUpgradeCandidate,
+        body: ['move', 'work', 'carry', 'attack', 'ranged_attack', 'heal', 'claim', 'tough', { type: 'work' }]
+    };
+    const standardBodyArbitration = arbitrateUpgradeWork({
+        ...safeArbitrationInput,
+        governorCandidate: standardBodyCandidate
+    });
+    assert.strictEqual(standardBodyArbitration.action, 'replace', 'all standard string and object body parts should be valid candidate parts');
 
     const emergencyKeepArbitration = arbitrateUpgradeWork({
         ...safeArbitrationInput,
@@ -188,10 +203,17 @@ async function run() {
 
     const fallbackDecision = {
         requestedMode: 'active',
-        effectiveMode: 'fallback',
+        effectiveMode: 'shadow',
         adoptedSource: 'legacy',
         action: 'fallback',
         reasons: ['snapshot_stale']
+    };
+    const activeDecision = {
+        requestedMode: 'active',
+        effectiveMode: 'active',
+        adoptedSource: 'governor',
+        action: 'replace',
+        reasons: ['upgrade_gap']
     };
     const fallbackControl1 = advanceUpgradeWorkControl({
         previous: null,
@@ -210,6 +232,62 @@ async function run() {
         tick: 101
     });
     assert.strictEqual(fallbackControl2.fallbackCount, 2, 'the second consecutive fallback should increment the fallback count');
+
+    const nullDecisionControl = advanceUpgradeWorkControl({
+        previous: fallbackControl1,
+        requestedMode: 'active',
+        decision: null,
+        fallbackSuspendCount: 3,
+        tick: 101
+    });
+    assert.strictEqual(nullDecisionControl.action, 'fallback', 'a null control decision should become a synthetic fallback');
+    assert.strictEqual(nullDecisionControl.effectiveMode, 'shadow', 'a synthetic fallback should use shadow as its effective mode');
+    assert.strictEqual(nullDecisionControl.adoptedSource, 'legacy', 'a synthetic fallback should retain the legacy source');
+    assert.ok(nullDecisionControl.reasons.includes('invalid_control_decision'), 'a synthetic fallback should explain the invalid control decision');
+    assert.strictEqual(nullDecisionControl.fallbackCount, 2, 'a null control decision should continue the prior fallback count');
+    assert.strictEqual(nullDecisionControl.autoSuspended, false, 'a second fallback from an invalid decision should not suspend early');
+
+    const invalidControlDecisions = [
+        ['unknown action', { ...activeDecision, action: 'pause' }],
+        ['unknown effective mode', { ...activeDecision, effectiveMode: 'fallback' }],
+        ['unknown adopted source', { ...activeDecision, adoptedSource: 'mixed' }],
+        ['inconsistent fallback', { ...fallbackDecision, effectiveMode: 'active' }],
+        ['inconsistent replace', { ...activeDecision, effectiveMode: 'shadow' }],
+        ['inconsistent suppress', { ...activeDecision, action: 'suppress', adoptedSource: 'legacy' }],
+        ['inconsistent keep', { ...activeDecision, action: 'keep' }],
+        ['invalid reasons', { ...activeDecision, reasons: 'upgrade_gap' }]
+    ];
+    for (const [label, invalidDecision] of invalidControlDecisions) {
+        const invalidDecisionControl = advanceUpgradeWorkControl({
+            previous: fallbackControl2,
+            requestedMode: 'active',
+            decision: invalidDecision,
+            fallbackSuspendCount: 3,
+            tick: 102
+        });
+        assert.strictEqual(invalidDecisionControl.action, 'fallback', `${label} should become a synthetic fallback`);
+        assert.strictEqual(invalidDecisionControl.effectiveMode, 'shadow', `${label} should fall back to shadow mode`);
+        assert.strictEqual(invalidDecisionControl.adoptedSource, 'legacy', `${label} should fall back to legacy`);
+        assert.ok(invalidDecisionControl.reasons.includes('invalid_control_decision'), `${label} should explain the synthetic fallback`);
+        assert.strictEqual(invalidDecisionControl.fallbackCount, 3, `${label} should not clear the previous fallback count`);
+        assert.strictEqual(invalidDecisionControl.autoSuspended, true, `${label} should suspend at the third consecutive fallback`);
+    }
+    for (const [label, validDecision] of [
+        ['active governor suppress', budgetSuppressArbitration],
+        ['active legacy keep', emergencyKeepArbitration],
+        ['shadow legacy keep', shadowArbitration]
+    ]) {
+        const validDecisionControl = advanceUpgradeWorkControl({
+            previous: fallbackControl2,
+            requestedMode: validDecision.requestedMode,
+            decision: validDecision,
+            fallbackSuspendCount: 3,
+            tick: 102
+        });
+        assert.strictEqual(validDecisionControl.action, validDecision.action, `${label} should remain a valid control decision`);
+        assert.strictEqual(validDecisionControl.reasons.includes('invalid_control_decision'), false, `${label} should not become a synthetic fallback`);
+        assert.strictEqual(validDecisionControl.fallbackCount, 0, `${label} should clear the consecutive fallback count`);
+    }
     const fallbackControl3 = advanceUpgradeWorkControl({
         previous: fallbackControl2,
         requestedMode: 'active',
@@ -222,6 +300,31 @@ async function run() {
     assert.strictEqual(fallbackControl3.autoSuspended, true, 'the third consecutive fallback should automatically suspend active control');
     assert.strictEqual(fallbackControl3.suspendedAt, 102, 'automatic suspension should record the transition tick');
     assert.deepStrictEqual(fallbackControl3.transitionEvents.map((event) => event.type), ['upgrade_work_auto_suspended'], 'automatic suspension should expose one transition event');
+
+    const nanThresholdControl = advanceUpgradeWorkControl({
+        previous: fallbackControl2,
+        requestedMode: 'active',
+        decision: fallbackDecision,
+        fallbackSuspendCount: NaN,
+        tick: 102
+    });
+    assert.strictEqual(nanThresholdControl.autoSuspended, true, 'NaN fallback thresholds should use the default threshold of three');
+    const negativeThresholdControl = advanceUpgradeWorkControl({
+        previous: null,
+        requestedMode: 'active',
+        decision: fallbackDecision,
+        fallbackSuspendCount: -1,
+        tick: 100
+    });
+    assert.strictEqual(negativeThresholdControl.autoSuspended, false, 'negative fallback thresholds should not suspend before the default threshold');
+    const stringThresholdControl = advanceUpgradeWorkControl({
+        previous: null,
+        requestedMode: 'active',
+        decision: fallbackDecision,
+        fallbackSuspendCount: '1',
+        tick: 100
+    });
+    assert.strictEqual(stringThresholdControl.autoSuspended, false, 'string fallback thresholds should not be coerced into a suspension threshold');
     assert.deepStrictEqual(Object.keys(fallbackControl3).sort(), [
         'action',
         'adoptedSource',
@@ -237,13 +340,6 @@ async function run() {
         'transitionEvents'
     ], 'upgrade work control should expose only the fixed persistence schema plus transition outputs');
 
-    const activeDecision = {
-        requestedMode: 'active',
-        effectiveMode: 'active',
-        adoptedSource: 'governor',
-        action: 'replace',
-        reasons: ['upgrade_gap']
-    };
     const recoveredActiveControl = advanceUpgradeWorkControl({
         previous: fallbackControl2,
         requestedMode: 'active',
@@ -304,6 +400,20 @@ async function run() {
     assert.strictEqual(rearmedActiveControl.suspendedAt, null, 'rearming should clear the suspension tick');
     assert.strictEqual(rearmedActiveControl.rearmed, true, 'an explicit shadow to active transition should report rearming');
     assert.deepStrictEqual(rearmedActiveControl.transitionEvents.map((event) => event.type), ['upgrade_work_rearmed'], 'rearming should expose exactly one transition event');
+
+    const rearmedFallbackControl = advanceUpgradeWorkControl({
+        previous: suspendedShadowControl,
+        requestedMode: 'active',
+        decision: fallbackDecision,
+        fallbackSuspendCount: 3,
+        tick: 105
+    });
+    assert.strictEqual(rearmedFallbackControl.fallbackCount, 1, 'a fallback on the rearm tick should count from a cleared suspension history');
+    assert.strictEqual(rearmedFallbackControl.fallbackReason, 'snapshot_stale', 'a fallback on the rearm tick should retain the current fallback reason');
+    assert.strictEqual(rearmedFallbackControl.autoSuspended, false, 'one fallback on the rearm tick should not immediately suspend control again');
+    assert.strictEqual(rearmedFallbackControl.suspendedAt, null, 'a fallback on the rearm tick should clear the old suspension tick');
+    assert.strictEqual(rearmedFallbackControl.rearmed, true, 'a fallback decision should not hide the explicit rearm transition');
+    assert.deepStrictEqual(rearmedFallbackControl.transitionEvents.map((event) => event.type), ['upgrade_work_rearmed'], 'a fallback on the rearm tick should emit only the rearm event');
 
     const frozenLegacyIntents = Object.freeze([
         Object.freeze({ ...legacyHaulerIntent, body: Object.freeze([...legacyHaulerIntent.body]) }),
