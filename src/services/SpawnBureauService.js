@@ -2,7 +2,8 @@ import BaseService from '../core/BaseService.js';
 import EventBus from '../core/EventBus.js';
 import BodyBuilder from '../core/BodyBuilder.js';
 import { resolveCapabilityMode } from '../config/EmpirePolicy.js';
-import { arbitrateUpgradeWork } from '../governance/SpawnCapabilityArbiter.js';
+import { recordEmpireEvent } from '../core/EmpireEventLog.js';
+import { arbitrateUpgradeWork, advanceUpgradeWorkControl } from '../governance/SpawnCapabilityArbiter.js';
 import { getSourceOutputPolicy } from '../planning/CityAssetPolicy.js';
 import { getControllerContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
 import { shouldUseStrictSourceRuntime } from '../planning/RuntimeReadiness.js';
@@ -235,8 +236,11 @@ class SpawnBureauService extends BaseService {
         const snapshot = global.RoomGovernor && global.RoomGovernor[room.name];
         const control = typeof Memory !== 'undefined' && Memory.empire && Memory.empire.control;
         const capabilityControl = control && control.policy && control.policy.capabilityControl;
-        const readiness = control && control.rooms && control.rooms[room.name] &&
-            control.rooms[room.name].capabilityRollout && control.rooms[room.name].capabilityRollout.upgradeWork;
+        const existingRoomControl = control && control.rooms && control.rooms[room.name];
+        const previousControl = existingRoomControl && existingRoomControl.capabilityControl &&
+            existingRoomControl.capabilityControl.upgradeWork;
+        const readiness = existingRoomControl && existingRoomControl.capabilityRollout &&
+            existingRoomControl.capabilityRollout.upgradeWork;
         const upgradeRecommendation = snapshot && Array.isArray(snapshot.spawnRecommendations)
             ? snapshot.spawnRecommendations.find((recommendation) => recommendation.capability === 'upgradeWork')
             : null;
@@ -277,10 +281,10 @@ class SpawnBureauService extends BaseService {
         const health = snapshot && snapshot.health;
         const coreHealth = health && [health.survival, health.harvest, health.logistics];
         const readinessPolicy = capabilityControl && capabilityControl.readiness;
+        const rearmRequested = previousControl && previousControl.autoSuspended === true &&
+            previousControl.requestedMode === 'shadow' && requestedMode === 'active';
         const safety = {
-            emergencyDisable: capabilityControl && typeof capabilityControl.emergencyDisable === 'boolean'
-                ? capabilityControl.emergencyDisable
-                : undefined,
+            emergencyDisable: capabilityControl && (capabilityControl.enabled === false || capabilityControl.emergencyDisable === true),
             snapshotPresent: !!snapshot && controllerEmergencyKnown,
             snapshotFresh: !!snapshot && Number.isFinite(snapshot.staleFor) && readinessPolicy &&
                 Number.isFinite(readinessPolicy.maxSnapshotAge) && snapshot.staleFor <= readinessPolicy.maxSnapshotAge,
@@ -289,7 +293,7 @@ class SpawnBureauService extends BaseService {
             lifecycleEligible: !!snapshot && ['self_sufficient', 'developing', 'mature', 'industrial'].includes(snapshot.lifecycle),
             cpuMode: control && control.runtime ? control.runtime.cpuMode : undefined,
             controllerEmergency,
-            autoSuspended: false
+            autoSuspended: !!(previousControl && previousControl.autoSuspended === true && !rearmRequested)
         };
         const governorDecision = {
             gap,
@@ -313,14 +317,58 @@ class SpawnBureauService extends BaseService {
             safety,
             requestedMode
         });
+        const nextControl = advanceUpgradeWorkControl({
+            previous: previousControl,
+            requestedMode,
+            decision,
+            fallbackSuspendCount: capabilityControl && capabilityControl.fallbackSuspendCount,
+            tick: Game.time
+        });
+        if (control && control.rooms) {
+            control.rooms[room.name] = {
+                ...(existingRoomControl || {}),
+                capabilityControl: {
+                    ...((existingRoomControl && existingRoomControl.capabilityControl) || {}),
+                    upgradeWork: nextControl
+                }
+            };
+        }
+        this.recordUpgradeWorkControlEvents(room.name, previousControl, nextControl);
         state.intents = decision.intents;
         state.arbitration = {
             ...(state.arbitration || {}),
             upgradeWork: {
                 ...decision,
-                mode
+                mode,
+                control: nextControl
             }
         };
+    }
+
+    recordUpgradeWorkControlEvents(roomName, previous, next) {
+        const eventData = {
+            roomName,
+            capability: 'upgradeWork',
+            requestedMode: next.requestedMode,
+            effectiveMode: next.effectiveMode,
+            reasons: [...next.reasons]
+        };
+        const wasFallback = previous && previous.action === 'fallback';
+        if (next.action === 'fallback' && (!wasFallback || previous.fallbackReason !== next.fallbackReason)) {
+            recordEmpireEvent('capability_control_fallback', 'warning', eventData);
+        }
+        for (const transition of next.transitionEvents) {
+            if (transition.type === 'upgrade_work_auto_suspended') {
+                recordEmpireEvent('capability_control_suspended', 'warning', eventData);
+            }
+            if (transition.type === 'upgrade_work_rearmed') {
+                recordEmpireEvent('capability_control_rearmed', 'info', eventData);
+            }
+        }
+        const wasGovernorActive = previous && previous.effectiveMode === 'active' && previous.adoptedSource === 'governor';
+        if (next.effectiveMode === 'active' && next.adoptedSource === 'governor' && !wasGovernorActive) {
+            recordEmpireEvent('capability_control_activated', 'info', eventData);
+        }
     }
 
     suppressionPlaceholder(legacyIntents, roomName, priority) {

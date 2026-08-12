@@ -1401,6 +1401,7 @@ async function run() {
             'capability:upgradeWork': { value: 'active', reason: 'test_pilot', expiresAt: 1100 }
         };
         Memory.empire.control.rooms.W1N1 = {
+            ...(Memory.empire.control.rooms.W1N1 || {}),
             capabilityRollout: { upgradeWork: { ready: true, blockers: [] } }
         };
         const base = {
@@ -1513,6 +1514,104 @@ async function run() {
     bureauIntegration.applyUpgradeWorkArbitration(Game.rooms.W1N1, invalidCandidateState);
     assert.strictEqual(invalidCandidateState.arbitration.upgradeWork.action, 'fallback', 'an unbuildable active governor candidate must fall back');
     assert.deepStrictEqual(invalidCandidateState.intents, expectedW1ShadowIntents, 'an unbuildable candidate must leave the complete legacy intent list intact');
+
+    setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot({ spawnRecommendations: [] });
+    Memory.empire.control.policy.telemetry = { eventLimit: 10 };
+    Memory.empire.control.rooms.W1N1.preservedRoomField = 'preserve';
+    Memory.empire.control.policy.overrides.rooms.W2N2 = {
+        'capability:upgradeWork': { value: 'active', reason: 'independent_room', expiresAt: 1100 }
+    };
+    Memory.empire.control.rooms.W2N2 = {
+        capabilityRollout: { upgradeWork: { ready: true, blockers: [] } }
+    };
+    global.RoomGovernor.W2N2 = {
+        ...global.RoomGovernor.W1N1,
+        spawnRecommendations: [{ capability: 'upgradeWork', priority: 77, reasons: ['upgradeWork_gap'] }]
+    };
+
+    bureauIntegration.analyze();
+    let persistedW1Control = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
+    assert.strictEqual(persistedW1Control.fallbackCount, 1, 'the first persisted active fallback should start at one');
+    assert.strictEqual(persistedW1Control.autoSuspended, false, 'the first persisted active fallback should not suspend control');
+    assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, expectedW1ShadowIntents, 'a persisted fallback must retain the complete legacy intents');
+    assert.strictEqual(Memory.empire.control.rooms.W1N1.preservedRoomField, 'preserve', 'persisting capability control must retain unrelated room control fields');
+    assert.strictEqual(global.SpawnBureau.W2N2.arbitration.upgradeWork.action, 'replace', 'a W1N1 fallback must not prevent W2N2 active arbitration');
+
+    Game.time += 1;
+    bureauIntegration.analyze();
+    persistedW1Control = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
+    assert.strictEqual(persistedW1Control.fallbackCount, 2, 'the second persisted fallback should increment consecutively');
+
+    Game.time += 1;
+    bureauIntegration.analyze();
+    persistedW1Control = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
+    assert.strictEqual(persistedW1Control.autoSuspended, true, 'the third persisted fallback should automatically suspend the room');
+    assert.strictEqual(persistedW1Control.suspendedAt, Game.time, 'automatic suspension should record the current tick');
+
+    setActiveGovernorSnapshot();
+    global.RoomGovernor.W2N2 = {
+        ...global.RoomGovernor.W1N1,
+        spawnRecommendations: [{ capability: 'upgradeWork', priority: 77, reasons: ['upgradeWork_gap'] }]
+    };
+    Game.time += 1;
+    bureauIntegration.analyze();
+    persistedW1Control = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
+    assert.strictEqual(persistedW1Control.autoSuspended, true, 'a safe active request must remain suspended until it is explicitly rearmed');
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'fallback', 'a suspended active request must continue to use legacy intents');
+    assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, expectedW1ShadowIntents, 'a suspended active request must retain complete legacy intents');
+
+    Memory.empire.control.policy.overrides.rooms.W1N1['capability:upgradeWork'].value = 'shadow';
+    Game.time += 1;
+    bureauIntegration.analyze();
+    persistedW1Control = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
+    assert.strictEqual(persistedW1Control.autoSuspended, true, 'a shadow request alone must not clear suspension');
+    assert.strictEqual(persistedW1Control.rearmed, false, 'the shadow request should only prepare a later rearm');
+
+    Memory.empire.control.policy.overrides.rooms.W1N1['capability:upgradeWork'].value = 'active';
+    Game.time += 1;
+    bureauIntegration.analyze();
+    persistedW1Control = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
+    assert.strictEqual(persistedW1Control.autoSuspended, false, 'a shadow-to-active request should rearm the suspended room');
+    assert.strictEqual(persistedW1Control.rearmed, true, 'a rearmed room should expose the transition on that tick');
+    assert.strictEqual(persistedW1Control.fallbackCount, 0, 'a safe rearmed active decision should reset fallback counting');
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'replace', 'a safe rearmed request should resume active replacement');
+    const capabilityEvents = Memory.empire.control.events.filter((event) => event.data.capability === 'upgradeWork' && event.data.roomName === 'W1N1');
+    assert.deepStrictEqual(capabilityEvents.map((event) => event.type), [
+        'capability_control_fallback',
+        'capability_control_suspended',
+        'capability_control_rearmed',
+        'capability_control_activated'
+    ], 'capability events should be emitted only at fallback, suspension, rearm, and activation edges');
+    assert.ok(capabilityEvents.every((event) => event.data.roomName === 'W1N1' && event.data.requestedMode && event.data.effectiveMode && Array.isArray(event.data.reasons)), 'capability events should include the bounded transition context');
+
+    Memory.empire.control.policy.telemetry.eventLimit = 4;
+    Game.time += 1;
+    setActiveGovernorSnapshot({ spawnRecommendations: [] });
+    global.RoomGovernor.W2N2 = {
+        ...global.RoomGovernor.W1N1,
+        spawnRecommendations: [{ capability: 'upgradeWork', priority: 77, reasons: ['upgradeWork_gap'] }]
+    };
+    bureauIntegration.analyze();
+    persistedW1Control = Memory.empire.control.rooms.W1N1.capabilityControl.upgradeWork;
+    assert.strictEqual(persistedW1Control.fallbackCount, 1, 'a fallback after one safe active tick must restart counting at one');
+    assert.ok(Memory.empire.control.events.length <= 4, 'capability transition events must respect telemetry eventLimit');
+
+    setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot();
+    Memory.empire.control.policy.capabilityControl.enabled = false;
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.effectiveMode, 'shadow', 'globally disabled capability control must force shadow mode');
+    assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, expectedW1ShadowIntents, 'globally disabled capability control must preserve complete legacy intents');
+    assert.strictEqual(Memory.empire.control.policy.overrides.rooms.W1N1['capability:upgradeWork'].value, 'active', 'globally disabled capability control must retain the active override request');
+
+    setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot();
+    Memory.empire.control.policy.capabilityControl.emergencyDisable = true;
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.effectiveMode, 'shadow', 'emergency disable must force shadow mode');
+    assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, expectedW1ShadowIntents, 'emergency disable must preserve complete legacy intents');
+    assert.strictEqual(Memory.empire.control.policy.overrides.rooms.W1N1['capability:upgradeWork'].value, 'active', 'emergency disable must retain the active override request');
 
     const constructionPressureEvaluation = evaluateRoomGovernor(factsFor({
         constructionPressure: 6,
