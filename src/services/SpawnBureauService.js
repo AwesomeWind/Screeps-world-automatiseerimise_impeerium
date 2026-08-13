@@ -263,8 +263,12 @@ class SpawnBureauService extends BaseService {
             : undefined;
         const quotaKey = `upgrader:${room.name}:controller`;
         const liveControllerQuotaCovered = this.countQuota(room.name, quotaKey) > 0;
-        const effectiveGap = liveControllerQuotaCovered && Number.isFinite(gap) && gap > 0 ? 0 : gap;
-        const fulfillmentReasons = liveControllerQuotaCovered && Number.isFinite(gap) && gap > 0
+        const replayingOlderGovernorSnapshot = snapshot && Number.isFinite(snapshot.evaluatedAt) &&
+            snapshot.evaluatedAt < Game.time;
+        const fulfilledOlderPositiveGap = replayingOlderGovernorSnapshot && liveControllerQuotaCovered &&
+            Number.isFinite(gap) && gap > 0;
+        const effectiveGap = fulfilledOlderPositiveGap ? 0 : gap;
+        const fulfillmentReasons = fulfilledOlderPositiveGap
             ? ['controller_quota_already_covered']
             : [];
         const emergencyCandidateRequired = !liveControllerQuotaCovered && controllerEmergency && Number.isFinite(current) &&

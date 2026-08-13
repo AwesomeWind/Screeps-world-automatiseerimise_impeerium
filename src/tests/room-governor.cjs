@@ -1675,6 +1675,22 @@ async function run() {
     assert.ok(global.SpawnBureau.W1N1.arbitration.upgradeWork.reasons.includes('controller_quota_already_covered'), 'fulfillment protection should explain why the stale positive gap was suppressed');
     assert.strictEqual(global.SpawnBureau.W1N1.intents.filter((intent) => intent.quotaKey === 'upgrader:W1N1:controller').length, 0, 'a spawning controller quota must not receive another economic intent');
 
+    setupSpawnBureauIntegrationWorld();
+    Game.creeps.W1Upgrader = {
+        memory: { role: 'upgrader', homeRoom: 'W1N1', quotaKey: 'upgrader:W1N1:controller' },
+        body: [{ type: WORK }, { type: CARRY }, { type: MOVE }]
+    };
+    setActiveGovernorSnapshot({
+        evaluatedAt: Game.time,
+        staleFor: 0,
+        capabilities: { upgradeWork: { gap: 4, current: 1, spawning: 0 } },
+        spawnRecommendations: [{ capability: 'upgradeWork', priority: 77, reasons: ['fresh_positive_gap'] }]
+    });
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'replace', 'a fresh Governor positive gap must be allowed to add one more economic upgrader despite existing quota coverage');
+    assert.strictEqual(global.SpawnBureau.W1N1.intents.filter((intent) => intent.quotaKey === 'upgrader:W1N1:controller').length, 1, 'a fresh positive gap should publish exactly one additional economic upgrader intent');
+    assert.ok(!global.SpawnBureau.W1N1.arbitration.upgradeWork.reasons.includes('controller_quota_already_covered'), 'fresh Governor evidence must not be masked by stale-snapshot fulfillment protection');
+
     for (const [label, snapshotOverride] of [
         ['covered gap', {
             capabilities: { upgradeWork: { gap: 0, current: 1, spawning: 0 } },
