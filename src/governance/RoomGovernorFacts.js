@@ -50,6 +50,7 @@ function ensureRoomIndex(index, roomName) {
 function indexCreepCapabilities(replacementLeadTicks) {
     const stable = {};
     const retiring = {};
+    const spawning = {};
     for (const name in (Game.creeps || {})) {
         const creep = Game.creeps[name];
         const memory = creep.memory || {};
@@ -59,15 +60,16 @@ function indexCreepCapabilities(replacementLeadTicks) {
         const spawnTime = typeof CREEP_SPAWN_TIME === 'undefined' ? 3 : CREEP_SPAWN_TIME;
         const isRetiring = creep.ticksToLive !== undefined &&
             creep.ticksToLive <= bodyLength * spawnTime + replacementLeadTicks;
-        addRoleCapability(ensureRoomIndex(isRetiring ? retiring : stable, roomName), memory, creep.body);
+        const index = creep.spawning ? spawning : (isRetiring ? retiring : stable);
+        addRoleCapability(ensureRoomIndex(index, roomName), memory, creep.body);
     }
-    return { stable, retiring };
+    return { stable, retiring, spawning };
 }
 
-function indexSpawningCapabilities() {
-    const spawning = {};
+function indexSpawningCapabilities(spawning) {
     const records = Memory.empire && Memory.empire.spawningCreeps ? Memory.empire.spawningCreeps : {};
     for (const name in records) {
+        if (Game.creeps && Game.creeps[name]) continue;
         const record = records[name];
         if (!record) continue;
         if (record.expireAt !== undefined && Game.time > record.expireAt) continue;
@@ -126,7 +128,7 @@ function roomSecurity(roomName) {
 export function collectRoomGovernorFacts(options = {}) {
     const replacementLeadTicks = options.replacementLeadTicks === undefined ? 50 : options.replacementLeadTicks;
     const creepCapabilities = indexCreepCapabilities(replacementLeadTicks);
-    const spawningCapabilities = indexSpawningCapabilities();
+    const spawningCapabilities = indexSpawningCapabilities(creepCapabilities.spawning);
     const spawnsByRoom = indexSpawns();
     const metricsRooms = Memory.empire && Memory.empire.control && Memory.empire.control.metrics &&
         Memory.empire.control.metrics.rooms ? Memory.empire.control.metrics.rooms : {};

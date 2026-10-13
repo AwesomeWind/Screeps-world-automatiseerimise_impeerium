@@ -1,5 +1,7 @@
 # Automation Empire Roadmap
 
+> 2026-10-13 校正：本文件保留早期路线图背景，下文的缺口和推进顺序是 2026-06-05 的历史判断。当前事实、优先级和阶段验收以 [2026-10-13 优化与能力补全路线图](2026-10-13-optimization-capability-roadmap.md) 为准。RoomPhase、建设排序、区间维护、Link 和受控 Container 生命周期已经有代码，不应重新作为缺失模块实施。
+
 ## 背景
 
 当前代码已经能支撑单房早中期运转：基础采矿、搬运、升级、建造、维修、集中孵化、资源需求分配、基础防御、房间规划、道路规划和维护规划都已经存在。近期修复的 repairer 问题说明，系统已经进入“能跑起来，但需要更清晰阶段判断和长期策略”的阶段。
@@ -13,7 +15,7 @@
 - `miner` 已经能绑定 source 和 mining position，执行定点采矿。
 - `hauler` 通过 `ResourceMarketService` 消费 supply/demand，承担主要物流。
 - `upgrader` 支持 controller container 的 stationary 工作模式。
-- `builder` 优先 construction site，空闲时可消费维护任务。
+- `builder` 优先 construction site，无工地且存在 Controller 时执行升级 fallback；当前不消费维护任务。
 - `repairer` 已支持实时校验维护目标，并持续维修到 `targetHits`。
 - `SpawnBureauService` 已集中处理经济角色和战争角色的孵化仲裁。
 
@@ -284,7 +286,7 @@
 
 ## 近期建议
 
-下一步建议先做第一阶段：
+以下是历史建议；当前首阶段是孵化能力合约正确性及验证边界，见新版路线图。历史上建议先做第一阶段：
 
 1. 建立统一 `RoomPhaseService`。
 2. 给 road/container 引入区间维护。

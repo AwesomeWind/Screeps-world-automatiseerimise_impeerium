@@ -547,7 +547,7 @@ class SpawnBureauService extends BaseService {
         }
         if (typeof Memory !== 'undefined' && Memory.empire && Memory.empire.spawningCreeps) {
             for (const name in Memory.empire.spawningCreeps) {
-                if (Game.creeps[name]) continue;
+                if (Game.creeps[name] || (Memory.creeps && Memory.creeps[name])) continue;
                 const record = this.spawnRecord(Memory.empire.spawningCreeps[name]);
                 if (!record || this.isSpawnRecordExpired(record)) continue;
                 const memory = record.memory || {};
@@ -578,6 +578,7 @@ class SpawnBureauService extends BaseService {
         }
         if (typeof Memory !== 'undefined' && Memory.empire && Memory.empire.spawningCreeps) {
             for (const name in Memory.empire.spawningCreeps) {
+                if (Game.creeps[name] || (Memory.creeps && Memory.creeps[name])) continue;
                 const record = this.spawnRecord(Memory.empire.spawningCreeps[name]);
                 if (!record || this.isSpawnRecordExpired(record)) continue;
                 const memory = record.memory || {};

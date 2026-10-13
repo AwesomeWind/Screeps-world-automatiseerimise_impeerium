@@ -2,6 +2,8 @@
 
 日期：2026-08-11
 
+> 2026-10-13 实现状态校正：本文是目标蓝图，不是已交付能力清单。RuntimeTelemetry、影子 ServiceScheduler、EmpireMetrics、己方房间 Governor 和受控 upgradeWork 仲裁已有代码；Goal/Plan、EmpireDirector、完整跨房闭环仍未实现。当前实施顺序与验收见 [优化与能力补全路线图](2026-10-13-optimization-capability-roadmap.md)。自动化 policy 字段存在不代表对应执行服务已消费这些开关。
+
 ## 1. 目标
 
 本设计将现有 Screeps AI 从“单房执行与角色调度系统”演进为贯穿游戏生命周期的帝国指挥中枢，使其能够默认自动完成：

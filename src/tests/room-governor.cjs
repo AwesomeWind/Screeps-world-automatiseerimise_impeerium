@@ -847,6 +847,145 @@ async function run() {
     assert.strictEqual(collected.rooms.W3N3.controllerTicksToDowngrade, null, 'missing controller downgrade time should remain unknown');
     assert.strictEqual(collected.rooms.W3N3.security.hostileStrength, null, 'missing war intel should remain unknown');
 
+    {
+        const { default: SpawnService } = await import('../services/SpawnService.js');
+        const { default: SpawnBureauService } = await import('../services/SpawnBureauService.js');
+        const { default: spawnEvents } = await import('../core/EventBus.js');
+        const savedGame = { ...Game };
+        const savedMemory = Memory;
+        const savedTopics = spawnEvents.topics;
+        const savedSubscribers = spawnEvents.subscribers;
+        const savedTickCounter = spawnEvents.tickCounter;
+        const savedBodyPartCost = global.BODYPART_COST;
+        const savedOk = global.OK;
+        const savedNameExists = global.ERR_NAME_EXISTS;
+        global.OK = 0;
+        global.ERR_NAME_EXISTS = -3;
+        global.BODYPART_COST = { carry: 50, move: 50 };
+        Game.time = 200;
+        Game.rooms = { W1N1: ownedRoom };
+        Game.creeps = {};
+        global.Memory = { creeps: {}, empire: { spawningCreeps: {} } };
+        spawnEvents.topics = {};
+        spawnEvents.clearSubscribers();
+        const acceptedBody = [CARRY, MOVE, CARRY];
+        const acceptedMemory = { role: 'hauler', homeRoom: 'W1N1', quotaKey: 'hauler:W1N1:core' };
+        let spawnResult = OK;
+        const capabilitySpawn = {
+            room: ownedRoom,
+            spawning: null,
+            spawnCreep: () => spawnResult
+        };
+        Game.spawns = { Spawn1: capabilitySpawn };
+        const capabilitySpawnService = new SpawnService('Spawn');
+        const capabilityBureau = new SpawnBureauService('SpawnBureau');
+        capabilitySpawnService.init();
+        spawnEvents.publish('REQ_SPAWN', 45, {
+            roomName: 'W1N1', name: 'AcceptedHauler', body: acceptedBody, memory: acceptedMemory
+        });
+        spawnEvents.dispatch();
+        assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 0, 'queued spawn work must not count as accepted capability');
+        capabilitySpawnService.run();
+        capabilitySpawnService.cleanup();
+        const acceptedRecord = Memory.empire.spawningCreeps.AcceptedHauler;
+        assert.ok(acceptedRecord, 'a successful real SpawnService flow should retain its pending backup');
+        assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 2, 'facts should count both CARRY parts from the actual SpawnService backup');
+        assert.strictEqual(acceptedRecord.expireAt, 219, 'body persistence must retain the spawn expiry contract');
+        assert.deepStrictEqual(Memory.creeps.AcceptedHauler, acceptedMemory, 'body metadata must not pollute creep memory');
+        acceptedBody.push(CARRY);
+        assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 2, 'the backup body must be independent of the request array');
+        acceptedBody.pop();
+
+        const spawningCreep = {
+            memory: acceptedMemory,
+            spawning: true,
+            body: acceptedBody.map((type) => ({ type, hits: 100 }))
+        };
+        Game.creeps.AcceptedHauler = spawningCreep;
+        capabilitySpawn.spawning = { name: 'AcceptedHauler' };
+        let spawnFacts = collectRoomGovernorFacts().rooms.W1N1;
+        assert.strictEqual(spawnFacts.capabilities.logisticsCarry, 0, 'a live spawning creep is not current usable capacity');
+        assert.strictEqual(spawnFacts.spawningCapabilities.logisticsCarry, 2, 'live spawning and backup should count the same name once');
+        capabilitySpawnService.cleanup();
+        assert.strictEqual(Memory.empire.spawningCreeps.AcceptedHauler, undefined, 'the actual cleanup should remove a backup once live memory is available');
+        assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 2, 'live spawning capability must survive backup cleanup');
+
+        spawningCreep.spawning = false;
+        spawningCreep.ticksToLive = 1000;
+        capabilitySpawn.spawning = null;
+        Memory.empire.spawningCreeps.AcceptedHauler = acceptedRecord;
+        spawnFacts = collectRoomGovernorFacts().rooms.W1N1;
+        assert.strictEqual(spawnFacts.capabilities.logisticsCarry, 2, 'completed spawning should move capability to current');
+        assert.strictEqual(spawnFacts.spawningCapabilities.logisticsCarry, 0, 'a completed live creep should take precedence over its backup');
+        assert.strictEqual(capabilityBureau.countQuota('W1N1', acceptedMemory.quotaKey), 1, 'live and backup records must cover the quota once');
+        spawningCreep.ticksToLive = 59;
+        spawnFacts = collectRoomGovernorFacts().rooms.W1N1;
+        assert.strictEqual(spawnFacts.capabilities.logisticsCarry, 0, 'the replacement TTL boundary should exclude retiring capacity');
+        assert.strictEqual(spawnFacts.retiringCapabilities.logisticsCarry, 2, 'retiring live parts should remain replacement evidence');
+        assert.strictEqual(spawnFacts.spawningCapabilities.logisticsCarry, 0, 'a retiring live name must not reappear as spawning through its backup');
+        assert.strictEqual(capabilityBureau.countQuota('W1N1', acceptedMemory.quotaKey), 0, 'a retiring creep backup must not cover the live quota');
+
+        delete Game.creeps.AcceptedHauler;
+        assert.strictEqual(capabilityBureau.countRole('W1N1', 'hauler'), 1, 'Memory.creeps and the actual backup should count one pending role');
+        assert.strictEqual(capabilityBureau.countQuota('W1N1', acceptedMemory.quotaKey), 1, 'Memory.creeps and the actual backup should cover one pending quota');
+        delete Memory.creeps.AcceptedHauler;
+        assert.strictEqual(capabilityBureau.countRole('W1N1', 'hauler'), 1, 'backup-only pending role coverage should be retained');
+        assert.strictEqual(capabilityBureau.countQuota('W1N1', acceptedMemory.quotaKey), 1, 'backup-only pending quota coverage should be retained');
+        Game.time = acceptedRecord.expireAt;
+        assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 2, 'a backup remains valid through its expiry tick');
+        Game.time++;
+        assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 0, 'expired backup capability should be excluded');
+        capabilitySpawnService.init();
+        capabilitySpawnService.cleanup();
+        assert.strictEqual(Memory.empire.spawningCreeps.AcceptedHauler, undefined, 'expired missing backups should be cleaned up');
+
+        Memory.empire.spawningCreeps.LegacyHauler = { role: 'hauler', homeRoom: 'W1N1', body: [CARRY, MOVE] };
+        Memory.empire.spawningCreeps.UnknownBody = { memory: { role: 'hauler', homeRoom: 'W1N1' }, expireAt: Game.time + 10 };
+        assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 1, 'legacy memory.body should work without inventing parts for bodyless records');
+        Memory.empire.spawningCreeps = {};
+        spawnResult = -6;
+        capabilitySpawnService.init();
+        spawnEvents.publish('REQ_SPAWN', 45, {
+            roomName: 'W1N1', name: 'FailedHauler', body: acceptedBody, memory: acceptedMemory
+        });
+        spawnEvents.dispatch();
+        const savedLog = console.log;
+        try {
+            console.log = () => {};
+            capabilitySpawnService.run();
+        } finally {
+            console.log = savedLog;
+        }
+        assert.strictEqual(Memory.empire.spawningCreeps.FailedHauler, undefined, 'failed spawn work must not produce an accepted backup');
+        assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 0, 'failed spawn work must not cover a capability gap');
+
+        spawnResult = OK;
+        BODYPART_COST.work = 100;
+        capabilitySpawnService.init();
+        spawnEvents.publish('REQ_SPAWN', 35, {
+            roomName: 'W1N1', name: 'AcceptedUpgrader', body: [WORK, WORK, CARRY, MOVE],
+            memory: { role: 'upgrader', homeRoom: 'W1N1', quotaKey: 'upgrader:W1N1:controller' }
+        });
+        spawnEvents.dispatch();
+        capabilitySpawnService.run();
+        capabilitySpawnService.cleanup();
+        const { evaluateCapabilityGaps } = await import('../governance/RoomGovernorModel.js');
+        const upgradeGap = evaluateCapabilityGaps(collectRoomGovernorFacts().rooms.W1N1, {
+            upgradeWork: { required: 3, confidence: 'measured', reasons: [] }
+        }).upgradeWork;
+        assert.strictEqual(upgradeGap.current, 0, 'accepted upgrader work is not usable yet');
+        assert.strictEqual(upgradeGap.spawning, 2, 'the actual accepted upgrader backup should provide upcoming WORK');
+        assert.strictEqual(upgradeGap.gap, 1, 'accepted WORK should reduce the capability gap without hiding the remaining deficit');
+        Object.assign(Game, savedGame);
+        global.Memory = savedMemory;
+        spawnEvents.topics = savedTopics;
+        spawnEvents.subscribers = savedSubscribers;
+        spawnEvents.tickCounter = savedTickCounter;
+        global.BODYPART_COST = savedBodyPartCost;
+        global.OK = savedOk;
+        global.ERR_NAME_EXISTS = savedNameExists;
+    }
+
     const {
         requiredCapabilities,
         evaluateHealth,

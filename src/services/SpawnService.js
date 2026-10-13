@@ -122,6 +122,7 @@ class SpawnService extends BaseService {
         const bodyLength = body ? body.length : 0;
         return {
             memory,
+            body: body ? [...body] : [],
             expireAt: Game.time + (bodyLength * spawnTime) + 10
         };
     }
