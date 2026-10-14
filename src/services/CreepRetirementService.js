@@ -1,4 +1,6 @@
 import BaseService from '../core/BaseService.js';
+import { currentCreepPopulation } from '../core/CreepPopulation.js';
+import { recoveryRestricted } from './RoomRecoveryPolicy.js';
 import TaskTypes from '../core/TaskTypes.js';
 import { assignTask } from '../core/TaskMetadata.js';
 
@@ -29,6 +31,10 @@ class CreepRetirementService extends BaseService {
             }
 
             const roomName = creep.memory.homeRoom || (creep.room && creep.room.name);
+            if (recoveryRestricted(roomName)) {
+                this.resetIdle(creep);
+                continue;
+            }
             const roomPhase = global.RoomPhase && global.RoomPhase[roomName];
             if (!this.isStableRoom(roomPhase, counts[roomName])) {
                 this.resetRetirement(creep);
@@ -61,13 +67,12 @@ class CreepRetirementService extends BaseService {
 
     roleCountsByRoom() {
         const counts = {};
-        for (const name in Game.creeps) {
-            const creep = Game.creeps[name];
-            if (!creep || !creep.memory) continue;
-            const roomName = creep.memory.homeRoom || (creep.room && creep.room.name);
+        for (const entry of currentCreepPopulation()) {
+            if (entry.state !== 'active' || !entry.coversQuota) continue;
+            const roomName = entry.roomName;
             if (!roomName) continue;
             if (!counts[roomName]) counts[roomName] = {};
-            counts[roomName][creep.memory.role] = (counts[roomName][creep.memory.role] || 0) + 1;
+            counts[roomName][entry.memory.role] = (counts[roomName][entry.memory.role] || 0) + 1;
         }
         return counts;
     }

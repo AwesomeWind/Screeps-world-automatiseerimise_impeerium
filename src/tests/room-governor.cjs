@@ -787,7 +787,7 @@ async function run() {
         }
     };
     Game.spawns = {
-        Spawn1: { room: ownedRoom, spawning: null, pos: { getRangeTo: () => 8 } }
+        Spawn1: { room: ownedRoom, spawning: { name: 'NewHauler' }, pos: { getRangeTo: () => 8 } }
     };
     Game.getObjectById = (id) => objects[id] || null;
     Memory.empire.spawningCreeps = {
@@ -932,8 +932,10 @@ async function run() {
         assert.strictEqual(capabilityBureau.countRole('W1N1', 'hauler'), 1, 'backup-only pending role coverage should be retained');
         assert.strictEqual(capabilityBureau.countQuota('W1N1', acceptedMemory.quotaKey), 1, 'backup-only pending quota coverage should be retained');
         Game.time = acceptedRecord.expireAt;
+        capabilitySpawn.spawning = { name: 'AcceptedHauler' };
         assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 2, 'a backup remains valid through its expiry tick');
         Game.time++;
+        capabilitySpawn.spawning = null;
         assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 0, 'expired backup capability should be excluded');
         capabilitySpawnService.init();
         capabilitySpawnService.cleanup();
@@ -941,8 +943,10 @@ async function run() {
 
         Memory.empire.spawningCreeps.LegacyHauler = { role: 'hauler', homeRoom: 'W1N1', body: [CARRY, MOVE] };
         Memory.empire.spawningCreeps.UnknownBody = { memory: { role: 'hauler', homeRoom: 'W1N1' }, expireAt: Game.time + 10 };
+        capabilitySpawn.spawning = { name: 'LegacyHauler' };
         assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 1, 'legacy memory.body should work without inventing parts for bodyless records');
         Memory.empire.spawningCreeps = {};
+        capabilitySpawn.spawning = null;
         spawnResult = -6;
         capabilitySpawnService.init();
         spawnEvents.publish('REQ_SPAWN', 45, {
@@ -959,6 +963,7 @@ async function run() {
         assert.strictEqual(Memory.empire.spawningCreeps.FailedHauler, undefined, 'failed spawn work must not produce an accepted backup');
         assert.strictEqual(collectRoomGovernorFacts().rooms.W1N1.spawningCapabilities.logisticsCarry, 0, 'failed spawn work must not cover a capability gap');
 
+        spawnEvents.topics = {};
         spawnResult = OK;
         BODYPART_COST.work = 100;
         capabilitySpawnService.init();
@@ -1754,6 +1759,20 @@ async function run() {
     };
 
     setupSpawnBureauIntegrationWorld();
+    setActiveGovernorSnapshot({
+        evaluatedAt: 999, staleFor: 1, controllerTicksToDowngrade: 5001,
+        capabilities: { upgradeWork: { gap: 0, current: 1, spawning: 0 } },
+        budgets: { upgrade: { blocked: true } }, spawnRecommendations: []
+    });
+    Game.rooms.W1N1.controller.ticksToDowngrade = 4999;
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'keep', 'current Controller crossing must preserve legacy upgrading between Governor evaluations');
+    assert.deepStrictEqual(global.SpawnBureau.W1N1.intents, global.SpawnBureau.W1N1.legacyIntents, 'Controller safety must preserve the complete legacy list');
+    delete Game.rooms.W1N1.controller.ticksToDowngrade;
+    bureauIntegration.analyze();
+    assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'fallback', 'missing current Controller time must not authorize active suppression');
+
+    setupSpawnBureauIntegrationWorld();
     bureauIntegration.analyze();
     const shadowW1 = global.SpawnBureau.W1N1;
     const shadowW2 = global.SpawnBureau.W2N2;
@@ -1807,12 +1826,14 @@ async function run() {
         memory: { role: 'upgrader', homeRoom: 'W1N1', quotaKey: 'upgrader:W1N1:controller' },
         expireAt: 1200
     };
+    Game.spawns = { PendingUpgradeSpawn: { room: Game.rooms.W1N1, spawning: { name: 'W1Upgrade' } } };
     Game.time = 1001;
     global.RoomGovernor.W1N1.staleFor = 1;
     bureauIntegration.analyze();
     assert.strictEqual(global.SpawnBureau.W1N1.arbitration.upgradeWork.action, 'suppress', 'live spawning coverage must prevent a second replacement from the same Governor snapshot');
     assert.ok(global.SpawnBureau.W1N1.arbitration.upgradeWork.reasons.includes('controller_quota_already_covered'), 'fulfillment protection should explain why the stale positive gap was suppressed');
     assert.strictEqual(global.SpawnBureau.W1N1.intents.filter((intent) => intent.quotaKey === 'upgrader:W1N1:controller').length, 0, 'a spawning controller quota must not receive another economic intent');
+    Game.spawns = {};
 
     setupSpawnBureauIntegrationWorld();
     Game.creeps.W1Upgrader = {

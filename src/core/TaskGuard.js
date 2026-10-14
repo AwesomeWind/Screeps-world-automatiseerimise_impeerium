@@ -89,6 +89,10 @@ const TaskGuard = {
         if (task.expiresAt !== undefined && task.expiresAt < Game.time) {
             return { valid: false, reason: 'expired_task' };
         }
+        const reservation = taskMeta && taskMeta.logisticsReservation;
+        if (reservation && Number.isFinite(reservation.maxExpiresAt) && Game.time > reservation.maxExpiresAt) {
+            return { valid: false, reason: 'expired_task' };
+        }
         if (!roleAllowsTask(creep.memory && creep.memory.role, task.type)) {
             return { valid: false, reason: 'role_disallowed_task' };
         }

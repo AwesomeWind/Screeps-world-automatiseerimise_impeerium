@@ -98,7 +98,7 @@ function runServicePhase(services, phase) {
 export function loop() {
     prepareMemory();
     MemoryConfig.ensureDefaults();
-    RuntimeTelemetry.beginTick();
+    RuntimeTelemetry.beginTick(SERVICE_VERSION);
     ServiceScheduler.beginTick();
 
     const services = getServices();

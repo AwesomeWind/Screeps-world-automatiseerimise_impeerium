@@ -1,3 +1,5 @@
+import { currentCreepPopulation, activeBodyPartCount as activePartCount } from '../core/CreepPopulation.js';
+
 function emptyCapabilities() {
     return {
         harvestWork: 0,
@@ -7,17 +9,6 @@ function emptyCapabilities() {
         upgradeWork: 0,
         defenseScore: 0
     };
-}
-
-function activePartCount(body, partType) {
-    if (!Array.isArray(body)) return 0;
-    let count = 0;
-    for (const part of body) {
-        if (part && typeof part === 'object' && part.hits !== undefined && part.hits <= 0) continue;
-        const type = part && typeof part === 'object' ? part.type : part;
-        if (type === partType) count++;
-    }
-    return count;
 }
 
 function defenseScore(body) {
@@ -37,11 +28,6 @@ function addRoleCapability(target, memory, body) {
     else if (memory.role === 'defender') target.defenseScore += defenseScore(body);
 }
 
-function roomNameFor(memory, creep) {
-    if (!memory) return null;
-    return memory.homeRoom || memory.targetRoom || (creep && creep.room && creep.room.name) || null;
-}
-
 function ensureRoomIndex(index, roomName) {
     if (!index[roomName]) index[roomName] = emptyCapabilities();
     return index[roomName];
@@ -51,34 +37,12 @@ function indexCreepCapabilities(replacementLeadTicks) {
     const stable = {};
     const retiring = {};
     const spawning = {};
-    for (const name in (Game.creeps || {})) {
-        const creep = Game.creeps[name];
-        const memory = creep.memory || {};
-        const roomName = roomNameFor(memory, creep);
-        if (!roomName) continue;
-        const bodyLength = Array.isArray(creep.body) ? creep.body.length : 0;
-        const spawnTime = typeof CREEP_SPAWN_TIME === 'undefined' ? 3 : CREEP_SPAWN_TIME;
-        const isRetiring = creep.ticksToLive !== undefined &&
-            creep.ticksToLive <= bodyLength * spawnTime + replacementLeadTicks;
-        const index = creep.spawning ? spawning : (isRetiring ? retiring : stable);
-        addRoleCapability(ensureRoomIndex(index, roomName), memory, creep.body);
+    for (const entry of currentCreepPopulation(replacementLeadTicks)) {
+        if (!entry.roomName || entry.state === 'invalid') continue;
+        const index = ['spawning', 'accepted'].includes(entry.state) ? spawning : (entry.state === 'retiring' ? retiring : stable);
+        addRoleCapability(ensureRoomIndex(index, entry.roomName), entry.memory, entry.body);
     }
     return { stable, retiring, spawning };
-}
-
-function indexSpawningCapabilities(spawning) {
-    const records = Memory.empire && Memory.empire.spawningCreeps ? Memory.empire.spawningCreeps : {};
-    for (const name in records) {
-        if (Game.creeps && Game.creeps[name]) continue;
-        const record = records[name];
-        if (!record) continue;
-        if (record.expireAt !== undefined && Game.time > record.expireAt) continue;
-        const memory = record.memory || record;
-        const roomName = roomNameFor(memory);
-        if (!roomName) continue;
-        addRoleCapability(ensureRoomIndex(spawning, roomName), memory, record.body || memory.body || []);
-    }
-    return spawning;
 }
 
 function indexSpawns() {
@@ -128,7 +92,7 @@ function roomSecurity(roomName) {
 export function collectRoomGovernorFacts(options = {}) {
     const replacementLeadTicks = options.replacementLeadTicks === undefined ? 50 : options.replacementLeadTicks;
     const creepCapabilities = indexCreepCapabilities(replacementLeadTicks);
-    const spawningCapabilities = indexSpawningCapabilities(creepCapabilities.spawning);
+    const spawningCapabilities = creepCapabilities.spawning;
     const spawnsByRoom = indexSpawns();
     const metricsRooms = Memory.empire && Memory.empire.control && Memory.empire.control.metrics &&
         Memory.empire.control.metrics.rooms ? Memory.empire.control.metrics.rooms : {};

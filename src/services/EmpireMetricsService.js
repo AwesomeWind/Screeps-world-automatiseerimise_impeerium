@@ -29,9 +29,46 @@ function compactUpgradeWorkControl(roomName, governor, bureau, roomControl) {
     };
 }
 
+function compactRecovery(recovery) {
+    if (!recovery) return null;
+    return {
+        mode: recovery.mode || null,
+        reasons: Array.isArray(recovery.reasons) ? recovery.reasons.slice(0, 8) : [],
+        evaluatedAt: Number.isFinite(recovery.evaluatedAt) ? recovery.evaluatedAt : null,
+        coreUsable: recovery.coreUsable ? { miner: recovery.coreUsable.miner, hauler: recovery.coreUsable.hauler } : null,
+        coreUpcoming: recovery.coreUpcoming ? { miner: recovery.coreUpcoming.miner, hauler: recovery.coreUpcoming.hauler } : null,
+        blockedBy: Array.isArray(recovery.blockedBy) ? recovery.blockedBy.slice(0, 8) : []
+    };
+}
+
+function compactCoreCapabilities(governor) {
+    const capabilities = {};
+    for (const name of ['harvestWork', 'logisticsCarry']) {
+        const capability = governor && governor.capabilities && governor.capabilities[name];
+        capabilities[name] = {};
+        for (const field of ['current', 'spawning', 'retiring', 'required', 'gap']) {
+            capabilities[name][field] = capability && Number.isFinite(capability[field]) ? capability[field] : null;
+        }
+    }
+    return capabilities;
+}
+
+function constructionProgress(roomName) {
+    const cache = global.RoomCache && global.RoomCache[roomName];
+    if (!cache || !Array.isArray(cache.constructionSites) || typeof Game.getObjectById !== 'function') return null;
+    let progress = 0;
+    for (const id of cache.constructionSites) {
+        const site = Game.getObjectById(id);
+        if (!site || !Number.isFinite(site.progress)) return null;
+        progress += site.progress;
+    }
+    return progress;
+}
+
 class EmpireMetricsService extends BaseService {
     cleanup() {
         const control = ensureEmpireControl();
+        if (control.policy.telemetry.enabled === false) return;
         const interval = Math.max(1, control.policy.telemetry.metricsInterval || 10);
         if (Game.time % interval !== 0) return;
 
@@ -74,6 +111,16 @@ class EmpireMetricsService extends BaseService {
 
             control.metrics.rooms[roomName] = {
                 capturedAt: Game.time,
+                codeVersion: global.EmpireTelemetry ? global.EmpireTelemetry.codeVersion : (global.EmpireServicesVersion || null),
+                recovery: compactRecovery(phase.recovery),
+                spawnIntake: global.SpawnIntake && global.SpawnIntake[roomName] ? {
+                    ...global.SpawnIntake[roomName], reasons: { ...global.SpawnIntake[roomName].reasons }
+                } : null,
+                coreCapabilities: compactCoreCapabilities(governor),
+                controllerTicksToDowngrade: Number.isFinite(room.controller.ticksToDowngrade) ? room.controller.ticksToDowngrade : null,
+                controllerLevel: Number.isFinite(room.controller.level) ? room.controller.level : null,
+                controllerProgress: Number.isFinite(room.controller.progress) ? room.controller.progress : null,
+                constructionProgressSum: constructionProgress(roomName),
                 phase: phase.phase || null,
                 energyPosture: phase.energyPosture || null,
                 energyAvailable: room.energyAvailable || 0,
@@ -85,6 +132,7 @@ class EmpireMetricsService extends BaseService {
                 roleCounts: roleCountsByRoom[roomName] || {},
                 spawningCount: spawningByRoom[roomName] || 0,
                 resourceMarketStats: market && market.stats ? { ...market.stats } : {},
+                resourceFeedbackTotals: market && market.feedbackTotals ? { ...market.feedbackTotals } : {},
                 governorLifecycle: governor ? governor.lifecycle || null : null,
                 governorHealth: governor && governor.health && governor.health.overall
                     ? {
@@ -104,7 +152,38 @@ class EmpireMetricsService extends BaseService {
                     : null,
                 upgradeWorkControl: compactUpgradeWorkControl(roomName, governor, bureau, roomControl)
             };
+            const historyInterval = Math.max(1, control.policy.telemetry.metricsHistoryInterval || 50);
+            if (Game.time % historyInterval === 0) this.recordHistory(control, roomName);
         }
+    }
+
+    recordHistory(control, roomName) {
+        if (!control.metrics.histories) control.metrics.histories = {};
+        const latest = control.metrics.rooms[roomName];
+        let history = control.metrics.histories[roomName];
+        if (!history || history.codeVersion !== latest.codeVersion || !Array.isArray(history.samples)) {
+            history = { codeVersion: latest.codeVersion, samples: [] };
+            control.metrics.histories[roomName] = history;
+        }
+        if (history.samples.length && history.samples[history.samples.length - 1].tick === Game.time) return;
+        history.samples.push({
+            tick: Game.time, codeVersion: latest.codeVersion,
+            energyAvailable: latest.energyAvailable, storageEnergy: latest.storageEnergy,
+            spawnEnergyRatio: latest.spawnEnergyRatio, controllerTicksToDowngrade: latest.controllerTicksToDowngrade,
+            controllerLevel: latest.controllerLevel, controllerProgress: latest.controllerProgress,
+            constructionPressure: latest.constructionPressure, constructionProgressSum: latest.constructionProgressSum,
+            recoveryMode: latest.recovery ? latest.recovery.mode : null,
+            spawnIntake: latest.spawnIntake,
+            coreUsable: latest.recovery ? latest.recovery.coreUsable : null,
+            coreUpcoming: latest.recovery ? latest.recovery.coreUpcoming : null,
+            logistics: { ...latest.resourceMarketStats },
+            logisticsTotals: { ...latest.resourceFeedbackTotals },
+            totalCpu: global.EmpireTelemetry && Number.isFinite(global.EmpireTelemetry.totalCpu) ? global.EmpireTelemetry.totalCpu : null,
+            cpuBucket: Game.cpu && Number.isFinite(Game.cpu.bucket) ? Game.cpu.bucket : null
+        });
+        const requested = control.policy.telemetry.metricsHistoryLimit;
+        const limit = Math.min(50, Number.isSafeInteger(requested) && requested > 0 ? requested : 50);
+        if (history.samples.length > limit) history.samples.splice(0, history.samples.length - limit);
     }
 }
 

@@ -3,6 +3,7 @@ import TaskTypes from '../core/TaskTypes.js';
 import WorkPositionCoordinator from '../core/WorkPositionCoordinator.js';
 import { assignTask } from '../core/TaskMetadata.js';
 import { planWorkerEnergyTask } from '../services/ResourceMarketService.js';
+import { recoveryRestricted, essentialConstruction, controllerEmergency } from '../services/RoomRecoveryPolicy.js';
 import { getBuildPolicy } from '../planning/CityAssetPolicy.js';
 import { isControllerContainerAsset, isSourceContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
 import { findPlannedStructureAtPos, getStructureLifecycle } from '../planning/CityPlanHelpers.js';
@@ -142,12 +143,20 @@ class BuilderStrategyService extends BaseService {
     }
 
     assignBuilderTask(creep) {
+        const limited = recoveryRestricted(creep.memory.homeRoom || creep.room.name);
+        const recoverySite = limited ? this.findConstructionSite(creep) : null;
+        if (limited && !recoverySite && !controllerEmergency(creep.room)) {
+            this.recordBuilderState(creep, 'waiting_recovery');
+            return;
+        }
+        if (limited) creep.memory.recoveryWorkTargetId = recoverySite ? recoverySite.id : creep.room.controller.id;
+        else delete creep.memory.recoveryWorkTargetId;
         if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
-            this.assignEnergyTask(creep, 'build');
+            this.assignEnergyTask(creep, limited && !recoverySite ? 'upgrade' : 'build');
             return;
         }
 
-        const site = this.findConstructionSite(creep);
+        const site = limited ? recoverySite : this.findConstructionSite(creep);
         if (site) {
             assignTask(creep, this.withWorkPos(creep, {
                 type: TaskTypes.BUILD,
@@ -172,6 +181,7 @@ class BuilderStrategyService extends BaseService {
         let bestSite = null;
         let bestScore = -Infinity;
         for (const site of sites) {
+            if (recoveryRestricted(creep.memory.homeRoom || room.name) && !essentialConstruction(room, site)) continue;
             const score = this.scoreConstructionSite(creep, site);
             if (score > bestScore) {
                 bestSite = site;

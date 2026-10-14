@@ -3,6 +3,7 @@ import TaskTypes from '../core/TaskTypes.js';
 import { assignTask } from '../core/TaskMetadata.js';
 import { getControllerUpgradeWorkPosition } from '../planning/CityWorkPositionPolicy.js';
 import { planWorkerEnergyTask } from '../services/ResourceMarketService.js';
+import { recoveryRestricted, controllerEmergency } from '../services/RoomRecoveryPolicy.js';
 import { getStructureLifecycle } from '../planning/CityPlanHelpers.js';
 import { getControllerContainerAsset, getControllerLinkAsset } from '../planning/CityPlanLegacyAdapter.js';
 
@@ -49,6 +50,11 @@ class UpgraderStrategyService extends BaseService {
     }
 
     assignUpgraderTask(creep) {
+        if (recoveryRestricted(creep.memory.homeRoom || creep.room.name) && !controllerEmergency(creep.room)) {
+            creep.memory.recoveryState = { state: 'waiting_recovery', tick: Game.time };
+            return;
+        }
+        delete creep.memory.recoveryState;
         if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
             const controllerContainer = this.findControllerContainer(creep.room);
             const controllerContainerLifecycle = this.getControllerContainerLifecycle(creep.room, controllerContainer);

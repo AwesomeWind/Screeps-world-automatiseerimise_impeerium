@@ -1,6 +1,6 @@
 import TaskTypes from './TaskTypes.js';
 import WorkPositionCoordinator from './WorkPositionCoordinator.js';
-import { clearTaskState } from './TaskMetadata.js';
+import { clearTaskState, observeTaskResource } from './TaskMetadata.js';
 
 function clearTask(creep, reason, result) {
     clearTaskState(creep, reason, result === undefined ? {} : { result });
@@ -117,6 +117,7 @@ const ActionParser = {
             clearTask(creep, 'target_missing');
             return;
         }
+        if ([TaskTypes.TRANSFER, TaskTypes.WITHDRAW, TaskTypes.PICKUP].includes(task.type)) observeTaskResource(creep, target);
 
         let result = OK;
         let range = 1;

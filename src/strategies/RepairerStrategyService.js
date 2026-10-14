@@ -3,6 +3,7 @@ import TaskTypes from '../core/TaskTypes.js';
 import WorkPositionCoordinator from '../core/WorkPositionCoordinator.js';
 import { assignTask } from '../core/TaskMetadata.js';
 import { planWorkerEnergyTask } from '../services/ResourceMarketService.js';
+import { recoveryRestricted, urgentRepair, controllerEmergency } from '../services/RoomRecoveryPolicy.js';
 
 class RepairerStrategyService extends BaseService {
     analyze() {
@@ -25,12 +26,21 @@ class RepairerStrategyService extends BaseService {
     }
 
     assignRepairerTask(creep) {
+        const limited = recoveryRestricted(creep.memory.homeRoom || creep.room.name);
+        const recoveryTarget = limited ? this.findMaintenanceTarget(creep.room) : null;
+        if (limited && !recoveryTarget && !controllerEmergency(creep.room)) {
+            creep.memory.recoveryState = { state: 'waiting_recovery', tick: Game.time };
+            return;
+        }
+        delete creep.memory.recoveryState;
+        if (limited) creep.memory.recoveryWorkTargetId = recoveryTarget ? recoveryTarget.id : creep.room.controller.id;
+        else delete creep.memory.recoveryWorkTargetId;
         if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
-            this.assignEnergyTask(creep, 'repair');
+            this.assignEnergyTask(creep, limited && !recoveryTarget ? 'upgrade' : 'repair');
             return;
         }
 
-        const repairTarget = this.findMaintenanceTarget(creep.room);
+        const repairTarget = limited ? recoveryTarget : this.findMaintenanceTarget(creep.room);
         if (repairTarget) {
             const structure = Game.getObjectById(repairTarget.id);
             assignTask(creep, this.withWorkPos(creep, {
@@ -68,7 +78,8 @@ class RepairerStrategyService extends BaseService {
             Memory.rooms[room.name].maintenancePlan.targets;
         if (!maintenance) return null;
 
-        return maintenance.find((entry) => this.isRepairableTarget(entry)) || null;
+        return maintenance.find((entry) => this.isRepairableTarget(entry) &&
+            (!recoveryRestricted(room.name) || urgentRepair(room.name, entry.id))) || null;
     }
 
     canRepair(target) {

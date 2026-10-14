@@ -1,8 +1,13 @@
 import BaseService from '../core/BaseService.js';
+import { currentCreepPopulation } from '../core/CreepPopulation.js';
+import { ensureEmpireControl } from '../config/EmpirePolicy.js';
+import { isControllerContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
 
 const SPAWN_RESCUE_ENTER_RATIO = 0.5;
 const SPAWN_RESCUE_EXIT_RATIO = 0.85;
 const STORAGE_RESCUE_RESERVE = 1000;
+// Screeps Spawn 自动回充的规则上限，不是经济 policy 阈值。
+const SPAWN_AUTO_REGEN_LIMIT = 300;
 
 class RoomPhaseService extends BaseService {
     analyze() {
@@ -43,8 +48,70 @@ class RoomPhaseService extends BaseService {
             storageRescueActive: energyPosture === 'spawn_rescue' || energyPosture === 'bootstrap_rescue',
             logisticsMode: this.logisticsModeFor(phase, roles),
             constructionPressure: constructionSites,
-            maintenancePressure: maintenanceTargets.length
+            maintenancePressure: maintenanceTargets.length,
+            recovery: this.buildRecovery(room, spawnEnergy, storageEnergy, energyPosture)
         };
+    }
+
+    buildRecovery(room, spawnEnergy, storageEnergy, energyPosture) {
+        const policy = ensureEmpireControl().policy.economyRecovery;
+        const coreUsable = { miner: 0, hauler: 0 };
+        const coreUpcoming = { miner: 0, hauler: 0 };
+        let carriedEnergy = 0;
+        for (const entry of currentCreepPopulation()) {
+            if (entry.roomName !== room.name) continue;
+            if (entry.memory.role === 'hauler' && ['active', 'retiring'].includes(entry.state) && entry.activeParts.carry > 0) {
+                const creep = Game.creeps[entry.name];
+                if (creep && creep.room && creep.room.name === room.name && creep.store && creep.store.getUsedCapacity) {
+                    const energy = creep.store.getUsedCapacity(RESOURCE_ENERGY);
+                    if (Number.isFinite(energy) && energy > 0) carriedEnergy += energy;
+                }
+            }
+            if (!entry.coversQuota || coreUsable[entry.memory.role] === undefined) continue;
+            if (entry.state === 'active' && entry.bodyKnown) coreUsable[entry.memory.role]++;
+            if (['spawning', 'accepted'].includes(entry.state)) coreUpcoming[entry.memory.role]++;
+        }
+        const hasSpawn = Object.values(Game.spawns || {}).some(spawn => spawn.room && spawn.room.name === room.name &&
+            (typeof spawn.isActive !== 'function' || spawn.isActive()));
+        const minerGap = coreUsable.miner === 0;
+        const haulerGap = coreUsable.hauler === 0;
+        const neededEnergy = minerGap && coreUpcoming.miner === 0 ? BODYPART_COST[WORK] + BODYPART_COST[MOVE] :
+            (haulerGap && coreUpcoming.hauler === 0 ? BODYPART_COST[CARRY] + BODYPART_COST[MOVE] : 0);
+        let replenishable = carriedEnergy;
+        if (neededEnergy > spawnEnergy.current && coreUsable.hauler > 0) {
+            const cityPlan = Memory.rooms && Memory.rooms[room.name] && Memory.rooms[room.name].cityPlan;
+            const stores = [room.storage, room.terminal, ...(room.find ? room.find(FIND_STRUCTURES) : [])];
+            const seen = new Set();
+            for (const target of stores) {
+                if (!target || seen.has(target.id) || !target.store || !target.store.getUsedCapacity) continue;
+                seen.add(target.id);
+                if (cityPlan && isControllerContainerAsset(cityPlan, target)) continue;
+                if (target === room.storage || target === room.terminal || target.structureType === STRUCTURE_CONTAINER) replenishable += target.store.getUsedCapacity(RESOURCE_ENERGY) || 0;
+            }
+            for (const drop of room.find ? room.find(FIND_DROPPED_RESOURCES) : []) {
+                if (drop.resourceType === RESOURCE_ENERGY) replenishable += drop.amount || 0;
+            }
+        }
+        const canRegenerate = hasSpawn && (room.energyAvailable || 0) < SPAWN_AUTO_REGEN_LIMIT && neededEnergy <= SPAWN_AUTO_REGEN_LIMIT;
+        const awaitingRegeneration = canRegenerate && neededEnergy > spawnEnergy.current + replenishable;
+        const roomMemory = Memory.rooms && Memory.rooms[room.name];
+        const previousSpawnRescue = roomMemory && roomMemory.recoverySpawnRescue === true;
+        const spawnRescue = spawnEnergy.ratio < SPAWN_RESCUE_ENTER_RATIO ||
+            (previousSpawnRescue && spawnEnergy.ratio < SPAWN_RESCUE_EXIT_RATIO);
+        if (roomMemory) roomMemory.recoverySpawnRescue = spawnRescue;
+        const blockedBy = [];
+        if (!hasSpawn) blockedBy.push('owned_spawn_missing');
+        if (!canRegenerate && neededEnergy > spawnEnergy.current + replenishable && coreUsable.miner === 0 && coreUpcoming.miner === 0) blockedBy.push('recovery_energy_unavailable');
+        if (!canRegenerate && haulerGap && coreUpcoming.hauler === 0 && spawnEnergy.current + carriedEnergy < BODYPART_COST[CARRY] + BODYPART_COST[MOVE]) blockedBy.push('transport_bootstrap_unavailable');
+        let mode = 'normal';
+        if (blockedBy.length > 0) mode = 'support_required';
+        else if (minerGap) mode = 'miner_gap';
+        else if (haulerGap) mode = 'hauler_gap';
+        else if (energyPosture !== 'normal' || spawnRescue) mode = 'spawn_energy';
+        else if (room.storage && Number.isFinite(policy.reserveCritical) && storageEnergy < policy.reserveCritical) mode = 'reserve_low';
+        const reasons = mode === 'normal' ? [] : [mode];
+        if (awaitingRegeneration) reasons.push('awaiting_spawn_regeneration');
+        return { mode, reasons, evaluatedAt: Game.time, coreUsable, coreUpcoming, blockedBy };
     }
 
     phaseFor(room, roles, hasStorage, hasTerminal) {
@@ -130,20 +197,9 @@ class RoomPhaseService extends BaseService {
             repairer: 0
         };
 
-        for (const name in Game.creeps) {
-            const creep = Game.creeps[name];
-            if (!creep.memory) continue;
-            if ((creep.memory.homeRoom || (creep.room && creep.room.name)) !== roomName) continue;
-            if (counts[creep.memory.role] !== undefined) counts[creep.memory.role]++;
-        }
-
-        if (typeof Memory !== 'undefined' && Memory.creeps) {
-            for (const name in Memory.creeps) {
-                if (Game.creeps[name]) continue;
-                const memory = Memory.creeps[name];
-                if (!memory || memory.homeRoom !== roomName) continue;
-                if (counts[memory.role] !== undefined) counts[memory.role]++;
-            }
+        for (const entry of currentCreepPopulation()) {
+            if (!entry.coversQuota || entry.roomName !== roomName) continue;
+            if (counts[entry.memory.role] !== undefined) counts[entry.memory.role]++;
         }
 
         return counts;

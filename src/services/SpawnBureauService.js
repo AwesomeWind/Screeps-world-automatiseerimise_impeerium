@@ -1,4 +1,6 @@
 import BaseService from '../core/BaseService.js';
+import { currentCreepPopulation, activeBodyPartCount } from '../core/CreepPopulation.js';
+import { recoveryRestricted, controllerEmergency, essentialConstruction } from './RoomRecoveryPolicy.js';
 import EventBus from '../core/EventBus.js';
 import BodyBuilder from '../core/BodyBuilder.js';
 import { resolveCapabilityMode, validateCapabilityControlPolicy } from '../config/EmpirePolicy.js';
@@ -8,8 +10,6 @@ import { evaluateCapabilityReadiness } from '../governance/CapabilityRolloutRead
 import { getSourceOutputPolicy } from '../planning/CityAssetPolicy.js';
 import { getControllerContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
 import { shouldUseStrictSourceRuntime } from '../planning/RuntimeReadiness.js';
-
-const REPLACEMENT_LEAD_TICKS = 50;
 
 class SpawnBureauService extends BaseService {
     analyze() {
@@ -69,6 +69,10 @@ class SpawnBureauService extends BaseService {
         for (const sourceId of sources) {
             const source = Game.getObjectById(sourceId);
             if (!source) continue;
+            const unknownPending = currentCreepPopulation().some((entry) =>
+                entry.roomName === room.name && entry.memory.role === 'miner' && entry.memory.sourceId === sourceId &&
+                entry.state === 'spawning' && !entry.bodyKnown);
+            if (unknownPending) continue;
             const openPositions = this.getOpenMiningPositions(room, source);
             if (openPositions.length === 0) continue;
 
@@ -98,13 +102,16 @@ class SpawnBureauService extends BaseService {
             quotaKey: `hauler:${room.name}:core`,
             priority: current === 0 ? 90 : 45,
             bodyProfile: current === 0 ? 'emergency_hauler' : 'hauler',
+            energyCapacity: current === 0 ? room.energyAvailable : undefined,
             memory: { role: 'hauler', homeRoom: room.name },
             reason: current === 0 ? 'emergency_energy_logistics' : 'hauler_capacity'
         });
     }
 
     addUpgraderIntent(room, state) {
-        if (this.countRole(room.name, 'miner', state) === 0 || this.countRole(room.name, 'hauler', state) === 0) return;
+        const emergency = controllerEmergency(room);
+        if (recoveryRestricted(room.name) && !emergency) return;
+        if (!emergency && (this.countRole(room.name, 'miner', state) === 0 || this.countRole(room.name, 'hauler', state) === 0)) return;
         const desired = this.desiredUpgraders(room);
         const current = this.countRole(room.name, 'upgrader', state);
         if (current >= desired) return;
@@ -114,6 +121,7 @@ class SpawnBureauService extends BaseService {
             quotaKey: `upgrader:${room.name}:controller`,
             priority: current === 0 ? 60 : 35,
             bodyProfile: this.upgraderBodyProfile(room),
+            energyCapacity: emergency ? room.energyAvailable : undefined,
             memory: { role: 'upgrader', homeRoom: room.name },
             reason: 'controller_progress'
         });
@@ -122,31 +130,38 @@ class SpawnBureauService extends BaseService {
     addBuilderIntent(room, state) {
         const sites = room.find ? room.find(FIND_CONSTRUCTION_SITES) : [];
         if (sites.length === 0) return;
-        if (this.countRole(room.name, 'miner', state) === 0 ||
+        const limited = recoveryRestricted(room.name);
+        const essentialBuild = limited && sites.some(site => essentialConstruction(room, site));
+        if (limited && !essentialBuild) return;
+        if (!essentialBuild && (this.countRole(room.name, 'miner', state) === 0 ||
             this.countRole(room.name, 'hauler', state) === 0 ||
-            this.countRole(room.name, 'upgrader', state) === 0) {
+            this.countRole(room.name, 'upgrader', state) === 0)) {
             return;
         }
 
         const current = this.countRole(room.name, 'builder', state);
-        if (current >= 2) return;
+        if (current >= (essentialBuild ? 1 : 2)) return;
 
         this.addIntent(room, state, {
             role: 'builder',
             quotaKey: `builder:${room.name}:construction`,
             priority: current === 0 ? 55 : 30,
             bodyProfile: this.builderBodyProfile(room),
+            energyCapacity: essentialBuild ? room.energyAvailable : undefined,
             memory: { role: 'builder', homeRoom: room.name },
-            reason: 'construction'
+            reason: essentialBuild ? 'core_construction_recovery' : 'construction'
         });
     }
 
     addRepairerIntent(room, state) {
         const maintenanceDemand = this.maintenanceDemand(room);
         if (maintenanceDemand.totalTargets <= 0) return;
-        if (this.countRole(room.name, 'miner', state) === 0 ||
+        const limited = recoveryRestricted(room.name);
+        const essentialRepair = limited && maintenanceDemand.urgentTargets > 0;
+        if (limited && !essentialRepair) return;
+        if (!essentialRepair && (this.countRole(room.name, 'miner', state) === 0 ||
             this.countRole(room.name, 'hauler', state) === 0 ||
-            this.countRole(room.name, 'upgrader', state) === 0) {
+            this.countRole(room.name, 'upgrader', state) === 0)) {
             return;
         }
 
@@ -157,13 +172,14 @@ class SpawnBureauService extends BaseService {
                 quotaKey: `repairer:${room.name}:maintenance`,
                 priority: maintenanceDemand.urgentTargets > 0 ? 58 : 44,
                 bodyProfile: 'repairer',
+                energyCapacity: essentialRepair ? room.energyAvailable : undefined,
                 memory: { role: 'repairer', homeRoom: room.name },
                 reason: 'maintenance_coverage'
             });
             return;
         }
 
-        const backlog = maintenanceDemand.backlog;
+        const backlog = essentialRepair ? maintenanceDemand.urgentBacklog : maintenanceDemand.backlog;
         if (backlog <= 0) return;
 
         const desired = Math.min(2, Math.ceil(backlog / 3));
@@ -175,6 +191,7 @@ class SpawnBureauService extends BaseService {
             quotaKey: `repairer:${room.name}:maintenance`,
             priority: backlog >= 3 ? 52 : 42,
             bodyProfile: 'repairer',
+            energyCapacity: essentialRepair ? room.energyAvailable : undefined,
             memory: { role: 'repairer', homeRoom: room.name },
             reason: 'maintenance_backlog'
         });
@@ -210,7 +227,9 @@ class SpawnBureauService extends BaseService {
         const bodySpec = BodyBuilder.build(intent.role, room, {
             phase: roomPhase.phase,
             bodyProfile: intent.bodyProfile,
-            energyCapacity: intent.energyCapacity || room.energyCapacityAvailable || room.energyAvailable || 0
+            energyCapacity: intent.energyCapacity !== undefined
+                ? intent.energyCapacity
+                : (room.energyCapacityAvailable || room.energyAvailable || 0)
         });
         if (!bodySpec.body || bodySpec.body.length === 0) {
             if (!state.blockedDemands.some((blocked) => blocked.quotaKey === intent.quotaKey)) {
@@ -249,10 +268,12 @@ class SpawnBureauService extends BaseService {
         const upgradeRecommendation = snapshot && Array.isArray(snapshot.spawnRecommendations)
             ? snapshot.spawnRecommendations.find((recommendation) => recommendation.capability === 'upgradeWork')
             : null;
-        const controllerEmergencyKnown = snapshot && Number.isFinite(snapshot.controllerTicksToDowngrade) &&
+        const currentControllerTicks = room.controller && room.controller.ticksToDowngrade;
+        const controllerEmergencyKnown = snapshot && Number.isFinite(snapshot.controllerTicksToDowngrade) && snapshot.controllerTicksToDowngrade >= 0 &&
+            Number.isFinite(currentControllerTicks) && currentControllerTicks >= 0 &&
             capabilityControl && Number.isFinite(capabilityControl.controllerEmergencyTicks);
         const controllerEmergency = controllerEmergencyKnown &&
-            snapshot.controllerTicksToDowngrade < capabilityControl.controllerEmergencyTicks;
+            currentControllerTicks < capabilityControl.controllerEmergencyTicks;
         const upgradeCapability = snapshot && snapshot.capabilities && snapshot.capabilities.upgradeWork;
         const upgradeBudget = snapshot && snapshot.budgets && snapshot.budgets.upgrade;
         const gap = upgradeCapability && upgradeCapability.gap;
@@ -506,6 +527,7 @@ class SpawnBureauService extends BaseService {
         return {
             totalTargets,
             urgentTargets: counts.urgent,
+            urgentBacklog: Math.max(0, counts.urgent - allowed.urgent),
             backlog: Math.max(0, counts.urgent - allowed.urgent) +
                 Math.max(0, counts.routine - allowed.routine) +
                 Math.max(0, counts.longTerm - allowed.longTerm)
@@ -532,28 +554,8 @@ class SpawnBureauService extends BaseService {
     }
 
     countRole(roomName, role, state) {
-        let count = 0;
-        for (const name in Game.creeps) {
-            const creep = Game.creeps[name];
-            if (this.isRetiringCreep(creep)) continue;
-            if (creep.memory.role === role && this.creepHomeRoom(creep) === roomName) count++;
-        }
-        if (typeof Memory !== 'undefined' && Memory.creeps) {
-            for (const name in Memory.creeps) {
-                if (Game.creeps[name]) continue;
-                const memory = Memory.creeps[name];
-                if (memory.role === role && this.memoryHomeRoom(memory) === roomName) count++;
-            }
-        }
-        if (typeof Memory !== 'undefined' && Memory.empire && Memory.empire.spawningCreeps) {
-            for (const name in Memory.empire.spawningCreeps) {
-                if (Game.creeps[name] || (Memory.creeps && Memory.creeps[name])) continue;
-                const record = this.spawnRecord(Memory.empire.spawningCreeps[name]);
-                if (!record || this.isSpawnRecordExpired(record)) continue;
-                const memory = record.memory || {};
-                if (memory.role === role && this.memoryHomeRoom(memory) === roomName) count++;
-            }
-        }
+        let count = currentCreepPopulation().filter((entry) => entry.coversQuota &&
+            entry.roomName === roomName && entry.memory.role === role).length;
         if (state) {
             count += state.intents.filter((intent) => intent.role === role).length;
         }
@@ -561,53 +563,17 @@ class SpawnBureauService extends BaseService {
     }
 
     countQuota(roomName, quotaKey, state) {
-        let count = 0;
-        for (const name in Game.creeps) {
-            const creep = Game.creeps[name];
-            if (this.isRetiringCreep(creep)) continue;
-            if (this.creepHomeRoom(creep) !== roomName) continue;
-            if (this.quotaKeyForMemory(creep.memory, roomName) === quotaKey) count++;
-        }
-        if (typeof Memory !== 'undefined' && Memory.creeps) {
-            for (const name in Memory.creeps) {
-                if (Game.creeps[name]) continue;
-                const memory = Memory.creeps[name];
-                if (this.memoryHomeRoom(memory) !== roomName) continue;
-                if (this.quotaKeyForMemory(memory, roomName) === quotaKey) count++;
-            }
-        }
-        if (typeof Memory !== 'undefined' && Memory.empire && Memory.empire.spawningCreeps) {
-            for (const name in Memory.empire.spawningCreeps) {
-                if (Game.creeps[name] || (Memory.creeps && Memory.creeps[name])) continue;
-                const record = this.spawnRecord(Memory.empire.spawningCreeps[name]);
-                if (!record || this.isSpawnRecordExpired(record)) continue;
-                const memory = record.memory || {};
-                if (this.memoryHomeRoom(memory) !== roomName) continue;
-                if (this.quotaKeyForMemory(memory, roomName) === quotaKey) count++;
-            }
-        }
+        let count = currentCreepPopulation().filter((entry) => entry.coversQuota && entry.roomName === roomName &&
+            this.quotaKeyForMemory(entry.memory, roomName) === quotaKey).length;
         if (state) count += state.intents.filter((intent) => intent.quotaKey === quotaKey).length;
         return count;
     }
 
     countSourceWorkParts(roomName, sourceId, state) {
         let workParts = 0;
-        for (const name in Game.creeps) {
-            const creep = Game.creeps[name];
-            if (this.isRetiringCreep(creep)) continue;
-            if (creep.memory.role !== 'miner') continue;
-            if (this.creepHomeRoom(creep) !== roomName) continue;
-            if (creep.memory.sourceId !== sourceId) continue;
-            workParts += this.countBodyParts(creep.body, WORK);
-        }
-        if (typeof Memory !== 'undefined' && Memory.creeps) {
-            for (const name in Memory.creeps) {
-                if (Game.creeps[name]) continue;
-                const memory = Memory.creeps[name];
-                if (memory.role !== 'miner') continue;
-                if (this.memoryHomeRoom(memory) !== roomName) continue;
-                if (memory.sourceId !== sourceId) continue;
-                workParts += this.countBodyParts(memory.body, WORK);
+        for (const entry of currentCreepPopulation()) {
+            if (entry.coversQuota && entry.roomName === roomName && entry.memory.role === 'miner' && entry.memory.sourceId === sourceId) {
+                workParts += activeBodyPartCount(entry.body, WORK);
             }
         }
         if (state) {
@@ -621,16 +587,7 @@ class SpawnBureauService extends BaseService {
     }
 
     countBodyParts(body, partType) {
-        if (!body) return 1;
-        const count = body.filter((part) => part === partType || part.type === partType).length;
-        return count || 1;
-    }
-
-    isRetiringCreep(creep) {
-        if (!creep || creep.ticksToLive === undefined) return false;
-        const bodyLength = creep.body ? creep.body.length : 0;
-        const spawnTime = typeof CREEP_SPAWN_TIME === 'undefined' ? 3 : CREEP_SPAWN_TIME;
-        return creep.ticksToLive <= bodyLength * spawnTime + REPLACEMENT_LEAD_TICKS;
+        return activeBodyPartCount(body, partType);
     }
 
     quotaKeyForMemory(memory, fallbackRoomName) {
@@ -643,24 +600,6 @@ class SpawnBureauService extends BaseService {
         if (memory.role === 'repairer') return `repairer:${roomName}:maintenance`;
         if (memory.role === 'defender') return `defender:${roomName}:local`;
         return null;
-    }
-
-    creepHomeRoom(creep) {
-        return creep.memory.homeRoom || creep.memory.targetRoom || (creep.room && creep.room.name);
-    }
-
-    memoryHomeRoom(memory) {
-        return memory.homeRoom || memory.targetRoom;
-    }
-
-    spawnRecord(entry) {
-        if (!entry) return null;
-        if (entry.memory) return entry;
-        return { memory: entry, expireAt: Game.time + 150 };
-    }
-
-    isSpawnRecordExpired(record) {
-        return record.expireAt !== undefined && Game.time > record.expireAt;
     }
 
     getOpenMiningPositions(room, source) {

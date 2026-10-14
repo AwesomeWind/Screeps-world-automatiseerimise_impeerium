@@ -14,7 +14,22 @@ export const DEFAULT_EMPIRE_POLICY = {
         enabled: true,
         persistInterval: 10,
         eventLimit: 50,
-        metricsInterval: 10
+        metricsInterval: 10,
+        historyLimit: 50,
+        metricsHistoryLimit: 50,
+        metricsHistoryInterval: 50
+    },
+    resourceReservations: {
+        ttl: 5,
+        maxTaskTicks: 50,
+        maxOwnersPerRoom: 200
+    },
+    economyRecovery: {
+        enabled: true,
+        reserveCritical: 5000
+    },
+    spawnIntake: {
+        maxReceiptsPerRoom: 200
     },
     roomGovernor: {
         enabled: true,

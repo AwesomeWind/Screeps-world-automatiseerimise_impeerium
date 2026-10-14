@@ -333,9 +333,14 @@ function resolveSpec(role, room, context, capacity) {
 
 const BodyBuilder = {
     build(role, room, context = {}) {
-        const capacity = context.energyCapacity || room.energyCapacityAvailable || room.energyAvailable || 0;
-        const spec = resolveSpec(role, room, context, capacity);
-        const body = buildFromSpec(spec, capacity);
+        const capacity = context.energyCapacity !== undefined
+            ? context.energyCapacity
+            : (room.energyCapacityAvailable || room.energyAvailable || 0);
+        let body = [];
+        if (Number.isFinite(capacity) && capacity >= 0) {
+            const spec = resolveSpec(role, room, context, capacity);
+            body = buildFromSpec(spec, capacity);
+        }
 
         return {
             body,

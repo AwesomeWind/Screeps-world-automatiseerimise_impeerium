@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "readOnly": true,
+  "observedAt": "2026-10-13T05:23:16.884Z",
+  "shard": "shard3",
+  "branch": "default",
+  "localSourceHead": "ca38dc4e863c8bf53e15298f43a0b4677ddd63e9",
+  "onlineMainSha256": "1f79e71e565e3bf5bc3165a1ada3e9df62c25b2837dd41e6336cabb20586cdda",
+  "localArtifactSha256": "1f79e71e565e3bf5bc3165a1ada3e9df62c25b2837dd41e6336cabb20586cdda",
+  "artifactMatches": true,
+  "gameTime": 83612946,
+  "metricsCapturedAt": 83612940,
+  "memoryBytes": 83448,
+  "cpuBucket": 10000,
+  "totalCpuEwma": 4.826135585325021,
+  "schedulerEnforce": false,
+  "governorShadow": true,
+  "room": {
+    "name": "W49N41",
+    "capturedAt": 83612940,
+    "phase": "storage",
+    "energyPosture": "spawn_rescue",
+    "energyAvailable": 1063,
+    "energyCapacity": 1900,
+    "spawnEnergyRatio": 0.5594736842105263,
+    "storageEnergy": 989200,
+    "constructionPressure": 11,
+    "maintenancePressure": 18,
+    "roleCounts": {
+      "builder": 3,
+      "repairer": 3,
+      "miner": 2,
+      "hauler": 3,
+      "upgrader": 1
+    },
+    "spawningCount": 1,
+    "resourceMarketStats": {
+      "supplyCount": 9,
+      "demandCount": 14,
+      "reservedSupplyCount": 2,
+      "reservedDemandCount": 2,
+      "selfFetchSelected": 0,
+      "deliverySelected": 0,
+      "unavailableRequests": 0,
+      "haulerAssignments": 0,
+      "fallbackStoreAssignments": 0,
+      "idleHaulers": 0
+    },
+    "governorLifecycle": "developing",
+    "governorHealth": {
+      "status": "healthy",
+      "score": 100
+    },
+    "governorStaleFor": 0,
+    "spawnDecisionDiff": {
+      "matched": 0,
+      "missing": 0,
+      "excess": 1,
+      "priorityMismatches": 0,
+      "bodyProfileMismatches": 0
+    },
+    "upgradeWorkControl": {
+      "legacyIntentPresent": false,
+      "governorRecommended": false,
+      "adoptedSource": "legacy",
+      "action": "keep",
+      "current": 5,
+      "spawning": 0,
+      "required": 3,
+      "gap": 0,
+      "fallbackCount": 0,
+      "autoSuspended": false
+    }
+  },
+  "controllerSnapshot": 150000,
+  "rollout": {
+    "sampleCount": 122719,
+    "knownSampleCount": 122719,
+    "criticalSampleCount": 1241,
+    "recommendationPresentCount": 108,
+    "recommendationFlipCount": 198,
+    "legacyMatchCount": 122290,
+    "legacyMissingCount": 429,
+    "lastRecommendationPresent": false,
+    "lastSampleAt": 83612940,
+    "lastErrorAt": null,
+    "ready": true,
+    "blockers": []
+  },
+  "capabilityControl": {
+    "requestedMode": "shadow",
+    "effectiveMode": "shadow",
+    "adoptedSource": "legacy",
+    "action": "keep",
+    "reasons": [],
+    "fallbackCount": 0,
+    "fallbackReason": null,
+    "autoSuspended": false,
+    "suspendedAt": null,
+    "lastDecisionAt": 83612946
+  },
+  "creepMemoryCount": 12,
+  "taskClearReasons": [
+    "harvest_completed_tick",
+    "harvest_completed_tick"
+  ],
+  "serviceCpuEwma": {
+    "ActionParser": {
+      "runEwma": 1.993803164045374
+    },
+    "RoadPlanner": {
+      "initEwma": 0.0005350822811758632,
+      "analyzeEwma": 0.7933098273612506,
+      "runEwma": 0.00038853183754969216,
+      "cleanupEwma": 0.00037779359788072173
+    },
+    "SpawnBureau": {
+      "initEwma": 0.0004488489493453498,
+      "analyzeEwma": 0.3359067145613961,
+      "runEwma": 0.00029761521595958885,
+      "cleanupEwma": 0.0003610394056035829
+    },
+    "ResourceMarket": {
+      "initEwma": 0.02018095158701678,
+      "analyzeEwma": 0.191265122164436,
+      "runEwma": 0.0003757250086757127,
+      "cleanupEwma": 0.00041802222868810344
+    }
+  },
+  "acceptance": {
+    "continuousWindowTicks": 0,
+    "fullRecoveryCycleObserved": false,
+    "status": "initial_snapshot_only"
+  }
+}

@@ -793,6 +793,31 @@ async function runBehaviorChecks() {
 
     delete Game.cpu;
     assert.strictEqual(RuntimeTelemetry.measure('NoCpu', 'init', () => 42), 42, 'telemetry should preserve behavior when Game.cpu is unavailable');
+    RuntimeTelemetry.beginTick('recovery-a');
+    RuntimeTelemetry.finishTick();
+    assert.strictEqual(global.EmpireTelemetry.totalCpu, null, 'missing CPU evidence must remain unknown rather than become zero');
+    Game.cpu = { bucket: 9000, getUsed: () => usedCpu };
+    for (let i = 0; i < 55; i++) {
+        Game.time++;
+        RuntimeTelemetry.beginTick('recovery-a');
+        usedCpu += 1;
+        RuntimeTelemetry.finishTick();
+    }
+    assert.strictEqual(Memory.empire.control.telemetry.history.length, 50, 'raw CPU history must have a strict capacity bound');
+    assert.strictEqual(Memory.empire.control.telemetry.codeVersion, 'recovery-a', 'telemetry history must identify the measured code version');
+    Game.time++;
+    RuntimeTelemetry.beginTick('recovery-b');
+    usedCpu += 2;
+    RuntimeTelemetry.finishTick();
+    assert.strictEqual(Memory.empire.control.telemetry.history.length, 1, 'a code change must start a fresh CPU measurement segment');
+    assert.strictEqual(Memory.empire.control.telemetry.totalCpuP95, 2, 'p95 must be computed from finite raw samples rather than EWMA');
+    Memory.empire.control.policy.telemetry.enabled = false;
+    const heldTelemetry = JSON.stringify(Memory.empire.control.telemetry);
+    RuntimeTelemetry.beginTick('disabled-version');
+    assert.strictEqual(RuntimeTelemetry.measure('StillRuns', 'run', () => 42), 42, 'disabling observation must not disable service execution');
+    RuntimeTelemetry.finishTick();
+    assert.strictEqual(JSON.stringify(Memory.empire.control.telemetry), heldTelemetry, 'disabled observation must not mutate persistent telemetry');
+    Memory.empire.control.policy.telemetry.enabled = true;
     Game.cpu = previousCpu;
     Memory.empire.control.policy.telemetry.persistInterval = DEFAULT_EMPIRE_POLICY.telemetry.persistInterval;
 
@@ -839,7 +864,7 @@ async function runBehaviorChecks() {
     Game.rooms = {
         W1N1: {
             name: 'W1N1',
-            controller: { my: true },
+            controller: { my: true, level: 3, progress: 123 },
             energyAvailable: 400,
             energyCapacityAvailable: 550,
             storage: { store: { getUsedCapacity: () => 120000 } }
@@ -866,7 +891,22 @@ async function runBehaviorChecks() {
     assert.deepStrictEqual(Memory.empire.control.metrics.rooms.W1N1.roleCounts, { miner: 1, hauler: 1 }, 'metrics should aggregate role counts by home room');
     assert.strictEqual(Memory.empire.control.metrics.rooms.W1N1.storageEnergy, 120000, 'metrics should record storage energy');
     assert.strictEqual(Memory.empire.control.metrics.rooms.W1N1.spawningCount, 1, 'metrics should record active room spawns');
+    assert.strictEqual(Memory.empire.control.metrics.rooms.W1N1.controllerProgress, 123, 'metrics must expose actual Controller task progress for acceptance');
     assert.deepStrictEqual(Game.creeps.M1.memory, { role: 'miner', homeRoom: 'W1N1' }, 'metrics should not mutate creep memory');
+    global.RoomPhase.W1N1.recovery = { mode: 'hauler_gap', reasons: ['hauler_gap'], evaluatedAt: Game.time, coreUsable: { miner: 1, hauler: 0 }, coreUpcoming: { miner: 0, hauler: 1 }, blockedBy: [] };
+    RuntimeTelemetry.beginTick('room-recovery-a');
+    const metricsObserver = new EmpireMetricsService('EmpireMetrics');
+    for (let i = 0; i < 55; i++) {
+        Game.time = 500 + i * 50;
+        metricsObserver.cleanup();
+    }
+    assert.strictEqual(Memory.empire.control.metrics.histories.W1N1.samples.length, 50, 'room recovery history must remain bounded');
+    assert.strictEqual(Memory.empire.control.metrics.rooms.W1N1.recovery.mode, 'hauler_gap', 'latest metrics should expose the explicit recovery reason');
+    assert.strictEqual(Memory.empire.control.metrics.histories.W1N1.samples[49].codeVersion, 'room-recovery-a', 'room history must carry the measured code version');
+    RuntimeTelemetry.beginTick('room-recovery-b');
+    Game.time += 50;
+    metricsObserver.cleanup();
+    assert.strictEqual(Memory.empire.control.metrics.histories.W1N1.samples.length, 1, 'new room code versions must not inherit old acceptance history');
     Game.rooms = previousRooms;
     Game.creeps = previousCreeps;
     Game.spawns = previousSpawns;
@@ -2086,9 +2126,11 @@ async function runBehaviorChecks() {
             sourceId: 'source1'
         }
     };
+    Game.spawns = { PendingMinerSpawn: { room: Game.rooms.W1N1, spawning: { name: 'MinerSpawning' } } };
     spawnBureau.analyze();
     assert.ok(!EventBus.topics.REQ_SPAWN ||
         !EventBus.topics.REQ_SPAWN.some((event) => event.data.role === 'miner'), 'miner spawning should count miner memory created while a creep is still spawning');
+    Game.spawns = {};
 
     EventBus.topics = {};
     Game.map = {
@@ -4413,6 +4455,201 @@ async function runBehaviorChecks() {
     resourceMarket.assignHauler(emptyHaulerNoDemand);
     assert.strictEqual(emptyHaulerNoDemand.memory.task, undefined, 'empty hauler should not withdraw ordinary storage energy when there is no demand or explicit high-value supply');
 
+    {
+        const savedGame = { ...Game };
+        const savedMemory = Memory;
+        const savedMarket = global.ResourceMarket;
+        const savedMarketService = global.ResourceMarketService;
+        const { clearTaskState, assignTask } = await import('../core/TaskMetadata.js');
+        Game.time = 100;
+        const feedbackRoom = { name: 'W1N1', controller: { my: true }, find: () => [] };
+        Game.rooms = { W1N1: feedbackRoom };
+        global.Memory = { rooms: {}, empire: {} };
+        let targetEnergy = 0;
+        let feedbackTarget = { id: 'feedback-sink', pos: { x: 25, y: 25, roomName: 'W1N1' }, store: { getUsedCapacity: () => targetEnergy, getFreeCapacity: () => 100 - targetEnergy } };
+        Game.getObjectById = id => id === 'feedback-sink' ? feedbackTarget : null;
+        const energyByName = { FeedbackA: 50, FeedbackB: 50 };
+        const makeFeedbackHauler = name => ({
+            name, room: feedbackRoom, memory: { role: 'hauler', homeRoom: 'W1N1' },
+            pos: { x: 24, y: 25, roomName: 'W1N1', getRangeTo: () => 1 },
+            store: { energy: 50, getUsedCapacity: () => energyByName[name], getFreeCapacity: () => 100 - energyByName[name] },
+            transfer: () => OK
+        });
+        const a = makeFeedbackHauler('FeedbackA');
+        const b = makeFeedbackHauler('FeedbackB');
+        Game.creeps = { FeedbackA: a, FeedbackB: b };
+        const feedbackService = new ResourceMarketService('ResourceMarket');
+        const createFeedbackMarket = () => feedbackService.ensureMarketShape({ demands: [{
+            id: 'feedback-demand', targetId: 'feedback-sink', resourceType: RESOURCE_ENERGY, amount: 100,
+            priority: 80, purpose: 'economy_energy'
+        }] }, 'W1N1');
+        let feedbackMarket = createFeedbackMarket();
+        global.ResourceMarket = { W1N1: feedbackMarket };
+        feedbackService.assignHauler(a);
+        feedbackService.assignHauler(b);
+        clearTaskState(a, 'diagnostic_cancel');
+        feedbackService.cleanup();
+        assert.strictEqual(feedbackMarket.reservations.demand['feedback-demand'].amount, 50, 'cancelling one task must release only that owner reservation');
+        assert.ok(b.memory.task, 'the other competing hauler must retain its task');
+        feedbackService.cleanup();
+        assert.strictEqual(feedbackMarket.reservations.demand['feedback-demand'].amount, 50, 'repeated cancellation reconciliation must be idempotent');
+        feedbackTarget = null;
+        ActionParser.run(b);
+        feedbackService.cleanup();
+        assert.strictEqual(Object.keys(feedbackMarket.reservations.demand).length, 0, 'a disappearing target must release its owner reservation without waiting for TTL');
+
+        feedbackTarget = { id: 'feedback-sink', pos: { x: 25, y: 25, roomName: 'W1N1' }, store: { getUsedCapacity: () => targetEnergy, getFreeCapacity: () => 100 - targetEnergy } };
+        feedbackMarket = createFeedbackMarket();
+        global.ResourceMarket = { W1N1: feedbackMarket };
+        feedbackService.assignHauler(a);
+        ActionParser.run(a);
+        feedbackService.cleanup();
+        assert.strictEqual(feedbackMarket.reservations.demand['feedback-demand'].amount, 50, 'an accepted intent must retain its reservation until the next tick');
+        assert.strictEqual(feedbackMarket.stats.confirmedDeliveryAmount || 0, 0, 'same-tick OK must not be reported as delivered energy');
+        Game.time++;
+        energyByName.FeedbackA = 20;
+        targetEnergy = 30;
+        feedbackService.cleanup();
+        assert.strictEqual(Object.keys(feedbackMarket.reservations.demand).length, 0, 'the completed intent should release its owner in a fresh tick');
+        assert.strictEqual(feedbackMarket.stats.confirmedDeliveryAmount, 30, 'partial unload should confirm only the actual matched store delta');
+        feedbackService.cleanup();
+        assert.strictEqual(feedbackMarket.stats.confirmedDeliveryAmount, 30, 'confirmation must not count the same reservation twice');
+
+        feedbackMarket = createFeedbackMarket();
+        global.ResourceMarket = { W1N1: feedbackMarket };
+        energyByName.FeedbackA = 50;
+        targetEnergy = 0;
+        feedbackService.assignHauler(a);
+        ActionParser.run(a);
+        feedbackService.cleanup();
+        Game.time++;
+        feedbackTarget = null;
+        feedbackService.cleanup();
+        assert.strictEqual(feedbackMarket.stats.confirmedDeliveryAmount || 0, 0, 'missing next-tick evidence must not turn intended quantity into confirmed delivery');
+        assert.strictEqual(feedbackMarket.stats.confirmationUnknown, 1, 'missing next-tick evidence should be visible as unknown confirmation');
+
+        feedbackTarget = { id: 'feedback-sink', pos: { x: 25, y: 25, roomName: 'W1N1' }, store: { getUsedCapacity: () => 0, getFreeCapacity: () => 100 } };
+        feedbackMarket = createFeedbackMarket();
+        global.ResourceMarket = { W1N1: feedbackMarket };
+        feedbackService.assignHauler(a);
+        assignTask(a, { type: 'MOVE_TO', pos: { x: 20, y: 20, roomName: 'W1N1' } });
+        feedbackService.cleanup();
+        assert.strictEqual(Object.keys(feedbackMarket.reservations.demand).length, 0, 'replacing a resource task must release its old owner claim');
+
+        feedbackMarket = createFeedbackMarket();
+        global.ResourceMarket = { W1N1: feedbackMarket };
+        a.memory.task = null;
+        feedbackService.assignHauler(a);
+        delete Game.creeps.FeedbackA;
+        feedbackService.cleanup();
+        assert.strictEqual(Object.keys(feedbackMarket.reservations.demand).length, 0, 'a dead owner must not retain its claim');
+        Game.creeps.FeedbackA = a;
+        a.memory.task = null;
+        feedbackService.assignHauler(a);
+        const taskLimit = a.memory.taskMeta.logisticsReservation.maxExpiresAt;
+        Game.time += 6;
+        feedbackService.cleanup();
+        assert.ok(feedbackMarket.reservations.demand['feedback-demand'].expiresAt >= Game.time, 'a still valid travelling task should regain a bounded reservation after the short TTL');
+        Game.time = taskLimit + 1;
+        new TaskGuardService('TaskGuard').analyze();
+        feedbackService.cleanup();
+        assert.strictEqual(a.memory.task, null, 'a stalled resource task must not run beyond its bounded deadline');
+        assert.strictEqual(Object.keys(feedbackMarket.reservations.demand).length, 0, 'the bounded task deadline must release its claim');
+
+        Game.time++;
+        energyByName.FeedbackA = 50;
+        targetEnergy = 0;
+        feedbackTarget = { id: 'feedback-sink', pos: { x: 25, y: 25, roomName: 'W1N1' }, store: { getUsedCapacity: () => targetEnergy, getFreeCapacity: () => 100 - targetEnergy } };
+        feedbackMarket = createFeedbackMarket();
+        global.ResourceMarket = { W1N1: feedbackMarket };
+        feedbackService.assignHauler(a);
+        ActionParser.run(a);
+        a.memory = JSON.parse(JSON.stringify(a.memory));
+        global.Memory = JSON.parse(JSON.stringify(Memory));
+        Game.time++;
+        energyByName.FeedbackA = 20;
+        targetEnergy = 30;
+        const resetFeedbackService = new ResourceMarketService('ResourceMarketAfterReset');
+        resetFeedbackService.init();
+        resetFeedbackService.analyze();
+        assert.strictEqual(global.ResourceMarket.W1N1.stats.confirmedDeliveryAmount, 30, 'serialized receipts must restore confirmation after a service reset');
+        assert.strictEqual(Object.keys(global.ResourceMarket.W1N1.reservations.demand).length, 0, 'reset reconciliation must release the old completed claim');
+
+        feedbackMarket = createFeedbackMarket();
+        feedbackMarket.demands[0].amount = 1000;
+        global.ResourceMarket = { W1N1: feedbackMarket };
+        Game.creeps = {};
+        for (let i = 0; i < 201; i++) {
+            const name = `CapacityHauler${i}`;
+            energyByName[name] = 1;
+            const hauler = makeFeedbackHauler(name);
+            Game.creeps[name] = hauler;
+            const assigned = resetFeedbackService.assignHauler(hauler);
+            assert.strictEqual(assigned, i < 200, 'owner capacity must accept only the first 200 live claims');
+        }
+        assert.strictEqual(Object.keys(feedbackMarket.reservations.demand['feedback-demand'].owners).length, 200, 'capacity rejection must retain all existing owners');
+        assert.strictEqual(feedbackMarket.stats.reservationBlocked, 1, 'capacity blocking must remain observable');
+
+        Game.time++;
+        let supplyEnergy = 200;
+        const sourceStore = { id: 'feedback-source', pos: { x: 23, y: 25, roomName: 'W1N1' }, store: { getUsedCapacity: () => supplyEnergy, getFreeCapacity: () => 300 - supplyEnergy } };
+        Game.getObjectById = id => id === 'feedback-source' ? sourceStore : (id === 'feedback-sink' ? feedbackTarget : null);
+        energyByName.FeedbackA = 0;
+        a.memory = { role: 'hauler', homeRoom: 'W1N1' };
+        a.withdraw = () => OK;
+        Game.creeps = { FeedbackA: a };
+        feedbackMarket = createFeedbackMarket();
+        feedbackMarket.supplies = [{ id: 'feedback-supply', kind: 'withdraw', targetId: 'feedback-source', resourceType: RESOURCE_ENERGY, amount: 200, priority: 60 }];
+        global.ResourceMarket = { W1N1: feedbackMarket };
+        resetFeedbackService.assignHauler(a);
+        assert.strictEqual(a.memory.task.type, 'WITHDRAW', 'empty hauler should use the normal supply API');
+        ActionParser.run(a);
+        resetFeedbackService.cleanup();
+        assert.strictEqual(feedbackMarket.reservations.supply['feedback-supply'].amount, 100, 'accepted withdrawal must retain its same-tick supply claim');
+        Game.time++;
+        energyByName.FeedbackA = 30;
+        supplyEnergy = 170;
+        resetFeedbackService.cleanup();
+        assert.strictEqual(feedbackMarket.stats.confirmedPickupAmount, 30, 'withdrawal confirmation must use actual resource deltas');
+
+        Game.time++;
+        const self = makeFeedbackHauler('SelfFetcher');
+        self.memory.role = 'builder';
+        self.withdraw = () => OK;
+        energyByName.SelfFetcher = 0;
+        Game.creeps.SelfFetcher = self;
+        feedbackMarket = createFeedbackMarket();
+        feedbackMarket.supplies = [{ id: 'feedback-supply', kind: 'withdraw', targetId: 'feedback-source', resourceType: RESOURCE_ENERGY, amount: supplyEnergy, priority: 60 }];
+        global.ResourceMarket = { W1N1: feedbackMarket };
+        const selfRequest = resetFeedbackService.requestResource(self, { resourceType: RESOURCE_ENERGY, amount: 50, purpose: 'build', targetId: 'feedback-sink', allowedFulfillment: ['self_fetch'] });
+        assert.strictEqual(selfRequest.mode, 'self_fetch', 'worker self-fetch should retain its public API mode');
+        assignTask(self, selfRequest.task);
+        assert.ok(self.memory.taskMeta.logisticsReservation, 'the self-fetch task should carry a serializable owner reference in task metadata');
+        ActionParser.run(self);
+        resetFeedbackService.cleanup();
+        Game.time++;
+        energyByName.SelfFetcher = 20;
+        supplyEnergy = 150;
+        resetFeedbackService.cleanup();
+        assert.strictEqual(feedbackMarket.stats.confirmedPickupAmount, 20, 'self-fetch confirmation should share the same actual-effect contract');
+        Memory.empire.control.policy.resourceReservations.maxOwnersPerRoom = 'unbounded';
+        feedbackMarket = createFeedbackMarket();
+        global.ResourceMarket = { W1N1: feedbackMarket };
+        a.memory.task = null;
+        energyByName.FeedbackA = 50;
+        assert.strictEqual(resetFeedbackService.assignHauler(a), false, 'malformed reservation limits must not disable the owner bound');
+        Memory.empire.control.policy.resourceReservations.maxOwnersPerRoom = 200;
+        Memory.rooms.W1N1.resourceMarket.reservations = { supply: { LegacyClearedSupply: null }, demand: {} };
+        Game.creeps = {};
+        resetFeedbackService.init();
+        assert.doesNotThrow(() => resetFeedbackService.analyze(), 'legacy null reservation entries must retain the old prune compatibility');
+        assert.strictEqual(Object.keys(global.ResourceMarket.W1N1.reservations.supply).length, 0, 'legacy null reservations should be pruned without blocking the room lifecycle');
+        Object.assign(Game, savedGame);
+        global.Memory = savedMemory;
+        global.ResourceMarket = savedMarket;
+        global.ResourceMarketService = savedMarketService;
+    }
+
     EventBus.topics = {};
     global.Memory.empire.remoteRooms = { W2N2: { enabled: true, baseRoom: 'W1N1' } };
     Game.rooms.W1N1 = {
@@ -4720,11 +4957,340 @@ async function runBehaviorChecks() {
     assert.ok(Memory.creeps.CreepStillSpawning, 'spawn cleanup should preserve memory for creeps that are still spawning');
     assert.ok(!Memory.creeps.GoneCreep, 'spawn cleanup should still remove dead creep memory');
 
+    {
+        const savedGame = { ...Game };
+        const savedMemory = Memory;
+        const populationRoom = {
+            name: 'W1N1', energyAvailable: 550, energyCapacityAvailable: 550,
+            controller: { my: true, level: 3 }, find: () => []
+        };
+        Game.time = 100;
+        Game.rooms = { W1N1: populationRoom };
+        Game.creeps = {};
+        Game.spawns = {};
+        global.Memory = {
+            creeps: {
+                GhostMiner: { role: 'miner', homeRoom: 'W1N1', sourceId: 'population-source' },
+                GhostHauler: { role: 'hauler', homeRoom: 'W1N1' }
+            }, rooms: {}, empire: { spawningCreeps: {} }
+        };
+        const populationBureau = new SpawnBureauService('SpawnBureau');
+        assert.strictEqual(populationBureau.countRole('W1N1', 'miner'), 0, 'stale memory alone must not cover a core role');
+        assert.strictEqual(populationBureau.countQuota('W1N1', 'miner:W1N1:population-source'), 0, 'stale memory alone must not cover a core quota');
+        assert.strictEqual(populationBureau.countSourceWorkParts('W1N1', 'population-source'), 0, 'stale memory must not invent one WORK');
+        assert.strictEqual(new RoomPhaseService('RoomPhase').buildPhase(populationRoom).phase, 'bootstrap', 'ghost roles must not hide bootstrap recovery');
+
+        Memory.creeps = {};
+        const populationSpawn = { name: 'PopulationSpawn', room: populationRoom, spawning: null, spawnCreep: () => OK };
+        Game.spawns = { PopulationSpawn: populationSpawn };
+        const populationSpawner = new SpawnService('Spawn');
+        populationSpawner.init();
+        populationSpawner.handleSpawnRequest({ data: {
+            roomName: 'W1N1', name: 'PopulationMiner', role: 'miner', body: [WORK, WORK, WORK, WORK, WORK, MOVE],
+            memory: { role: 'miner', homeRoom: 'W1N1', sourceId: 'population-source' }
+        } });
+        populationSpawner.run();
+        populationSpawner.cleanup();
+        assert.strictEqual(populationBureau.countSourceWorkParts('W1N1', 'population-source'), 5, 'source WORK must consume the actual accepted backup body');
+        const populationRecord = Memory.empire.spawningCreeps.PopulationMiner;
+        assert.strictEqual(populationRecord.acceptedAt, 100, 'successful spawn records must retain their acceptance tick');
+        assert.strictEqual(populationRecord.spawnName, 'PopulationSpawn', 'successful spawn records must identify their producer');
+        populationSpawn.spawning = { name: 'PopulationMiner' };
+        Game.time++;
+        assert.strictEqual(populationBureau.countSourceWorkParts('W1N1', 'population-source'), 5, 'a real spawning name should preserve accepted WORK across ticks');
+        Game.creeps.PopulationMiner = { memory: Memory.creeps.PopulationMiner, body: populationRecord.body.map(type => ({ type, hits: 100 })), spawning: true };
+        populationSpawner.cleanup();
+        assert.strictEqual(populationBureau.countSourceWorkParts('W1N1', 'population-source'), 5, 'live spawning WORK must survive backup removal');
+        Game.creeps.PopulationMiner.spawning = false;
+        populationSpawn.spawning = null;
+        Game.creeps.PopulationMiner.ticksToLive = 69;
+        assert.strictEqual(populationBureau.countSourceWorkParts('W1N1', 'population-source'), 5, 'WORK above the TTL replacement boundary should remain available');
+        Game.creeps.PopulationMiner.ticksToLive = 68;
+        assert.strictEqual(populationBureau.countSourceWorkParts('W1N1', 'population-source'), 0, 'WORK at the TTL replacement boundary should require replacement');
+        Game.creeps.PopulationMiner.ticksToLive = 1000;
+        Game.creeps.PopulationMiner.body.forEach(part => { if (part.type === WORK) part.hits = 0; });
+        assert.strictEqual(populationBureau.countSourceWorkParts('W1N1', 'population-source'), 0, 'destroyed WORK must not be counted');
+        assert.strictEqual(populationBureau.countRole('W1N1', 'miner'), 0, 'an incapacitated miner must not block an affordable recovery body');
+        Game.creeps = {};
+        Memory.empire.spawningCreeps.PopulationMiner = populationRecord;
+        assert.strictEqual(populationBureau.countSourceWorkParts('W1N1', 'population-source'), 0, 'a cancelled spawn must not remain covered by its old successful record');
+        Game.spawns = {};
+        assert.strictEqual(populationBureau.countQuota('W1N1', 'miner:W1N1:population-source'), 0, 'a destroyed spawn cannot retain a pending quota');
+        Memory.empire.spawningCreeps.OldUnbounded = { memory: { role: 'miner', homeRoom: 'W1N1' } };
+        populationSpawner.init();
+        const legacyExpiry = Memory.empire.spawningCreeps.OldUnbounded.expireAt;
+        assert.strictEqual(legacyExpiry, Game.time + 150, 'legacy identity backups should receive one finite retention window');
+        Game.time += 10;
+        populationSpawner.init();
+        assert.strictEqual(Memory.empire.spawningCreeps.OldUnbounded.expireAt, legacyExpiry, 'legacy backup reads must not renew their expiry');
+        Memory.creeps.LiveWithoutRole = { role: 'hauler', homeRoom: 'W1N1' };
+        Game.creeps.LiveWithoutRole = { memory: {}, body: [{ type: CARRY, hits: 100 }], ticksToLive: 1000 };
+        new SpawnService('SpawnAfterReset').init();
+        assert.strictEqual(Game.creeps.LiveWithoutRole.memory.role, 'hauler', 'a reset should restore identity from same-name live memory metadata');
+        Game.creeps.SurplusHauler = { memory: { role: 'hauler', homeRoom: 'W1N1', retire: true }, body: [{ type: CARRY, hits: 100 }], ticksToLive: 1000 };
+        assert.strictEqual(new CreepRetirementService('Retirement').roleCountsByRoom().W1N1.hauler, 2, 'an idle retirement marker must not pretend an unloading live actor has already died');
+        const { collectCreepPopulation, activeBodyPartCount } = await import('../core/CreepPopulation.js');
+        assert.strictEqual(activeBodyPartCount([WORK, { type: WORK, hits: 0 }, { type: WORK, hits: 100 }, null], WORK), 2, 'mixed bodies count only valid active parts');
+        const unknown = collectCreepPopulation({ creeps: {}, spawns: { Unknown: { spawning: { name: 'UnknownBody' } } }, creepMemory: { UnknownBody: { role: 'miner', homeRoom: 'W1N1' } }, tick: Game.time })[0];
+        assert.strictEqual(unknown.bodyKnown, false, 'physical spawning with no body must remain unknown');
+        assert.strictEqual(unknown.activeParts.work, undefined, 'unknown bodies must not invent a WORK part');
+        assert.strictEqual(unknown.coversQuota, true, 'physical spawning with unknown body still protects its occupied quota');
+        Object.assign(Game, savedGame);
+        global.Memory = savedMemory;
+    }
+
     global.Memory = {
         creeps: {},
         rooms: {},
         empire: {}
     };
+    {
+        const savedGame = { ...Game };
+        const savedMemory = Memory;
+        const savedTopics = EventBus.topics;
+        const savedSubscribers = EventBus.subscribers;
+        EventBus.topics = {};
+        EventBus.clearSubscribers();
+        const intakeRoom = { name: 'W1N1', energyAvailable: 300 };
+        global.ERR_NAME_EXISTS = -3;
+        Game.time = 1000;
+        Game.rooms = { W1N1: intakeRoom };
+        Game.creeps = {};
+        global.Memory = { creeps: {}, empire: { spawningCreeps: {} } };
+        const attempts = [];
+        const makeIntakeSpawn = name => ({ name, room: intakeRoom, spawning: null, spawnCreep: (body, creepName) => { attempts.push(creepName); return OK; } });
+        Game.spawns = { Intake1: makeIntakeSpawn('Intake1'), Intake2: makeIntakeSpawn('Intake2') };
+        const intake = new SpawnService('Spawn');
+        const publishIntake = (quotaKey, extra = {}) => EventBus.publish('REQ_SPAWN', 45, {
+            roomName: 'W1N1', role: 'hauler', body: [CARRY, CARRY, CARRY, MOVE],
+            memory: { role: 'hauler', homeRoom: 'W1N1', quotaKey }, ...extra
+        }, 3);
+        intake.init();
+        publishIntake('hauler:W1N1:first');
+        publishIntake('hauler:W1N1:second');
+        EventBus.dispatch();
+        assert.strictEqual(intake.pendingTasks.length, 1, 'two spawns must not overbook the same 300 room energy with two 200-cost bodies');
+        intake.run();
+        assert.strictEqual(attempts.length, 1, 'only the affordable accepted request should execute');
+
+        EventBus.topics = {};
+        Game.time++;
+        intakeRoom.energyAvailable = 500;
+        intake.init();
+        publishIntake('hauler:W1N1:first');
+        publishIntake('hauler:W1N1:second');
+        EventBus.dispatch();
+        assert.strictEqual(intake.pendingTasks.length, 2, 'different affordable quotas should use both idle spawns');
+        assert.strictEqual(new Set(intake.pendingTasks.map(task => task.name)).size, 2, 'automatic names must be unique across simultaneous spawns');
+
+        EventBus.topics = {};
+        intake.init();
+        publishIntake('hauler:W1N1:core', { requestId: 'replay-me' });
+        publishIntake('hauler:W1N1:core', { requestId: 'replay-me' });
+        EventBus.dispatch();
+        assert.strictEqual(intake.pendingTasks.length, 1, 'the same request and economic quota must not be queued twice');
+        assert.strictEqual(intake.idleSpawns.W1N1.length, 1, 'a duplicate request must not consume another idle spawn');
+        EventBus.topics = {};
+        intake.init();
+        publishIntake('hauler:W1N1:a', { name: 'ExplicitName' });
+        publishIntake('hauler:W1N1:b', { name: 'ExplicitName' });
+        EventBus.dispatch();
+        assert.strictEqual(intake.pendingTasks.length, 1, 'an explicit name conflict must not create a second renamed actor');
+        assert.strictEqual(intake.pendingTasks[0].name, 'ExplicitName', 'explicit caller names should be preserved');
+
+        EventBus.topics = {};
+        intake.init();
+        publishIntake('hauler:W1N1:bad', { body: [null] });
+        EventBus.dispatch();
+        assert.strictEqual(intake.pendingTasks.length, 0, 'invalid bodies must not consume room energy or a spawn');
+        EventBus.topics = {};
+        Game.spawns.Intake2.spawnCreep = () => ERR_NOT_ENOUGH_RESOURCES;
+        intake.init();
+        publishIntake('hauler:W1N1:retry', { name: 'RetryHauler', requestId: 'retry-once' });
+        EventBus.dispatch();
+        const requestExpiry = Game.time + 3;
+        const savedLog = console.log;
+        try { console.log = () => {}; intake.run(); } finally { console.log = savedLog; }
+        assert.strictEqual(Memory.empire.spawningCreeps.RetryHauler, undefined, 'failed run must not create a successful spawn backup');
+        assert.strictEqual(EventBus.topics.REQ_SPAWN.length, 1, 'a valid failed request should remain available for a later tick');
+        assert.strictEqual(EventBus.topics.REQ_SPAWN[0].expireAt, requestExpiry, 'retry must preserve the original deadline');
+        Game.time++;
+        Game.spawns.Intake2.spawnCreep = (body, name) => { attempts.push(name); return OK; };
+        intake.init();
+        EventBus.beginTick();
+        EventBus.dispatch();
+        intake.run();
+        assert.strictEqual(Memory.empire.spawningCreeps.RetryHauler.acceptedAt, Game.time, 'a later successful retry should record its actual acceptance tick');
+        EventBus.topics = {};
+        intake.init();
+        publishIntake('hauler:W1N1:retry', { name: 'RetryHauler', requestId: 'retry-once' });
+        EventBus.dispatch();
+        assert.strictEqual(intake.pendingTasks.length, 0, 'a successful request receipt should reject a cross-tick replay within its deadline');
+        new SpawnService('SpawnReset').init();
+        const resetIntake = new SpawnService('SpawnResetCheck');
+        resetIntake.init();
+        assert.strictEqual(resetIntake.handleSpawnRequest({ id: 'different-event', data: { roomName: 'W1N1', role: 'hauler', requestId: 'retry-once', body: [CARRY, MOVE], memory: { role: 'hauler' } } }), true, 'successful backup receipts should protect request identity after a global reset');
+        assert.strictEqual(resetIntake.pendingTasks.length, 0, 'reset request protection must not consume a spawn');
+        const successfulRetry = Memory.empire.spawningCreeps.RetryHauler;
+        Game.creeps.RetryHauler = { memory: Memory.creeps.RetryHauler, spawning: true, body: successfulRetry.body.map(type => ({ type, hits: 100 })) };
+        intake.cleanup();
+        assert.strictEqual(Memory.empire.spawningCreeps.RetryHauler, undefined, 'successful live identity should still clean its body backup');
+        const resetAfterCleanup = new SpawnService('SpawnResetAfterCleanup');
+        resetAfterCleanup.init();
+        resetAfterCleanup.handleSpawnRequest({ id: 'replay-after-cleanup', data: { roomName: 'W1N1', role: 'hauler', requestId: 'retry-once', body: [CARRY, MOVE], memory: { role: 'hauler', homeRoom: 'W1N1' } } });
+        assert.strictEqual(resetAfterCleanup.pendingTasks.length, 0, 'request receipts must survive global reset after the body backup was removed');
+        Object.assign(Game, savedGame);
+        global.Memory = savedMemory;
+        EventBus.topics = savedTopics;
+        EventBus.subscribers = savedSubscribers;
+    }
+
+    {
+        const savedGame = { ...Game };
+        const savedMemory = Memory;
+        const savedPhase = global.RoomPhase;
+        const savedCache = global.RoomCache;
+        const savedMarketService = global.ResourceMarketService;
+        const recoverySites = [
+            { id: 'optional-extension', structureType: STRUCTURE_EXTENSION, progress: 0, progressTotal: 100, pos: new RoomPosition(20, 20, 'W1N1') },
+            { id: 'core-spawn-site', structureType: STRUCTURE_SPAWN, progress: 0, progressTotal: 100, pos: new RoomPosition(21, 20, 'W1N1') }
+        ];
+        let reserveEnergy = 4999;
+        const recoveryRoom = {
+            name: 'W1N1', controller: { id: 'recovery-controller', my: true, ticksToDowngrade: 12000, pos: new RoomPosition(25, 25, 'W1N1') },
+            energyAvailable: 300, energyCapacityAvailable: 550,
+            storage: { id: 'recovery-storage', store: { getUsedCapacity: () => reserveEnergy } },
+            find: type => type === FIND_CONSTRUCTION_SITES ? recoverySites : []
+        };
+        Game.time = 2000;
+        Game.rooms = { W1N1: recoveryRoom };
+        Game.spawns = { RecoverySpawn: { name: 'RecoverySpawn', room: recoveryRoom, spawning: null } };
+        global.Memory = { creeps: {}, rooms: {}, empire: {} };
+        global.RoomCache = { W1N1: { sources: [], constructionSites: recoverySites.map(site => site.id) } };
+        Game.creeps = {
+            RecoveryMiner: { memory: { role: 'miner', homeRoom: 'W1N1' }, body: [{ type: WORK, hits: 100 }], ticksToLive: 1000 },
+            RecoveryHauler: { memory: { role: 'hauler', homeRoom: 'W1N1' }, body: [{ type: CARRY, hits: 100 }], ticksToLive: 1000 }
+        };
+        Game.getObjectById = id => recoverySites.find(site => site.id === id) || (id === recoveryRoom.controller.id ? recoveryRoom.controller : null);
+        const recoveryPhase = new RoomPhaseService('RoomPhase');
+        recoveryPhase.analyze();
+        assert.ok(global.RoomPhase.W1N1.recovery, 'RoomPhase must expose the approved recovery contract');
+        assert.strictEqual(global.RoomPhase.W1N1.recovery.mode, 'reserve_low', 'a room below the approved reserve floor should expose recovery explicitly');
+        reserveEnergy = 5000;
+        recoveryPhase.analyze();
+        assert.strictEqual(global.RoomPhase.W1N1.recovery.mode, 'normal', 'the reserve boundary should release the low-reserve restriction');
+        delete Game.creeps.RecoveryHauler;
+        recoveryPhase.analyze();
+        assert.strictEqual(global.RoomPhase.W1N1.recovery.mode, 'hauler_gap', 'missing transport should become the primary recoverable role gap');
+        EventBus.topics = {};
+        new SpawnBureauService('SpawnBureau').analyze();
+        const emergencyHaul = (EventBus.topics.REQ_SPAWN || []).find(event => event.data.role === 'hauler');
+        assert.ok(emergencyHaul && emergencyHaul.data.body.reduce((cost, part) => cost + BODYPART_COST[part], 0) <= 300, 'missing hauler recovery must use a currently affordable body');
+        assert.strictEqual((EventBus.topics.REQ_SPAWN || []).some(event => event.data.role === 'upgrader'), false, 'role recovery must pause ordinary upgrader spawning');
+        assert.ok(global.SpawnBureau.W1N1.intents.filter(intent => intent.role === 'builder').every(intent => intent.reason === 'core_construction_recovery'), 'recovery builder intents must be limited to essential construction');
+
+        const worker = {
+            name: 'RecoveryBuilder', room: recoveryRoom, memory: { role: 'builder', homeRoom: 'W1N1' },
+            pos: new RoomPosition(20, 19, 'W1N1'), store: { getUsedCapacity: () => 50, getFreeCapacity: () => 50 }
+        };
+        Game.creeps.RecoveryBuilder = worker;
+        const recoveryBuilder = new BuilderStrategyService('BuilderStrategy');
+        recoveryBuilder.assignBuilderTask(worker);
+        assert.strictEqual(worker.memory.task.targetId, 'core-spawn-site', 'recovery workers should preserve core construction while skipping optional sites');
+        worker.memory.task = { type: 'BUILD', targetId: 'optional-extension' };
+        new TaskGuardService('TaskGuard').analyze();
+        assert.strictEqual(worker.memory.task, null, 'pre-existing optional construction must respect the same recovery restriction');
+        recoverySites.splice(1, 1);
+        global.RoomCache.W1N1.constructionSites = ['optional-extension'];
+        recoveryBuilder.assignBuilderTask(worker);
+        assert.strictEqual(worker.memory.task, null, 'a funded builder must wait rather than consume energy on an optional recovery-period site');
+        assert.strictEqual(worker.memory.builderState.state, 'waiting_recovery', 'paused construction must carry an explicit recovery reason');
+        const spendingMarket = new ResourceMarketService('RecoveryResourceMarket');
+        assert.strictEqual(spendingMarket.requestResource(worker, { resourceType: RESOURCE_ENERGY, purpose: 'build' }).reason, 'recovery_limited', 'the central resource API must reject the same optional recovery spending');
+        Memory.empire.control.policy.economyRecovery.enabled = false;
+        recoveryBuilder.assignBuilderTask(worker);
+        assert.strictEqual(worker.memory.task.targetId, 'optional-extension', 'manual recovery disable should preserve normal worker behavior');
+        Memory.empire.control.policy.economyRecovery.enabled = true;
+        worker.memory.task = null;
+        const urgentStructure = { id: 'urgent-repair', hits: 10, hitsMax: 100, pos: new RoomPosition(22, 20, 'W1N1') };
+        const routineStructure = { id: 'routine-repair', hits: 10, hitsMax: 100, pos: new RoomPosition(23, 20, 'W1N1') };
+        Memory.rooms.W1N1.maintenancePlan = { targets: [
+            { id: routineStructure.id, executor: 'repairer', urgency: 'routine', targetHits: 100 },
+            { id: urgentStructure.id, executor: 'repairer', urgency: 'urgent', targetHits: 100 }
+        ] };
+        const recoveryObjects = { [urgentStructure.id]: urgentStructure, [routineStructure.id]: routineStructure, [recoveryRoom.controller.id]: recoveryRoom.controller, 'optional-extension': recoverySites[0] };
+        Game.getObjectById = id => recoveryObjects[id] || null;
+        worker.memory.role = 'repairer';
+        new RepairerStrategyService('RecoveryRepairer').assignRepairerTask(worker);
+        assert.strictEqual(worker.memory.task.targetId, 'urgent-repair', 'urgent repair must remain available while routine repair is restricted');
+        worker.memory.task = { type: 'REPAIR', targetId: 'routine-repair' };
+        new TaskGuardService('TaskGuard').analyze();
+        assert.strictEqual(worker.memory.task, null, 'existing routine repair must obey the same recovery boundary');
+        delete Game.creeps.RecoveryBuilder;
+        Game.creeps.RecoveryHauler = { room: recoveryRoom, memory: { role: 'hauler', homeRoom: 'W1N1' }, body: [{ type: CARRY, hits: 100 }], ticksToLive: 1000 };
+        reserveEnergy = 4999;
+        recoveryPhase.analyze();
+        EventBus.topics = {};
+        new SpawnBureauService('UrgentRecoveryBureau').analyze();
+        const urgentRepairRequest = (EventBus.topics.REQ_SPAWN || []).find(event => event.data.role === 'repairer');
+        assert.ok(urgentRepairRequest, 'urgent repair must retain a replacement route when ordinary upgrader spawning is paused');
+        assert.ok(urgentRepairRequest.data.body.reduce((sum, part) => sum + BODYPART_COST[part], 0) <= recoveryRoom.energyAvailable, 'urgent recovery repair must use currently affordable body parts');
+        const requiredSpawnSite = { id: 'required-spawn-site', structureType: STRUCTURE_SPAWN, progress: 0, progressTotal: 100, pos: new RoomPosition(21, 20, 'W1N1') };
+        recoverySites.push(requiredSpawnSite);
+        recoveryObjects[requiredSpawnSite.id] = requiredSpawnSite;
+        global.RoomCache.W1N1.constructionSites = recoverySites.map(site => site.id);
+        EventBus.topics = {};
+        new SpawnBureauService('ConstructionRecoveryBureau').analyze();
+        const essentialBuilderRequest = (EventBus.topics.REQ_SPAWN || []).find(event => event.data.role === 'builder');
+        assert.ok(essentialBuilderRequest, 'essential construction must retain minimum builder replacement during recovery');
+        assert.ok(essentialBuilderRequest.data.body.reduce((sum, part) => sum + BODYPART_COST[part], 0) <= recoveryRoom.energyAvailable, 'essential recovery construction must use currently affordable body parts');
+        assert.deepStrictEqual(BodyBuilder.build('hauler', recoveryRoom, { energyCapacity: 0, bodyProfile: 'emergency_hauler' }).body, [], 'an explicit zero energy budget must not fall back to full room capacity');
+        delete Game.creeps.RecoveryMiner;
+        recoveryRoom.energyAvailable = 0;
+        Game.creeps.RecoveryHauler.store = { getUsedCapacity: () => 150 };
+        reserveEnergy = 0;
+        recoveryPhase.analyze();
+        assert.strictEqual(global.RoomPhase.W1N1.recovery.mode, 'miner_gap', 'real carried hauler energy must prevent a false external-support diagnosis');
+        Game.creeps.RecoveryHauler.store = { getUsedCapacity: () => 0 };
+        recoveryPhase.analyze();
+        assert.strictEqual(global.RoomPhase.W1N1.recovery.mode, 'miner_gap', 'an active spawn can recover its basic energy deficit through engine regeneration');
+        assert.ok(global.RoomPhase.W1N1.recovery.reasons.includes('awaiting_spawn_regeneration'), 'engine recovery waiting must be distinguished from unavailable external support');
+        const restoredStorage = recoveryRoom.storage;
+        recoveryRoom.storage = null;
+        Game.creeps.RecoveryMiner = { memory: { role: 'miner', homeRoom: 'W1N1' }, body: [{ type: WORK, hits: 100 }], ticksToLive: 1000 };
+        recoveryRoom.energyAvailable = 50;
+        recoveryPhase.analyze();
+        assert.strictEqual(global.RoomPhase.W1N1.recovery.mode, 'spawn_energy', 'early rooms without storage must still protect an empty spawn energy buffer');
+        recoveryRoom.energyAvailable = 300;
+        recoveryPhase.analyze();
+        assert.strictEqual(global.RoomPhase.W1N1.recovery.mode, 'spawn_energy', 'spawn recovery must retain the existing exit-ratio hysteresis');
+        recoveryRoom.energyAvailable = 500;
+        recoveryPhase.analyze();
+        assert.strictEqual(global.RoomPhase.W1N1.recovery.mode, 'normal', 'spawn recovery should release when its exit-ratio boundary is satisfied');
+        recoveryRoom.storage = restoredStorage;
+        recoveryRoom.energyAvailable = 300;
+        recoveryPhase.analyze();
+        Game.creeps.RecoveryBuilder = worker;
+        worker.memory.role = 'upgrader';
+        let energyRequests = 0;
+        global.ResourceMarketService = { requestResource: () => { energyRequests++; return { mode: 'unavailable' }; } };
+        new UpgraderStrategyService('Upgrader').assignUpgraderTask(worker);
+        assert.strictEqual(worker.memory.task, null, 'ordinary upgrade spending must pause during core recovery');
+        recoveryRoom.controller.ticksToDowngrade = 4999;
+        new UpgraderStrategyService('Upgrader').assignUpgraderTask(worker);
+        assert.strictEqual(worker.memory.task.type, 'UPGRADE', 'Controller emergency must override ordinary recovery spending limits');
+        assert.strictEqual(energyRequests, 0, 'a fueled emergency worker should not publish unnecessary energy requests');
+        recoveryRoom.controller.ticksToDowngrade = 12000;
+        delete Game.spawns.RecoverySpawn;
+        recoveryPhase.analyze();
+        assert.strictEqual(global.RoomPhase.W1N1.recovery.mode, 'support_required', 'a room with no spawn must report its external support dependency');
+        Object.assign(Game, savedGame);
+        global.Memory = savedMemory;
+        global.RoomPhase = savedPhase;
+        global.RoomCache = savedCache;
+        global.ResourceMarketService = savedMarketService;
+    }
+
     const memorySpawn = {
         spawning: null,
         spawnCreep: () => OK
