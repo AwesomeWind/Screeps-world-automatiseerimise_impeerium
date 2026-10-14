@@ -79,6 +79,8 @@ routine repairer 的恢复期空转风险按目标裁决：不为仅 routine 的
 
 ## 执行裁决与回退
 
+当前发布状态见 [2026-10-14 发布记录](2026-10-14-single-room-release.md)：代码 647dac7 已提交、推送并部署，main/map 哈希和运行版本匹配，初始只读观察已保存，10000-tick 验收尚未完成。下文“本轮未提交/未部署”为发布前交付时点，不代表当前状态。
+
 2026-10-14 发布准备补记：用户已明确授权提交、推送、执行游戏服务器推送指令及在其打开的页面观察。发布前重新运行 `npm test`、无 DEST 的 `npm run build` 和两类 diff 检查，均通过；fetch 后 origin/main 与本地 HEAD 同为 ca38dc4。已只读保存 default 活跃世界分支的旧 main/map 至本机 `.worktrees/release-backups/2026-10-14T01-20-29.561Z/`，旧 main SHA-256 与上文快照一致。原文“未提交/未部署”描述此前交付时点；新版本提交、部署和验收事实以随后发布记录为准。浏览器扩展连接暂时失败，尚未取得页面观察证据。
 
 完整 [ledger](../plans/2026-10-13-single-room-survival-recovery-ledger.md) 保留全部裁决和成本：未知 body 不猜、WeakMap 只关联原 task 至可序列化 meta、50-tick 本房期限、政策等待不误退役、Controller emergency 的最低升级、持久回执、诊断按真实能源/引擎事实、未接入方法和跨 tick quota 的边界，以及线上证据限制。

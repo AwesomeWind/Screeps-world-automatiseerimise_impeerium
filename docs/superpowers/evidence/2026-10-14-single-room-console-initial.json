@@ -1,0 +1,11 @@
+{
+  "readOnly": true,
+  "shard": "shard3",
+  "startedAt": "2026-10-14T01:24:15.831Z",
+  "authenticated": true,
+  "consoleEvents": 10,
+  "cpuEvents": 11,
+  "errors": [],
+  "logs": [],
+  "finishedAt": "2026-10-14T01:25:02.271Z"
+}
