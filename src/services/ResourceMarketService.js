@@ -682,6 +682,7 @@ class ResourceMarketService extends BaseService {
             const kindBias = supply.kind === 'dropped' ? -3 : 0;
             const cost = requesterDistance + workDistance + opportunityPenalty + kindBias;
 
+            if (!Number.isFinite(cost)) continue;
             if (!best || cost < best.cost) best = { supply, cost };
         }
 
@@ -703,6 +704,7 @@ class ResourceMarketService extends BaseService {
                 const requesterDistance = this.rangeBetween(hauler.pos, creep.pos);
                 const waitPenalty = 4;
                 const cost = requesterDistance + waitPenalty;
+                if (!Number.isFinite(cost)) continue;
                 if (!best || cost < best.cost) best = { type: 'carried', hauler, cost };
                 continue;
             }
@@ -715,6 +717,7 @@ class ResourceMarketService extends BaseService {
             const requesterDistance = this.rangeBetween(pickupTarget && pickupTarget.pos, creep.pos);
             const waitPenalty = 6;
             const cost = pickupDistance + requesterDistance + waitPenalty;
+            if (!Number.isFinite(cost)) continue;
             if (!best || cost < best.cost) best = { type: 'pickup', hauler, supply: pickup, cost };
         }
 
@@ -1409,8 +1412,10 @@ class ResourceMarketService extends BaseService {
 
     rangeBetween(fromPos, toPos) {
         if (!fromPos || !toPos) return 25;
-        if (fromPos.getRangeTo) return fromPos.getRangeTo(toPos);
-        return Math.max(Math.abs((fromPos.x || 0) - (toPos.x || 0)), Math.abs((fromPos.y || 0) - (toPos.y || 0)));
+        if (![fromPos.x, fromPos.y, toPos.x, toPos.y].every(Number.isFinite)) return 25;
+        if (fromPos.roomName && toPos.roomName && fromPos.roomName !== toPos.roomName) return Infinity;
+        // Memory positions are plain coordinates; native getRangeTo cannot consume them directly.
+        return Math.max(Math.abs(fromPos.x - toPos.x), Math.abs(fromPos.y - toPos.y));
     }
 
     removeIdleHauler(creep) {

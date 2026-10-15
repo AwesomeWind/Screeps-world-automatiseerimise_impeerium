@@ -3840,6 +3840,120 @@ async function runBehaviorChecks() {
     assert.ok(Memory.rooms.W1N1.resourceMarket.stats.selfFetchSelected >= 1, 'resource market should record self-fetch selections in stats');
     assert.ok(Memory.rooms.W1N1.resourceMarket.stats.supplyCount >= 1, 'resource market should persist room-level supply stats');
 
+    // The native runtime returned NaN for getRangeTo({ x, y, roomName }).
+    // Keep that boundary in the fixture instead of accepting every position shape.
+    class NativeMarketPosition extends RoomPosition {
+        getRangeTo(target, y) {
+            if (typeof target === 'number') return Math.max(Math.abs(this.x - target), Math.abs(this.y - y));
+            if (!(target instanceof RoomPosition)) return NaN;
+            if (target.roomName !== this.roomName) return Infinity;
+            return Math.max(Math.abs(this.x - target.x), Math.abs(this.y - target.y));
+        }
+    }
+    const savedDistanceFixture = {
+        memory: Memory, game: Game, market: global.ResourceMarket, phase: global.RoomPhase,
+        idleHaulers: resourceMarket.idleHaulers
+    };
+    try {
+        const distanceRoom = { name: 'W1N1', find: () => [] };
+        const workerPos = new NativeMarketPosition(33, 23, 'W1N1');
+        const nearStorage = {
+            id: 'distanceStorage', structureType: STRUCTURE_STORAGE, store: makeStore({ energy: 1000000 }, 1000000),
+            pos: new NativeMarketPosition(31, 24, 'W1N1')
+        };
+        const farDrop = { id: 'distanceDrop', resourceType: RESOURCE_ENERGY, amount: 100, pos: new NativeMarketPosition(43, 30, 'W1N1') };
+        const distanceObjects = { distanceStorage: nearStorage, distanceDrop: farDrop };
+        const distanceWorker = {
+            id: 'DistanceBuilder', name: 'DistanceBuilder', room: distanceRoom, pos: workerPos,
+            memory: { role: 'builder', homeRoom: 'W1N1' }, store: makeStore({}, 100)
+        };
+        const storageSupply = { id: 'distance-storage', targetId: nearStorage.id, kind: 'withdraw', resourceType: RESOURCE_ENERGY, amount: 1000000, priority: 60 };
+        const dropSupply = { id: 'distance-drop', targetId: farDrop.id, kind: 'dropped', resourceType: RESOURCE_ENERGY, amount: 100, priority: 60 };
+        const resetDistanceMarket = (supplies) => {
+            global.Memory = { rooms: { W1N1: {} }, empire: {} };
+            global.Game = {
+                time: 100, rooms: { W1N1: distanceRoom }, creeps: { DistanceBuilder: distanceWorker },
+                getObjectById: id => distanceObjects[id] || Game.creeps[id] || null
+            };
+            global.RoomPhase = { W1N1: { recovery: { mode: 'normal' } } };
+            global.ResourceMarket = { W1N1: resourceMarket.ensureMarketShape({ supplies }, 'W1N1') };
+            resourceMarket.idleHaulers = [];
+        };
+        for (const supplies of [[dropSupply, storageSupply], [storageSupply, dropSupply]]) {
+            resetDistanceMarket(supplies);
+            const selected = resourceMarket.requestResource(distanceWorker, { purpose: 'build' });
+            assert.strictEqual(selected.mode, 'self_fetch', 'builder without an idle hauler should fetch its own energy');
+            assert.strictEqual(selected.task.targetId, nearStorage.id, 'native/plain positions must choose nearby storage regardless of supply order');
+            assert.strictEqual(selected.task.type, 'WITHDRAW');
+        }
+
+        resetDistanceMarket([dropSupply, storageSupply]);
+        const request = resourceMarket.normalizeRequest(distanceWorker, {
+            purpose: 'build', targetPos: { x: 33, y: 23, roomName: 'W1N1' }
+        }, 'W1N1');
+        const quote = resourceMarket.findBestSelfFetch(distanceWorker, global.ResourceMarket.W1N1, request);
+        assert.strictEqual(quote.cost, 6, 'nearby storage quote should have a finite round-trip cost');
+        const deliveryHauler = {
+            id: 'DistanceHauler', name: 'DistanceHauler', room: distanceRoom,
+            pos: new NativeMarketPosition(38, 23, 'W1N1'),
+            memory: { role: 'hauler', homeRoom: 'W1N1' }, store: makeStore({ energy: 100 }, 100)
+        };
+        Game.creeps.DistanceHauler = deliveryHauler;
+        const selfAgainstDelivery = resourceMarket.requestResource(distanceWorker, {
+            purpose: 'build', targetPos: { x: 33, y: 23, roomName: 'W1N1' }
+        });
+        assert.strictEqual(selfAgainstDelivery.mode, 'self_fetch', 'finite nearby self-fetch cost must beat a more expensive loaded hauler');
+        assert.strictEqual(selfAgainstDelivery.task.targetId, nearStorage.id);
+
+        resetDistanceMarket([dropSupply, storageSupply]);
+        deliveryHauler.pos = new NativeMarketPosition(33, 23, 'W1N1');
+        Game.creeps.DistanceHauler = deliveryHauler;
+        const cheaperDelivery = resourceMarket.requestResource(distanceWorker, { purpose: 'build' });
+        assert.strictEqual(cheaperDelivery.mode, 'delivery', 'a cheaper loaded hauler should still deliver instead of forcing self-fetch');
+        assert.strictEqual(deliveryHauler.memory.task.type, 'TRANSFER');
+        assert.strictEqual(deliveryHauler.memory.task.targetId, distanceWorker.id);
+
+        for (const [from, to, expected] of [
+            [workerPos, new NativeMarketPosition(31, 24, 'W1N1'), 2],
+            [workerPos, { x: 31, y: 24, roomName: 'W1N1' }, 2],
+            [{ x: 33, y: 23, roomName: 'W1N1' }, nearStorage.pos, 2],
+            [{ x: 0, y: 0, roomName: 'W1N1' }, { x: 0, y: 3, roomName: 'W1N1' }, 3],
+            [{ x: 1, y: 2 }, { x: 4, y: 4 }, 3],
+            [workerPos, { x: 33, y: 23, roomName: 'W1N1' }, 0],
+            [null, workerPos, 25],
+            [workerPos, null, 25],
+            [{ x: NaN, y: 23 }, workerPos, 25],
+            [workerPos, { y: 23, roomName: 'W1N1' }, 25],
+            [workerPos, new NativeMarketPosition(33, 23, 'W1N2'), Infinity],
+            [{ x: 33, y: 23, roomName: 'W1N1' }, { x: 33, y: 23, roomName: 'W1N2' }, Infinity]
+        ]) {
+            assert.strictEqual(resourceMarket.rangeBetween(from, to), expected, 'market distance should handle native/plain/zero/missing/cross-room coordinates');
+        }
+
+        const foreignSupply = { ...dropSupply, id: 'foreign-drop', targetId: 'ForeignDrop' };
+        distanceObjects.ForeignDrop = { id: 'ForeignDrop', resourceType: RESOURCE_ENERGY, amount: 100, pos: new NativeMarketPosition(33, 23, 'W1N2') };
+        resetDistanceMarket([foreignSupply]);
+        assert.strictEqual(resourceMarket.requestResource(distanceWorker, { purpose: 'build' }).mode, 'unavailable',
+            'local resource requests must not dispatch self-fetch across rooms');
+        assert.deepStrictEqual(global.ResourceMarket.W1N1.reservations.supply, {}, 'unreachable supply must not acquire a reservation');
+        for (const energy of [0, 100]) {
+            resetDistanceMarket([foreignSupply]);
+            Game.creeps.ForeignHauler = {
+                name: 'ForeignHauler', room: { name: 'W1N2' }, pos: new NativeMarketPosition(33, 23, 'W1N2'),
+                memory: { role: 'hauler', homeRoom: 'W1N1' }, store: makeStore({ energy }, 100)
+            };
+            assert.strictEqual(resourceMarket.requestResource(distanceWorker, { purpose: 'build' }).mode, 'unavailable',
+                'neither an empty nor loaded hauler in another room is a finite local delivery quote');
+            assert.strictEqual(Game.creeps.ForeignHauler.memory.task, undefined, 'unreachable delivery must not dispatch a hauler');
+        }
+    } finally {
+        global.Memory = savedDistanceFixture.memory;
+        global.Game = savedDistanceFixture.game;
+        global.ResourceMarket = savedDistanceFixture.market;
+        global.RoomPhase = savedDistanceFixture.phase;
+        resourceMarket.idleHaulers = savedDistanceFixture.idleHaulers;
+    }
+
     EventBus.topics = {};
     Game.creeps = {
         HaulerLoaded: {
