@@ -36,3 +36,5 @@ Review R6：Important 保留。executing grant 跨 tick 无证据显式 spawnCos
 维护者追加：暂停 worker 的返程保留 MOVE_TO 进度，避免逐 tick 重新派任务冲掉 stuck guard；相同 5-tick 卡死 RED→GREEN。
 
 最终维护者复核：补冲突 source 身份不得覆盖配额/执行、miner 自身 terrain 行程的替换提前量，以及损坏 WORK 的矿工安全离位；各自 RED→GREEN。最终 npm test：smoke/room-governor/remote93 全过，无 DEST build 成功，两类 diff check 通过。无未处理 review finding；线上未验收。用户已经选择暂不提交/部署，收尾技能保留 detached managed worktree，不重复询问集成菜单，不 archive/reset。HEAD=9ab8f426。
+
+后续显式发布授权（2026-10-15）：代码53f0e4a提交并推送origin/codex/single-remote-mining，npm run push成功部署screeps.com/default；回读main/map哈希及运行SERVICE_VERSION=1792028845945匹配。远程总开关false、Governor shadow、scheduler enforce=false；无在线配置/人工Memory写入。只读试点优选W48N41 source及(19,6)容器格，离线草案enabled=false；storage满仓使activationReady=false。首次Node环境代理Host冲突只调整该部署子进程参数后重试，无源码修复。

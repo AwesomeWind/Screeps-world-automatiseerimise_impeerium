@@ -1,0 +1,1561 @@
+{
+  "schemaVersion": 1,
+  "readOnly": true,
+  "roomQueriesAreSequential": true,
+  "preflight": {
+    "observedAt": "2026-10-15T01:44:29.048Z",
+    "gameTime": 83652824,
+    "branch": "default",
+    "shard": "shard3",
+    "activeWorld": true,
+    "serverHashes": {
+      "main": "3d8f04f4b878e53707b84e4a95eb3caa3fbb89e8254354be94ce64803151703c",
+      "main.js.map": "e5be15c689de0cad70e1154161252e43b6f2643edc94ebdf2efece36527f928b"
+    },
+    "deployedServiceVersion": "1791940907026",
+    "runtimeCodeVersion": "1791940907026",
+    "remoteMiningEnabled": null,
+    "governorShadow": true,
+    "schedulerEnforce": false,
+    "homeMetrics": {
+      "capturedAt": 83652820,
+      "codeVersion": "1791940907026",
+      "recovery": {
+        "mode": "normal",
+        "reasons": [],
+        "evaluatedAt": 83652820,
+        "coreUsable": {
+          "miner": 2,
+          "hauler": 3
+        },
+        "coreUpcoming": {
+          "miner": 0,
+          "hauler": 0
+        },
+        "blockedBy": []
+      },
+      "spawnIntake": null,
+      "coreCapabilities": {
+        "harvestWork": {
+          "current": 10,
+          "spawning": 0,
+          "retiring": 0,
+          "required": 10,
+          "gap": 0
+        },
+        "logisticsCarry": {
+          "current": 15,
+          "spawning": 0,
+          "retiring": 0,
+          "required": 9,
+          "gap": 0
+        }
+      },
+      "controllerTicksToDowngrade": 150000,
+      "controllerLevel": 7,
+      "controllerProgress": 9573187,
+      "constructionProgressSum": 0,
+      "phase": "storage",
+      "energyPosture": "normal",
+      "energyAvailable": 1900,
+      "energyCapacity": 1900,
+      "spawnEnergyRatio": 1,
+      "storageEnergy": 1000000,
+      "constructionPressure": 0,
+      "maintenancePressure": 10,
+      "roleCounts": {
+        "repairer": 3,
+        "miner": 2,
+        "upgrader": 1,
+        "hauler": 3,
+        "defender": 1
+      },
+      "spawningCount": 0,
+      "resourceMarketStats": {
+        "supplyCount": 12,
+        "demandCount": 0,
+        "reservedSupplyCount": 1,
+        "reservedDemandCount": 0,
+        "selfFetchSelected": 0,
+        "deliverySelected": 0,
+        "unavailableRequests": 0,
+        "haulerAssignments": 0,
+        "fallbackStoreAssignments": 0,
+        "idleHaulers": 0,
+        "ownedReservationCount": 1,
+        "awaitingConfirmationCount": 0
+      },
+      "resourceFeedbackTotals": {
+        "confirmationUnknown": 1591,
+        "confirmedResourceActions": 1517,
+        "confirmedDeliveryAmount": 84957,
+        "confirmedEnergyDeliveryAmount": 84957,
+        "confirmedPickupAmount": 23500,
+        "confirmedEnergyPickupAmount": 23500,
+        "reservationReleased": 381
+      },
+      "governorLifecycle": "developing",
+      "governorHealth": {
+        "status": "healthy",
+        "score": 100
+      },
+      "governorStaleFor": 0,
+      "spawnDecisionDiff": {
+        "matched": 0,
+        "missing": 0,
+        "excess": 0,
+        "priorityMismatches": 0,
+        "bodyProfileMismatches": 0
+      },
+      "upgradeWorkControl": {
+        "legacyIntentPresent": false,
+        "governorRecommended": false,
+        "adoptedSource": "legacy",
+        "action": "keep",
+        "current": 5,
+        "spawning": 0,
+        "required": 3,
+        "gap": 0,
+        "fallbackCount": 0,
+        "autoSuspended": false
+      }
+    },
+    "remoteObservation": null
+  },
+  "backupPath": "D:\\MyCode\\screeps_world\\automatiseerimise_impeerium\\.worktrees\\release-backups\\2026-10-15T01-44-29.058Z",
+  "verifications": [
+    {
+      "observedAt": "2026-10-15T01:47:56.101Z",
+      "gameTime": 83652875,
+      "branch": "default",
+      "shard": "shard3",
+      "activeWorld": true,
+      "serverHashes": {
+        "main": "91fc401f8ee3dc76abf5b3224270f8a0ad4ab537d41c7a4319813c7366db605c",
+        "main.js.map": "c019de728f31233f77e6f345f63dcf0304fb8be29eb9641a146da3cd9ce9df44"
+      },
+      "localHashes": {
+        "main": "91fc401f8ee3dc76abf5b3224270f8a0ad4ab537d41c7a4319813c7366db605c",
+        "map": "c019de728f31233f77e6f345f63dcf0304fb8be29eb9641a146da3cd9ce9df44"
+      },
+      "artifactMatches": true,
+      "deployedServiceVersion": "1792028845945",
+      "runtimeCodeVersion": "1792028845945",
+      "remoteMiningEnabled": false,
+      "governorShadow": true,
+      "schedulerEnforce": false,
+      "homeMetrics": {
+        "capturedAt": 83652870,
+        "codeVersion": "1792028845945",
+        "recovery": {
+          "mode": "normal",
+          "reasons": [],
+          "evaluatedAt": 83652870,
+          "coreUsable": {
+            "miner": 2,
+            "hauler": 3
+          },
+          "coreUpcoming": {
+            "miner": 0,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "spawnIntake": null,
+        "coreCapabilities": {
+          "harvestWork": {
+            "current": 10,
+            "spawning": 0,
+            "retiring": 0,
+            "required": 10,
+            "gap": 0
+          },
+          "logisticsCarry": {
+            "current": 15,
+            "spawning": 0,
+            "retiring": 0,
+            "required": 9,
+            "gap": 0
+          }
+        },
+        "controllerTicksToDowngrade": 150000,
+        "controllerLevel": 7,
+        "controllerProgress": 9573427,
+        "constructionProgressSum": 0,
+        "phase": "storage",
+        "energyPosture": "normal",
+        "energyAvailable": 1900,
+        "energyCapacity": 1900,
+        "spawnEnergyRatio": 1,
+        "storageEnergy": 1000000,
+        "constructionPressure": 0,
+        "maintenancePressure": 10,
+        "roleCounts": {
+          "miner": 2,
+          "upgrader": 1,
+          "hauler": 3,
+          "defender": 1,
+          "repairer": 2
+        },
+        "spawningCount": 0,
+        "resourceMarketStats": {
+          "supplyCount": 10,
+          "demandCount": 0,
+          "reservedSupplyCount": 1,
+          "reservedDemandCount": 0,
+          "selfFetchSelected": 0,
+          "deliverySelected": 0,
+          "unavailableRequests": 0,
+          "haulerAssignments": 0,
+          "fallbackStoreAssignments": 0,
+          "idleHaulers": 0,
+          "ownedReservationCount": 1,
+          "awaitingConfirmationCount": 0,
+          "confirmationUnknown": 1
+        },
+        "resourceFeedbackTotals": {
+          "confirmationUnknown": 1598,
+          "confirmedResourceActions": 1521,
+          "confirmedDeliveryAmount": 84987,
+          "confirmedEnergyDeliveryAmount": 84987,
+          "confirmedPickupAmount": 23600,
+          "confirmedEnergyPickupAmount": 23600,
+          "reservationReleased": 381
+        },
+        "governorLifecycle": "developing",
+        "governorHealth": {
+          "status": "healthy",
+          "score": 100
+        },
+        "governorStaleFor": 0,
+        "spawnDecisionDiff": {
+          "matched": 0,
+          "missing": 0,
+          "excess": 0,
+          "priorityMismatches": 0,
+          "bodyProfileMismatches": 0
+        },
+        "upgradeWorkControl": {
+          "legacyIntentPresent": false,
+          "governorRecommended": false,
+          "adoptedSource": "legacy",
+          "action": "keep",
+          "current": 5,
+          "spawning": 0,
+          "required": 3,
+          "gap": 0,
+          "fallbackCount": 0,
+          "autoSuspended": false
+        }
+      },
+      "remoteObservation": null
+    },
+    {
+      "observedAt": "2026-10-15T01:53:35.329Z",
+      "gameTime": 83652958,
+      "branch": "default",
+      "shard": "shard3",
+      "activeWorld": true,
+      "serverHashes": {
+        "main": "91fc401f8ee3dc76abf5b3224270f8a0ad4ab537d41c7a4319813c7366db605c",
+        "main.js.map": "c019de728f31233f77e6f345f63dcf0304fb8be29eb9641a146da3cd9ce9df44"
+      },
+      "localHashes": {
+        "main": "91fc401f8ee3dc76abf5b3224270f8a0ad4ab537d41c7a4319813c7366db605c",
+        "map": "c019de728f31233f77e6f345f63dcf0304fb8be29eb9641a146da3cd9ce9df44"
+      },
+      "artifactMatches": true,
+      "deployedServiceVersion": "1792028845945",
+      "runtimeCodeVersion": "1792028845945",
+      "remoteMiningEnabled": false,
+      "governorShadow": true,
+      "schedulerEnforce": false,
+      "homeMetrics": {
+        "capturedAt": 83652950,
+        "codeVersion": "1792028845945",
+        "recovery": {
+          "mode": "normal",
+          "reasons": [],
+          "evaluatedAt": 83652950,
+          "coreUsable": {
+            "miner": 2,
+            "hauler": 3
+          },
+          "coreUpcoming": {
+            "miner": 0,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "spawnIntake": null,
+        "coreCapabilities": {
+          "harvestWork": {
+            "current": 10,
+            "spawning": 0,
+            "retiring": 0,
+            "required": 10,
+            "gap": 0
+          },
+          "logisticsCarry": {
+            "current": 15,
+            "spawning": 0,
+            "retiring": 0,
+            "required": 9,
+            "gap": 0
+          }
+        },
+        "controllerTicksToDowngrade": 150000,
+        "controllerLevel": 7,
+        "controllerProgress": 9573807,
+        "constructionProgressSum": 0,
+        "phase": "storage",
+        "energyPosture": "normal",
+        "energyAvailable": 1900,
+        "energyCapacity": 1900,
+        "spawnEnergyRatio": 1,
+        "storageEnergy": 1000000,
+        "constructionPressure": 0,
+        "maintenancePressure": 9,
+        "roleCounts": {
+          "miner": 2,
+          "upgrader": 1,
+          "hauler": 3,
+          "defender": 1,
+          "repairer": 2
+        },
+        "spawningCount": 0,
+        "resourceMarketStats": {
+          "supplyCount": 11,
+          "demandCount": 1,
+          "reservedSupplyCount": 1,
+          "reservedDemandCount": 2,
+          "selfFetchSelected": 0,
+          "deliverySelected": 0,
+          "unavailableRequests": 0,
+          "haulerAssignments": 0,
+          "fallbackStoreAssignments": 0,
+          "idleHaulers": 0,
+          "ownedReservationCount": 3,
+          "awaitingConfirmationCount": 0
+        },
+        "resourceFeedbackTotals": {
+          "confirmationUnknown": 1604,
+          "confirmedResourceActions": 1527,
+          "confirmedDeliveryAmount": 85307,
+          "confirmedEnergyDeliveryAmount": 85307,
+          "confirmedPickupAmount": 23700,
+          "confirmedEnergyPickupAmount": 23700,
+          "reservationReleased": 381
+        },
+        "governorLifecycle": "developing",
+        "governorHealth": {
+          "status": "healthy",
+          "score": 100
+        },
+        "governorStaleFor": 0,
+        "spawnDecisionDiff": {
+          "matched": 0,
+          "missing": 0,
+          "excess": 0,
+          "priorityMismatches": 0,
+          "bodyProfileMismatches": 0
+        },
+        "upgradeWorkControl": {
+          "legacyIntentPresent": false,
+          "governorRecommended": false,
+          "adoptedSource": "legacy",
+          "action": "keep",
+          "current": 5,
+          "spawning": 0,
+          "required": 3,
+          "gap": 0,
+          "fallbackCount": 0,
+          "autoSuspended": false
+        }
+      },
+      "remoteObservation": null
+    }
+  ],
+  "roomQueryStartedAt": "2026-10-15T01:48:29.526Z",
+  "roomQueryStartGameTime": 83652882,
+  "rooms": {
+    "W49N41": {
+      "terrain": [
+        {
+          "room": "W49N41",
+          "terrain": "1110000000011111111000001111111111111111111111111111100000000111111100000011110000000001111111111111111100000001111111000000011000000000001111111111111111100000011111111000000000000000000001111111111111111000000011111111000000200000000000001111111111001110000000011111110001111001100000000000111111110000000000000001111200111111111100000000000111111100000000000000001100001111111111000000000000111111000000000000000000000001100001100000000000001111110000000002000000000000000000000000000000000001111100000000220000200000000000000000000000000000011111000000000200002000000000000000000000000000000011110000000002111020000000000000000000000000000000111100000000011110000000000000000000000000000000001111000000001111100000000000000000000000000000000011111000000111111100000000000000000000000000000000111110000001111111200000002200000000000000000000001111100000011111110000000000000000001100000000022011111000000011111100000000000000000011111110002220111100000000111110000020000000000000011111110002021111000000001111000000000000000000000111111100000111110000000111100000000000000020000000111111000011110000000011111000000000000000000000001111100000111000001111111110000000000000002000000001110000202100001111111111100000200000011100000000000000000000000011111100110000000000001111120000000000000000000000111110000000200000000011111000000011100000000000001111000000002000000000011100000001111100002000000011110000000000000000000011000000111111000022000000111100000000000000000000111001111111100000220000001111000000000000000000011111111111110000000011000011110000000000000000000111111111111100000001111000111110000000002200000001111111111111120000011110001111111000000000000000001111111111111100000111100011111111000000000000000201111110011111000001111000111111111000000000000000000000000011100000011110001111111111000000000000000000000000000000000011000011111111110000000000000000000000000000000000000000111111111000000000000000000000000000200000000000001111111100000000020000111000000000000000000000000011111100000000000002011111022000002000000000000000111110000000000000020111110000000020000000000000001111110001100000002201111000000000211100020000000011111111111100000020011110000000001111100220000000111111111111000000000111000000000011111000000000001111111111111000000011102000000022111110000000000111111111111110000000111020001100021111000000000011111111111111110000011111001111102111110000200001111111111111111111111111111111111111111110222000111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "objects": [
+        {
+          "_id": "5bbcaa619099fc012e6313d7",
+          "type": "source",
+          "x": 22,
+          "y": 26,
+          "room": "W49N41",
+          "energyCapacity": 3000
+        },
+        {
+          "_id": "5bbcaa619099fc012e6313d9",
+          "type": "source",
+          "x": 44,
+          "y": 31,
+          "room": "W49N41",
+          "energyCapacity": 3000
+        },
+        {
+          "_id": "5bbcb14440062e4259e92d14",
+          "type": "mineral",
+          "x": 31,
+          "y": 33,
+          "room": "W49N41"
+        },
+        {
+          "_id": "6a2688d1bdb06634c64be615",
+          "type": "road",
+          "x": 40,
+          "y": 29,
+          "room": "W49N41",
+          "hits": 3200,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a2694047556af38bf7ab1b5",
+          "type": "road",
+          "x": 35,
+          "y": 25,
+          "room": "W49N41",
+          "hits": 3200,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a269c18ece63c63a67a233f",
+          "type": "road",
+          "x": 27,
+          "y": 23,
+          "room": "W49N41",
+          "hits": 3000,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a26a07efa1ff1c1082b42f4",
+          "type": "road",
+          "x": 24,
+          "y": 23,
+          "room": "W49N41",
+          "hits": 3400,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a2784edd75184c3a84ac5dd",
+          "type": "road",
+          "x": 27,
+          "y": 21,
+          "room": "W49N41",
+          "hits": 4200,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a278b7b65e23110ec9feec1",
+          "type": "road",
+          "x": 30,
+          "y": 22,
+          "room": "W49N41",
+          "hits": 2800,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a27934865e23158b19ff0a6",
+          "type": "road",
+          "x": 28,
+          "y": 26,
+          "room": "W49N41",
+          "hits": 3700,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a3cf55606ff144e08f44259",
+          "type": "road",
+          "x": 41,
+          "y": 30,
+          "room": "W49N41",
+          "hits": 3900,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a3cf765515589903c0d4003",
+          "type": "road",
+          "x": 31,
+          "y": 21,
+          "room": "W49N41",
+          "hits": 4600,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a3cfbf1cdace557d7edf9d0",
+          "type": "road",
+          "x": 37,
+          "y": 26,
+          "room": "W49N41",
+          "hits": 3300,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a3cfd5916b802187213d87e",
+          "type": "road",
+          "x": 38,
+          "y": 27,
+          "room": "W49N41",
+          "hits": 3200,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a4a4ffe4a9a57d05723e833",
+          "type": "road",
+          "x": 26,
+          "y": 22,
+          "room": "W49N41",
+          "hits": 3900,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a5b501f7cf51b2796a62c01",
+          "type": "road",
+          "x": 29,
+          "y": 23,
+          "room": "W49N41",
+          "hits": 2900,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a60968d2c1fe48584fe802b",
+          "type": "constructedWall",
+          "x": 29,
+          "y": 1,
+          "room": "W49N41",
+          "hits": 100201,
+          "hitsMax": 300000000
+        },
+        {
+          "_id": "6a6096ab2af65e0ca15d95b6",
+          "type": "constructedWall",
+          "x": 31,
+          "y": 1,
+          "room": "W49N41",
+          "hits": 100201,
+          "hitsMax": 300000000
+        },
+        {
+          "_id": "6aa566f8cc274bb2054994a6",
+          "type": "road",
+          "x": 32,
+          "y": 24,
+          "room": "W49N41",
+          "hits": 3600,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac3e86facecc8d21aabfe84",
+          "type": "road",
+          "x": 25,
+          "y": 23,
+          "room": "W49N41",
+          "hits": 3400,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac3f71bdaccd9aebf92577d",
+          "type": "road",
+          "x": 21,
+          "y": 24,
+          "room": "W49N41",
+          "hits": 3400,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac3f8258273c932c5ad0773",
+          "type": "road",
+          "x": 42,
+          "y": 31,
+          "room": "W49N41",
+          "hits": 3700,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac3f9150d6d56849812b06b",
+          "type": "road",
+          "x": 22,
+          "y": 24,
+          "room": "W49N41",
+          "hits": 3600,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac3fa58f23095acd9f1577f",
+          "type": "road",
+          "x": 42,
+          "y": 30,
+          "room": "W49N41",
+          "hits": 4000,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac3fad5e80514cc49bc8703",
+          "type": "road",
+          "x": 39,
+          "y": 28,
+          "room": "W49N41",
+          "hits": 3300,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac3fc47e856671c2524a916",
+          "type": "road",
+          "x": 36,
+          "y": 25,
+          "room": "W49N41",
+          "hits": 3400,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac3fe745b77c3f5ae0a74f3",
+          "type": "road",
+          "x": 33,
+          "y": 25,
+          "room": "W49N41",
+          "hits": 3300,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac40342ceeb3d1d1bb1a3d2",
+          "type": "road",
+          "x": 31,
+          "y": 27,
+          "room": "W49N41",
+          "hits": 3000,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac40648ceeb3d4568b1a485",
+          "type": "road",
+          "x": 30,
+          "y": 26,
+          "room": "W49N41",
+          "hits": 4500,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac407b323c84e1fae931dd5",
+          "type": "road",
+          "x": 33,
+          "y": 23,
+          "room": "W49N41",
+          "hits": 4600,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac4098d3936cd81289d40f3",
+          "type": "road",
+          "x": 29,
+          "y": 25,
+          "room": "W49N41",
+          "hits": 4800,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac40ba4ef472c64d4770a96",
+          "type": "road",
+          "x": 28,
+          "y": 22,
+          "room": "W49N41",
+          "hits": 3100,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ac40c5b32019b674bb11c73",
+          "type": "road",
+          "x": 23,
+          "y": 23,
+          "room": "W49N41",
+          "hits": 3400,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6acdc7a50d089105329f77a3",
+          "type": "container",
+          "x": 32,
+          "y": 27,
+          "room": "W49N41",
+          "store": {
+            "energy": 1900
+          },
+          "storeCapacity": 2000,
+          "hits": 184400,
+          "hitsMax": 250000
+        },
+        {
+          "_id": "6acdc8b20945d2e6d5227bf9",
+          "type": "road",
+          "x": 43,
+          "y": 30,
+          "room": "W49N41",
+          "hits": 4100,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6acde04def472c7af07978ec",
+          "type": "container",
+          "x": 43,
+          "y": 30,
+          "room": "W49N41",
+          "store": {
+            "energy": 2000
+          },
+          "storeCapacity": 2000,
+          "hits": 194000,
+          "hitsMax": 250000
+        },
+        {
+          "_id": "6acde29c3936cd425c9fb23b",
+          "type": "road",
+          "x": 32,
+          "y": 26,
+          "room": "W49N41",
+          "hits": 3500,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6acde32a3da939d53169e6a2",
+          "type": "road",
+          "x": 20,
+          "y": 25,
+          "room": "W49N41",
+          "hits": 3700,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6acde40e34772f3b40ea0a97",
+          "type": "road",
+          "x": 21,
+          "y": 26,
+          "room": "W49N41",
+          "hits": 3100,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6acdf5e8f2309554b2f3d047",
+          "type": "container",
+          "x": 21,
+          "y": 26,
+          "room": "W49N41",
+          "store": {
+            "energy": 2000
+          },
+          "storeCapacity": 2000,
+          "hits": 227900,
+          "hitsMax": 250000
+        },
+        {
+          "_id": "6acdf76ee00622db1cff584d",
+          "type": "road",
+          "x": 31,
+          "y": 23,
+          "room": "W49N41",
+          "hits": 3700,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6acdf864e1cc154df948861c",
+          "type": "road",
+          "x": 34,
+          "y": 25,
+          "room": "W49N41",
+          "hits": 3600,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6acdf8a4863068060801a286",
+          "type": "road",
+          "x": 32,
+          "y": 22,
+          "room": "W49N41",
+          "hits": 4700,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6acdfaeb91d2f643a010983b",
+          "type": "road",
+          "x": 29,
+          "y": 21,
+          "room": "W49N41",
+          "hits": 4900,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6acdfb5e9e927e36b3e77402",
+          "type": "road",
+          "x": 29,
+          "y": 27,
+          "room": "W49N41",
+          "hits": 4600,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ace048d5de3e04fbdce0484",
+          "type": "road",
+          "x": 27,
+          "y": 25,
+          "room": "W49N41",
+          "hits": 18900,
+          "hitsMax": 25000
+        },
+        {
+          "_id": "6ace058f158cda3681340727",
+          "type": "energy",
+          "x": 21,
+          "y": 26,
+          "room": "W49N41"
+        },
+        {
+          "_id": "6ace06306bec472fc2a076da",
+          "type": "energy",
+          "x": 43,
+          "y": 30,
+          "room": "W49N41"
+        },
+        {
+          "_id": "6ace1ad72dd79845c36be69c",
+          "type": "road",
+          "x": 28,
+          "y": 24,
+          "room": "W49N41",
+          "hits": 3900,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6ad030d81a053d552883f1c2",
+          "type": "energy",
+          "x": 29,
+          "y": 23,
+          "room": "W49N41"
+        },
+        {
+          "_id": "5bbcaa619099fc012e6313d8",
+          "type": "controller",
+          "x": 33,
+          "y": 27,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "reservation": null,
+          "level": 7,
+          "hits": 0,
+          "hitsMax": 0
+        },
+        {
+          "_id": "6a1e915ac1ca830013f156c9",
+          "type": "spawn",
+          "x": 30,
+          "y": 24,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 300
+          },
+          "hits": 5000,
+          "hitsMax": 5000
+        },
+        {
+          "_id": "6a1f4b354e04675d27dbfc0c",
+          "type": "extension",
+          "x": 28,
+          "y": 21,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a1f5bf08f961c2fa90be200",
+          "type": "extension",
+          "x": 32,
+          "y": 21,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a1f6a9e4e0467823bdc03f2",
+          "type": "extension",
+          "x": 27,
+          "y": 22,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a1f7a174e0467f81cdc07ce",
+          "type": "extension",
+          "x": 29,
+          "y": 22,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a1f8a28aa3c50e954c255d6",
+          "type": "extension",
+          "x": 31,
+          "y": 22,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a20bac5458e4952fd43900b",
+          "type": "extension",
+          "x": 33,
+          "y": 22,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a20c1cbad02cb150c956983",
+          "type": "extension",
+          "x": 28,
+          "y": 23,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a20c7e95c1a4b72d29d3d7c",
+          "type": "extension",
+          "x": 32,
+          "y": 23,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a20cfe5261805a10bc2be8b",
+          "type": "extension",
+          "x": 29,
+          "y": 24,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a20d72d5edb9f3b28d20425",
+          "type": "extension",
+          "x": 28,
+          "y": 25,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a20e2b11705a948b310a634",
+          "type": "tower",
+          "x": 30,
+          "y": 21,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 1000
+          },
+          "hits": 3000,
+          "hitsMax": 3000
+        },
+        {
+          "_id": "6a2202d8d07e22aeac446a52",
+          "type": "extension",
+          "x": 32,
+          "y": 25,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a22099fcbe51d1d99846bda",
+          "type": "extension",
+          "x": 27,
+          "y": 26,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a22131439f64a3459633ac7",
+          "type": "extension",
+          "x": 29,
+          "y": 26,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a221bd625ad6ecb8785f14e",
+          "type": "extension",
+          "x": 31,
+          "y": 26,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a22235570d5bca8ff99815d",
+          "type": "extension",
+          "x": 33,
+          "y": 26,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a222ca2f9a6363f765d92b4",
+          "type": "extension",
+          "x": 28,
+          "y": 27,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 100
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a26b976aefd93ab4cf6897d",
+          "type": "storage",
+          "x": 31,
+          "y": 24,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 1000000
+          },
+          "storeCapacity": 1000000,
+          "hits": 10000,
+          "hitsMax": 10000
+        },
+        {
+          "_id": "6a27777d2a6ff14a0f734b17",
+          "type": "rampart",
+          "x": 30,
+          "y": 24,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "hits": 302301,
+          "hitsMax": 100000000
+        },
+        {
+          "_id": "6a2777c4e67f9b8333aa1691",
+          "type": "rampart",
+          "x": 31,
+          "y": 24,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "hits": 300701,
+          "hitsMax": 100000000
+        },
+        {
+          "_id": "6a2777d4a14e8718a9e6ed9e",
+          "type": "rampart",
+          "x": 30,
+          "y": 21,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "hits": 300701,
+          "hitsMax": 100000000
+        },
+        {
+          "_id": "6a2a969ae4e9d779c76a1be4",
+          "type": "link",
+          "x": 22,
+          "y": 27,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 800
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a2ab58e9f99eb340eec7751",
+          "type": "link",
+          "x": 31,
+          "y": 25,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 0
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a2ae369291503b412ced822",
+          "type": "tower",
+          "x": 27,
+          "y": 24,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 1000
+          },
+          "hits": 3000,
+          "hitsMax": 3000
+        },
+        {
+          "_id": "6a2ae3eec8c52b60408c40d1",
+          "type": "rampart",
+          "x": 43,
+          "y": 30,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "hits": 300861,
+          "hitsMax": 100000000
+        },
+        {
+          "_id": "6a2ae4518e25063b55be5405",
+          "type": "rampart",
+          "x": 27,
+          "y": 24,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "hits": 301601,
+          "hitsMax": 100000000
+        },
+        {
+          "_id": "6a377fbe27f4af671e56cc69",
+          "type": "link",
+          "x": 21,
+          "y": 25,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 70
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a4e2797a66f5f65bb04e9f4",
+          "type": "rampart",
+          "x": 21,
+          "y": 26,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "hits": 301151,
+          "hitsMax": 100000000
+        },
+        {
+          "_id": "6a4e279bfa985a4e88b410c7",
+          "type": "rampart",
+          "x": 32,
+          "y": 27,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "hits": 300581,
+          "hitsMax": 100000000
+        },
+        {
+          "_id": "6a6077f69cdecc0cc20e3399",
+          "type": "link",
+          "x": 21,
+          "y": 27,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 260
+          },
+          "hits": 1000,
+          "hitsMax": 1000
+        },
+        {
+          "_id": "6a60955750eb8f48a7c9aa0e",
+          "type": "tower",
+          "x": 33,
+          "y": 24,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "store": {
+            "energy": 1000
+          },
+          "hits": 3000,
+          "hitsMax": 3000
+        },
+        {
+          "_id": "6a6095789eb9608e140ffd3f",
+          "type": "rampart",
+          "x": 33,
+          "y": 24,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "hits": 301981,
+          "hitsMax": 100000000
+        },
+        {
+          "_id": "6a6096ae85944ddcbc09c91e",
+          "type": "rampart",
+          "x": 30,
+          "y": 1,
+          "room": "W49N41",
+          "user": "60759bf0821a8e65ffd4bc0c",
+          "hits": 300001,
+          "hitsMax": 100000000
+        }
+      ],
+      "hostileCreepCount": 0
+    },
+    "W49N42": {
+      "terrain": [
+        {
+          "room": "W49N42",
+          "terrain": "1111111100000000000000111111111111111111111111111111111000000000000000001111111111111111111111111111111110000011100000000111100011111111111111111111111111111001111100022201111000001111111111122211111111111112211111002222221100000000111111122222111111111111122111110022222200000000000000000222001111111111111221111110222222220211111100000000000111111111111112221111112222222221111111100000000001111111111111122211111112222222211111111110000000111111111111111222111111112222222111111111111200111111111111111112200111111112220000222222111111111111111111111111120001111111112200000222221111111111111111111111112000001111111112000001122201111111111111111111111100002211111111110000011122001111111111111111111111000022211111111110000111122000011111111111111111111111221111111111100001111122000002111111111111111111111111111111111100011111122000022211111111111111111111111111111111000011111100000022111111111111111111111111111111110000011111001100022111111111111111121111001111111100000011110011100021111111111111122222222211111111100000000001111100021111111111112222222222211111111000000000011111000011111111111100222002222211111111000000001111110001111111111110000000000000111111111100000011111100111111111111000000010000000111111111111101111111011111111111110000001110000001111111111111111111100111111111111000000111100011001111111111111111111001111111111110000000111000110011111111111111111100011111111111000000000000200002111111111111111110000111111111111110000000022200000111111111111111000000111111111111100000010000002221111111111111100000001111111111122222001110001112221111111111110000000111111111112222200011100011120011111111111000000111111111111122222200000000010000011111020000000011111111111111000222000000001000000011102220000001111111111111110000222000111111100000010002000000111111111111111000022220011111111111000000000000001111111111111100022222201111111111110000000000022011111111111111002222220111111111111100000000002220011111111111110222220011111111111111000000000022200011111111111100222000111111110022000000111000222222221111111111000000001111110002222000011110022222222221111111110000000011111200022200001111002222222222221122211100000000111112000000000011100221122222222222222211000000001111200000000000010022111222222222222222110000000001112000000000000000222120000000222222201110000000021110111100000000002222220000000000000111110000000011111111100000000022222111111111000011111110000000011111111000000000011111111111111111111111100000000111111110000011111111111111111111111111"
+        }
+      ],
+      "objects": [
+        {
+          "_id": "5bbcaa619099fc012e6313d4",
+          "type": "source",
+          "x": 27,
+          "y": 23,
+          "room": "W49N42",
+          "energyCapacity": 1500
+        },
+        {
+          "_id": "5bbcaa619099fc012e6313d5",
+          "type": "controller",
+          "x": 43,
+          "y": 41,
+          "room": "W49N42",
+          "user": null,
+          "reservation": null,
+          "level": 0,
+          "hits": 0,
+          "hitsMax": 0
+        },
+        {
+          "_id": "5bbcb14440062e4259e92d13",
+          "type": "mineral",
+          "x": 41,
+          "y": 28,
+          "room": "W49N42"
+        },
+        {
+          "_id": "5c58df1038da9164d9ed909d",
+          "type": "constructedWall",
+          "x": 24,
+          "y": 16,
+          "room": "W49N42",
+          "hits": 7041,
+          "hitsMax": 0
+        },
+        {
+          "_id": "5c58df12304db10ef6efa482",
+          "type": "constructedWall",
+          "x": 25,
+          "y": 16,
+          "room": "W49N42",
+          "hits": 7481,
+          "hitsMax": 0
+        },
+        {
+          "_id": "5c58df15ff1cf36509eb895d",
+          "type": "constructedWall",
+          "x": 26,
+          "y": 16,
+          "room": "W49N42",
+          "hits": 7201,
+          "hitsMax": 0
+        },
+        {
+          "_id": "5c58e47b570c7f0eb9f98342",
+          "type": "constructedWall",
+          "x": 18,
+          "y": 33,
+          "room": "W49N42",
+          "hits": 6331,
+          "hitsMax": 0
+        },
+        {
+          "_id": "5c58e47db9349812e0ed7261",
+          "type": "constructedWall",
+          "x": 18,
+          "y": 34,
+          "room": "W49N42",
+          "hits": 2071,
+          "hitsMax": 0
+        }
+      ],
+      "hostileCreepCount": 0
+    },
+    "W48N41": {
+      "terrain": [
+        {
+          "room": "W48N41",
+          "terrain": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111011111111111111111111111111111111111111111111111110001111111111111111111111111111111111111111111111112200111111111111111111111111111111111111111111111112200011111111111111111111111111111111111111111111112000001111111111111111111111111111111111111111111100000000011111111111111111100111111111111111111110000000000221111111111111120001111111111111111111000000000000001111111111112220011111111111110000002200000000000011111100000002201111111111111000000022000000000000111100000000000011111111111100000000220000000000000100000022000001111111111111000001100000011111100000000002222000011111111111100000011100001111111100000001112220000111111111111000000111100111111111100000011112200000111111111102200001111001111111111100000111120000000111111110222200001110211111111111110001112000000000111111002222000000002111111111111111111000011100000111100011100000000001111111111111111110000111100000010000111000000000001111111111111111110011111100000000001100002000000011111111111111111111111111100000000000000222000000111111111111111111111111111100000000000002221111001111111111111111111111111111100000000000002211110011111111111111111111111111111100000000000000011000011111111111111111111111111111000000000000000000000011111111111111111111111111110000000000000000000000011111111111111111111111111100000000000000000000000011111111101111111111111111000000011111110000000000000000220011111111111111120100000111111110000000000000002211111111111110000001000001111111110000000000000001111111111111110000010000011111111110000000001100011111111111111100000100001111111111110000000111100111111111111111100001000011111111111110000011111001111111111111111222010001111111111111100001111110001111111111111111220000111111111111111000111111100001111111111111112000001111111111111110011111111100001111111111111100000000022111111111100111111111100001111111111110000000000221111111110001111111111110000002000000000000000001111111111100111111111111110000222000000000000011111111111111011111111111111110022222000000000000111111111111111111111111111111110222220000000000001111111111111111111111111111111110222200000000001111111111111111111111111111111111111220000000000011111111111111111111111111111111111111111000000000111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "objects": [
+        {
+          "_id": "5bbcaa6d9099fc012e63155b",
+          "type": "source",
+          "x": 20,
+          "y": 5,
+          "room": "W48N41",
+          "energyCapacity": 1500
+        },
+        {
+          "_id": "5bbcaa6d9099fc012e63155c",
+          "type": "controller",
+          "x": 43,
+          "y": 32,
+          "room": "W48N41",
+          "user": null,
+          "reservation": null,
+          "level": 0,
+          "hits": 0,
+          "hitsMax": 0
+        },
+        {
+          "_id": "5bbcb14d40062e4259e92d80",
+          "type": "mineral",
+          "x": 47,
+          "y": 47,
+          "room": "W48N41"
+        }
+      ],
+      "hostileCreepCount": 0
+    },
+    "W49N40": {
+      "terrain": [
+        {
+          "room": "W49N40",
+          "terrain": "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111000000000000001111111111111111111111111111111111000000000000000000111111111111111111111111111111000000000000000000000011111111111111111111111111000000000020000000000000001111111111111111111111000000000000220000000000000000111111111100000000000000000000022200000000000000000011111111000000000000000000000222000000000000000000011111110000000000000000000000001110000000000000000111111100000000000000000000000011100000000000000000111111000000000000000000000000022000000000000000001111110000022200000000000000000220000000000000000001111100000222000000000000000002200000000000000000011111000002220000000000000000022000000000000000000011110000022000000000000000000000000000000000000000111100000220000000000000000000000000000000000000000111000000000000000000000000000000000000000000000001110000000000000011100000000000000000000000000000001100000000000000111100000000000000000000000000000011000000000000001111000000000000000000000000000000110000000000000011100000000000000000000000000000001100000000000000010000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000001100000000000000220000000000000000000000000000000011000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100000000000000000000000000000000000000000000000111100000000000000000000000000000000000000001100001111000000000000000000000000000000000000000111000011100000000000000000000000000000000000000000100000000000000000000000000000000000020000000000000000000000000000000000000000000000022220000000000000000000000000000000000000000000000222000000000000000000002200000000000000000000000000000000000000000000000222220000000000000000000010000000000000000000000001122000000000000000000001110000000000000000000000111102000000000000000000001100011000000000000000011110000000000000000000000000001111000110000000000111000000000000011111110000000111110001100000000000000000000000001111111110000001111100000000000000000000000000000111111111110000011110000000001111111111111111100011111111111110000011000000111111111111111111111001111111111111100000000000011111111111111111111111111111111111111000000000001111111111111111111111111111111111111110000000000111111111111111111111111"
+        }
+      ],
+      "objects": [],
+      "hostileCreepCount": 0
+    },
+    "W50N41": {
+      "terrain": [
+        {
+          "room": "W50N41",
+          "terrain": "1110000000000000000000000000000000000011111111111111100000000000000000000000000000000000011111111111111000000000000000000000000000000000000011111111111110000000000000000000000000000000000000011111111111100000000000000000000000000000000000000011111111111000000000000000000000000000000000000000000000001110000000000000000000000000000000000000000000000011100000000000000000000000000000000000000000000000111000000000000000000000001100000000000000000000001110000000000000000000000011000000000000000000000011100000000000000000000000000000000000000000000000111000000000000000000000000000000000000000000000001110000000000000000000000000000000000000000000000011100000000000000000000000000000000000000000000000111000000000000000000000000000000000000000000111001110000000000000000000000000000000000000000011111111110000000000000001100000000000011000000000011111111100000000000000011100000000000110000000000011111111100000000000000011100000000000000000000000011111111000000000000000011000000000000000000000000000111111000000000000000000000000000000000000000000001111110000000000000000000001110000000000000000000011111110000000000000000000011100000000000000000000111111100000000000000000000000000000000000000000001111111100000000000000000000000000000000000000000111111111000000000000000000000000000000000000000011111111111000000000000000000000000000000000000001111111111110000000000000000000000000011110000000111111111111110000000000000000000000000111100000011111111111111100000000000000000000000001111000001111111111111111100000000000000000000000000000000011111111111111111000000000000000000000000000000000111111111111111110000000000000000000000000000000001111111111111111100000000000000000000000000000000011111111111111110000000000000000000000000000000000111111111111111100000000000000000000000000000000001111111111111110000000000000000000000000000000000011111111111111100000000000000000000000000000000000111111111111110000000000000000000000000000000000001111111111111100000000000000000000000000000000000011111111111111000000000000000000000000000000000000111111111111110000000000000000000000000000000000001111111111111100000000000000000000000000000000000011111111111111000000000000000000000001100000000000111111111111110000000000000000000000011000000000001111111111111100000000000000000000000000000000000001111111111111000000000000000000000000000000000000001111111111110000000000000000000000000000000000000001111111111100000000000000000000000000000000000000001111111111000000000000000000000000000000000000000011"
+        }
+      ],
+      "objects": [],
+      "hostileCreepCount": 0
+    }
+  },
+  "staticRoutes": {
+    "staticOnly": true,
+    "nativePathFinderValidated": false,
+    "observedAt": "2026-10-15T01:48:29.526Z",
+    "gameTime": 83652882,
+    "sink": {
+      "id": "6a26b976aefd93ab4cf6897d",
+      "roomName": "W49N41",
+      "x": 31,
+      "y": 24,
+      "freeCapacity": 0
+    },
+    "candidates": [
+      {
+        "room": "W49N42",
+        "controllerId": "5bbcaa619099fc012e6313d5",
+        "owner": null,
+        "reservation": null,
+        "sourceId": "5bbcaa619099fc012e6313d4",
+        "sourcePos": {
+          "x": 27,
+          "y": 23
+        },
+        "sourceCapacity": 1500,
+        "visibleHostileCount": 0,
+        "entrance": {
+          "x": 25,
+          "y": 48,
+          "roomName": "W49N42"
+        },
+        "entranceStandable": true,
+        "entranceStaticPathSteps": 27,
+        "chosen": {
+          "containerPos": {
+            "x": 28,
+            "y": 22,
+            "roomName": "W49N42"
+          },
+          "paths": {
+            "remoteMiner": {
+              "bodyCost": 700,
+              "stepsOut": 66,
+              "stepsIn": 65,
+              "ticksOut": 66,
+              "ticksIn": 65,
+              "deadlines": {
+                "outbound": 152,
+                "inbound": 150
+              },
+              "homeExit": {
+                "roomName": "W49N42",
+                "x": 19,
+                "y": 49,
+                "terrain": "plain"
+              }
+            },
+            "remoteHauler": {
+              "bodyCost": 800,
+              "stepsOut": 65,
+              "stepsIn": 65,
+              "ticksOut": 65,
+              "ticksIn": 65,
+              "deadlines": {
+                "outbound": 150,
+                "inbound": 150
+              },
+              "homeExit": {
+                "roomName": "W49N42",
+                "x": 19,
+                "y": 49,
+                "terrain": "plain"
+              }
+            }
+          }
+        },
+        "supportedContainerPositions": 4
+      },
+      {
+        "room": "W48N41",
+        "controllerId": "5bbcaa6d9099fc012e63155c",
+        "owner": null,
+        "reservation": null,
+        "sourceId": "5bbcaa6d9099fc012e63155b",
+        "sourcePos": {
+          "x": 20,
+          "y": 5
+        },
+        "sourceCapacity": 1500,
+        "visibleHostileCount": 0,
+        "entrance": {
+          "x": 1,
+          "y": 25,
+          "roomName": "W48N41"
+        },
+        "entranceStandable": true,
+        "entranceStaticPathSteps": 20,
+        "chosen": {
+          "containerPos": {
+            "x": 19,
+            "y": 6,
+            "roomName": "W48N41"
+          },
+          "paths": {
+            "remoteMiner": {
+              "bodyCost": 700,
+              "stepsOut": 38,
+              "stepsIn": 37,
+              "ticksOut": 38,
+              "ticksIn": 37,
+              "deadlines": {
+                "outbound": 96,
+                "inbound": 94
+              },
+              "homeExit": {
+                "roomName": "W48N41",
+                "x": 0,
+                "y": 21,
+                "terrain": "plain"
+              }
+            },
+            "remoteHauler": {
+              "bodyCost": 800,
+              "stepsOut": 37,
+              "stepsIn": 37,
+              "ticksOut": 37,
+              "ticksIn": 37,
+              "deadlines": {
+                "outbound": 94,
+                "inbound": 94
+              },
+              "homeExit": {
+                "roomName": "W48N41",
+                "x": 0,
+                "y": 21,
+                "terrain": "plain"
+              }
+            }
+          }
+        },
+        "supportedContainerPositions": 1
+      }
+    ]
+  },
+  "nativePathFinderValidated": false,
+  "onlineConfigWritten": false,
+  "acceptancePassed": false
+}

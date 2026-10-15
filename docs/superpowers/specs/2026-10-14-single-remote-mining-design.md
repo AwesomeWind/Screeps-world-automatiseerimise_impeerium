@@ -1,6 +1,6 @@
 # 单远程矿采运闭环设计
 
-日期：2026-10-14。状态：设计与[分批实施计划](../plans/2026-10-14-single-remote-mining.md) 均已获用户认可；2026-10-15 本地实施、一次独立只读 review 和问题修复完成，尚未提交或部署。实际交付范围与验收边界见[交付记录](../evidence/2026-10-14-single-remote-mining-delivery.md)。
+日期：2026-10-14。状态：设计与[分批实施计划](../plans/2026-10-14-single-remote-mining.md) 均已获用户认可；2026-10-15 本地实施、一次独立只读 review 和问题修复完成，后续已授权提交和部署，远程矿保持关闭。实际交付范围与验收边界见[交付记录](../evidence/2026-10-14-single-remote-mining-delivery.md)及[发布记录](../evidence/2026-10-15-single-remote-mining-release.md)。
 
 ## 1. 目标与授权边界
 

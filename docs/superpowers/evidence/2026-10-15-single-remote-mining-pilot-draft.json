@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "codeCommit": "53f0e4a9012c47ff55d8981e5b0741dae458fdcd",
+  "onlineConfigWritten": false,
+  "activationReady": false,
+  "remoteMiningEnabled": false,
+  "proposedRemoteRooms": {
+    "W48N41": {
+      "enabled": false,
+      "baseRoom": "W49N41",
+      "sourceId": "5bbcaa6d9099fc012e63155b",
+      "containerId": null,
+      "containerPos": {
+        "x": 19,
+        "y": 6,
+        "roomName": "W48N41"
+      },
+      "allowContainerBuild": true,
+      "homeDeliveryTargetIds": [
+        "6a26b976aefd93ab4cf6897d"
+      ],
+      "reserveController": false
+    }
+  },
+  "policyProtectionDefaults": {
+    "maxOperations": 1,
+    "spawnEnergyLimit": 2000,
+    "infrastructureEnergyLimit": 6000,
+    "windowTicks": 1000,
+    "maxLegTicks": 300,
+    "intelTtl": 100,
+    "safeStreakTicks": 100,
+    "reconCooldownTicks": 200,
+    "roleLimits": {
+      "scout": 1,
+      "remoteMiner": 1,
+      "remoteHauler": 2,
+      "reserver": 1
+    }
+  },
+  "blockers": [
+    "home_storage_full",
+    "native_game_visibility_and_pathfinder_not_yet_verified"
+  ],
+  "notes": [
+    "This is an offline disabled draft, not an online Memory assignment.",
+    "Storage currently has zero free capacity; do not substitute the nearly full controller buffer automatically.",
+    "Static terrain paths do not validate in-game movement, collisions, traffic, fatigue or sustained safety.",
+    "Re-read ownership, reservation, hostiles, receiving capacity and core health before activation."
+  ]
+}
