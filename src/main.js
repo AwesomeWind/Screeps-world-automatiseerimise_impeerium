@@ -7,6 +7,7 @@ import ServiceScheduler from './core/ServiceScheduler.js';
 import RoomCacheService from './services/RoomCacheService.js';
 import RoomPhaseService from './services/RoomPhaseService.js';
 import RoomGovernorService from './services/RoomGovernorService.js';
+import GoalPlanService from './services/GoalPlanService.js';
 import SpawnBureauService from './services/SpawnBureauService.js';
 import SpawnService from './services/SpawnService.js';
 import CreepRetirementService from './services/CreepRetirementService.js';
@@ -50,6 +51,7 @@ function createServices() {
         new SecurityService('Security'),
         new RoomPhaseService('RoomPhase'),
         new RoomGovernorService('RoomGovernor'),
+        new GoalPlanService('GoalPlan'),
         new RemoteMiningService('RemoteMining'),
         new SpawnBureauService('SpawnBureau'),
         new SpawnService('Spawn'),

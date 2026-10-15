@@ -24,6 +24,16 @@ export const DEFAULT_EMPIRE_POLICY = {
         maxTaskTicks: 50,
         maxOwnersPerRoom: 200
     },
+    goalPlanning: {
+        enabled: false,
+        mode: 'shadow',
+        interval: 10,
+        maxFactAge: 20,
+        readySamples: 2,
+        maxGoals: 20,
+        maxPlans: 20,
+        eventLimit: 50
+    },
     economyRecovery: {
         enabled: true,
         reserveCritical: 5000

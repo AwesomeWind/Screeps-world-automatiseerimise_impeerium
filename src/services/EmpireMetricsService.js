@@ -74,6 +74,15 @@ class EmpireMetricsService extends BaseService {
         const interval = Math.max(1, control.policy.telemetry.metricsInterval || 10);
         if (Game.time % interval !== 0) return;
 
+        if (global.GoalPlan) {
+            const summary = global.GoalPlan.summary || {};
+            const fresh = global.GoalPlan.tick === Game.time;
+            control.metrics.goalPlanning = { capturedAt: Game.time, status: fresh ? global.GoalPlan.status : 'stale',
+                goalCount: summary.goalCount || 0, planCount: summary.planCount || 0,
+                achievedCount: summary.achievedCount || 0, readyCount: fresh ? summary.readyCount || 0 : 0,
+                blockedCount: summary.blockedCount || 0, reasonCodes: (summary.reasonCodes || []).slice(0, 8) };
+        }
+
         const roleCountsByRoom = {};
         for (const name in Game.creeps) {
             const memory = Game.creeps[name].memory || {};
