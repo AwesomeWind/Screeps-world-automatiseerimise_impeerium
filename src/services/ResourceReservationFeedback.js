@@ -23,6 +23,63 @@ function aggregate(record, tick) {
     record.expiresAt = Math.max(anonymous > 0 ? record.anonymousExpiresAt : 0, ...owners.map(owner => owner.expiresAt));
 }
 
+export function isQuantityStorageSupply(market, targetId, resourceType, context) {
+    if (!market || context || resourceType !== RESOURCE_ENERGY) return false;
+    const room = Game.rooms[market.roomName];
+    const target = Game.getObjectById(targetId);
+    return !!(room?.controller?.my && room.storage?.id === targetId && target?.my === true &&
+        target.structureType === STRUCTURE_STORAGE && target.pos?.roomName === market.roomName &&
+        typeof target.store?.getUsedCapacity === 'function');
+}
+
+function anonymousSupplyTarget(market, entryId) {
+    const entry = market.supplies?.find(supply => supply.id === entryId);
+    if (entry) return entry;
+    const canonical = /^(?:supply|event-supply):([^:]+):([^:]+)(?::\d+)?$/.exec(entryId);
+    if (canonical) return { targetId: canonical[1], resourceType: canonical[2] };
+    const legacy = /^(?:storage|container|dropped):([^:]+)$/.exec(entryId);
+    return legacy ? { targetId: legacy[1], resourceType: RESOURCE_ENERGY } : null;
+}
+
+function hasExclusiveSupplyClaim(market, targetId, resourceType) {
+    for (const [entryId, record] of Object.entries(market.reservations?.supply || {})) {
+        if (!record || record.expiresAt < Game.time) continue;
+        for (const owner of Object.values(record.owners || {})) {
+            if (!owner.targetId || !owner.resourceType) return true;
+            if (owner.targetId === targetId && owner.resourceType === resourceType &&
+                (owner.allocationMode !== 'quantity' || owner.context || !Number.isSafeInteger(owner.amount) || owner.amount <= 0)) return true;
+        }
+        const anonymous = record.owners ?
+            (record.anonymousExpiresAt >= Game.time ? record.anonymousAmount : 0) : record.amount;
+        // Old anonymous claims, including unknown amounts, cannot safely join quantity allocation.
+        if (anonymous !== 0) {
+            const target = anonymousSupplyTarget(market, entryId);
+            if (!target || target.targetId === targetId && target.resourceType === resourceType) return true;
+        }
+    }
+    return false;
+}
+
+export function availableSupplyAmount(market, supply, { exclusive = false } = {}) {
+    const advertised = supply.amount || 0;
+    if (!market) return advertised;
+    if (supply.kind === 'withdraw') {
+        const target = Game.getObjectById(supply.targetId);
+        if (!target?.store) return 0;
+        if (isQuantityStorageSupply(market, supply.targetId, supply.resourceType)) {
+            const stock = target.store.getUsedCapacity(supply.resourceType);
+            if (!Number.isFinite(stock) || stock <= 0 || typeof advertised !== 'number' || advertised <= 0 ||
+                hasExclusiveSupplyClaim(market, supply.targetId, supply.resourceType)) return 0;
+            const reserved = reservedTargetAmount(market, 'supply', supply.targetId, supply.resourceType);
+            if (!Number.isFinite(reserved) || exclusive && reserved > 0) return 0;
+            return Math.max(0, Math.min(advertised, stock) - reserved);
+        }
+    }
+    const reservation = market.reservations?.supply?.[supply.id];
+    if (exclusive && reservedTargetAmount(market, 'supply', supply.targetId, supply.resourceType) > 0) return 0;
+    return reservation && reservation.expiresAt >= Game.time ? 0 : advertised;
+}
+
 export function reservedTargetAmount(market, side, targetId, resourceType) {
     let total = 0;
     for (const [entryId, record] of Object.entries(market.reservations?.[side] || {})) {
@@ -62,7 +119,20 @@ export function reserveForTask(market, side, entry, amount, creep, task, context
     const target = Game.getObjectById(task.targetId);
     const exceedsCapacity = side === 'demand' && target?.store?.getFreeCapacity &&
         amount > availableTargetCapacity(market, target, entry.resourceType);
-    const supplyOccupied = side === 'supply' && reservedTargetAmount(market, side, task.targetId, entry.resourceType) > 0;
+    const quantitySupply = side === 'supply' && task.type === 'WITHDRAW' &&
+        !creep.memory.role?.startsWith('remote') && isQuantityStorageSupply(market, task.targetId, entry.resourceType, context);
+    let supplyOccupied = false;
+    if (side === 'supply') {
+        if (quantitySupply) {
+            const free = creep.store?.getFreeCapacity?.(entry.resourceType);
+            const available = availableSupplyAmount(market, { ...entry, targetId: task.targetId, kind: 'withdraw' });
+            const wrongResource = task.resourceType && task.resourceType !== entry.resourceType;
+            supplyOccupied = !Number.isSafeInteger(amount) || !Number.isFinite(free) || amount > free ||
+                !!wrongResource || amount > available;
+        } else {
+            supplyOccupied = !target || reservedTargetAmount(market, side, task.targetId, entry.resourceType) > 0;
+        }
+    }
     if (exceedsCapacity || supplyOccupied) {
         increment(market.stats, 'reservationBlocked', 1, market.feedbackTotals);
         return false;
@@ -82,6 +152,10 @@ export function reserveForTask(market, side, entry, amount, creep, task, context
         assignedAt: Game.time, expiresAt: Game.time + limits.ttl,
         maxExpiresAt: Game.time + limits.maxTaskTicks, status: 'assigned'
     };
+    if (quantitySupply) {
+        owner.allocationMode = 'quantity';
+        task.amount = amount;
+    }
     if (context) Object.assign(owner, { context: { ...context }, ownerRole: creep.memory.role,
         sequence: reservations.sequence, targetRoom: creep.room.name });
     record.owners[reservationId] = owner;

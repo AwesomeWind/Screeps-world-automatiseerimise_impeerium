@@ -1,5 +1,5 @@
 import BaseService from '../core/BaseService.js';
-import { reserveForTask, reconcileReservations, availableTargetCapacity } from './ResourceReservationFeedback.js';
+import { reserveForTask, reconcileReservations, availableTargetCapacity, availableSupplyAmount } from './ResourceReservationFeedback.js';
 import { recordRemoteResolution } from './RemoteMiningLedger.js';
 import { recoveryAllowsRequest, recoveryRestricted, controllerEmergency } from './RoomRecoveryPolicy.js';
 import EventBus from '../core/EventBus.js';
@@ -17,21 +17,17 @@ const CONTROLLER_BUFFER_MIN = 200;
 const SELF_FETCH_BIAS = 1.2;
 const DEMAND_PRIORITY_WEIGHT = 1000000;
 
-function availableSupplyAmount(market, supply) {
-    if (!market) return supply.amount || 0;
-    const reservation = market.reservations && market.reservations.supply && market.reservations.supply[supply.id];
-    if (reservation && reservation.expiresAt >= Game.time) return 0;
-    return supply.amount || 0;
-}
-
 function reserveSupplyAmount(market, supply, amount) {
-    if (!market) return;
+    if (!market) return true;
+    const available = availableSupplyAmount(market, supply, { exclusive: true });
+    if (!Number.isFinite(amount) || amount <= 0 || amount > available) return false;
     if (!market.reservations) market.reservations = {};
     if (!market.reservations.supply) market.reservations.supply = {};
     market.reservations.supply[supply.id] = {
         amount: amount || supply.amount || 1,
         expiresAt: Game.time + RESERVATION_TTL
     };
+    return true;
 }
 
 function energySuppliesForRoom(room, market) {
@@ -98,7 +94,7 @@ function pickupTaskFor(creep, supply, market) {
     const free = creep.store.getFreeCapacity ? creep.store.getFreeCapacity(supply.resourceType) : supply.amount;
     const available = availableSupplyAmount(market, supply);
     const amount = Math.min(free || available, available);
-    reserveSupplyAmount(market, supply, amount);
+    if (!reserveSupplyAmount(market, supply, amount)) return null;
 
     if (supply.kind === 'dropped') {
         return {
@@ -1163,9 +1159,7 @@ class ResourceMarketService extends BaseService {
     }
 
     getAvailableSupplyAmount(market, supply) {
-        const reservation = market.reservations.supply[supply.id];
-        if (reservation && reservation.expiresAt >= Game.time) return 0;
-        return supply.amount || 0;
+        return availableSupplyAmount(market, supply);
     }
 
     getAvailableDemandAmount(market, demand) {
