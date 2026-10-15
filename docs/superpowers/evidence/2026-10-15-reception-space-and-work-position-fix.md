@@ -19,7 +19,7 @@
 
 只增加建筑不是完整解法；上述执行链需修复，不能靠不断重派坏工位或把0进度解释为正常施工。
 
-## 已完成的本地修复，尚未提交或部署
+## 本地修复与发布前验证
 
 - WorkPositionPlanner：同格聚合时障碍建筑优先，road/rampart不能覆盖storage/tower等阻挡。
 - WorkPositionCoordinator：根据当前候选格及其他worker claim校验旧工位。
@@ -28,11 +28,26 @@
 
 新增 src/tests/work-position.cjs 六个真实生产helper/ActionParser回归，均先观察到RED再GREEN：两种同格结构顺序、BUILD/REPAIR共享目标不被改写、失效工位恢复实际build、双worker独立工位。
 
-完整 npm test 通过：smoke、room-governor、93个远程＋6个工位用例，99/99；无DEST build及两类diff check通过。测试中的ERR_BUSY为既有主动失败用例。当前本地差异限定3个core文件、测试入口、测试文件和本记录。该修复尚未提交、推送或部署；游戏接收空间尚未解决完成。
+完整 npm test 通过：smoke、room-governor、93个远程＋6个工位用例，99/99；无DEST build及两类diff check通过。测试中的ERR_BUSY为既有主动失败用例。差异限定3个core文件、测试入口、测试文件和本记录。
+
+## 用户授权后的发布和现场回读
+
+用户明确选择“授权发布工位修复”。代码提交 c3cc9289055398751aab95aa69a14b4b54dd629a，已推送 origin/codex/single-remote-mining，并执行 npm run push 发布 screeps.com/default。
+
+- 发布前备份：D:/MyCode/screeps_world/automatiseerimise_impeerium/.worktrees/release-backups/2026-10-15T02-35-45.166Z/server-code.json，保存原53f0e4a版代码模块。
+- SERVICE_VERSION=1792031787998。
+- 新 main SHA256=970cfea00c52d69e9394e333657934e6401ee1c80b6552f4b3f0988264c0b600。
+- 新 map SHA256=ea91f079f924e251069713bfa0c6491a0d3ef2b8329c7cbcdacc4a9ca0589d84。
+- 一次API时间读取超时，有限重试后回读成功；Game.time=83653612，activeWorld=true，main/map逐字节匹配本地产物，运行摘要codeVersion匹配新版本。临时部署凭据文件已删除。
+- tick83653603游戏内原生读取：工地pos仍为真实(32,24)，progress=100；随后API读取progress=130/100000。
+- builder旧坏工位已被自动重规划为(31,23)，另一个builder位于(33,23)执行同一工地。两名原先停滞的repairer也已转入新鲜有效维修目标。不手工清空所有任务。
+- 原生/只读核对仍为remoteMining=false、Governor shadow=true、scheduler enforce=false、market=false，recovery=normal、Controller计时150000，核心miner2/hauler3。没有开启远程经营或市场。
+
+现场已出现实际施工增长，但terminal尚未建成、接收容量尚未增加。不能据130进度称“母房接收空间已解决”。
 
 ## 后续执行与验收
 
-这次新增core修复会改变线上执行器，应在具体差异获发布授权后提交、推送和部署，再回读main/map/runtime版本。旧坏task.workPos由新鲜工位校验自动修复，不需要手工清空所有任务或Memory。
+修复已按具体授权发布并确认执行。后续按新代码指纹恢复10分钟条件跟进，正常增长静默，异常/阻塞或建成并完成下一阶段核对才通知。旧单房外部collector保持暂停。
 
 发布后先确认builder去往可站立格并出现实际progress增长；再跟进terminal建成、真实id及稳定可用空间，初始接收门槛20000。只读API每次返回一个独立快照，不伪称连续逐tick观察。
 
