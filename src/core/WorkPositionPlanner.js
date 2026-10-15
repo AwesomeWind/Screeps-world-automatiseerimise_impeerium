@@ -17,7 +17,11 @@ function structureMap(room) {
     for (const structure of structures) {
         const pos = structure.pos;
         if (!pos) continue;
-        occupied.set(`${pos.x},${pos.y}`, structure.structureType);
+        const key = `${pos.x},${pos.y}`;
+        const existing = occupied.get(key);
+        const type = structure.structureType;
+        if (isBlockedStructure(existing)) continue;
+        if (isBlockedStructure(type) || type === STRUCTURE_ROAD || !existing) occupied.set(key, type);
     }
     return occupied;
 }

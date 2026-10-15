@@ -55,6 +55,11 @@ const WorkPositionCoordinator = {
         return claims.has(`${workPos.x},${workPos.y},${workPos.roomName}`);
     },
 
+    isValidWorkPos(room, creep, target, workPos) {
+        return !!workPos && !this.claimedByOther(room, creep, workPos) &&
+            WorkPositionPlanner.candidates(room, target).some(candidate => samePos(candidate, workPos));
+    },
+
     refresh(room, creep, target, currentWorkPos) {
         const reservation = this.reserve(room, creep, target);
         if (!reservation) return null;

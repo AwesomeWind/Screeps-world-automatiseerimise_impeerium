@@ -13,7 +13,7 @@
     "push:watch": "rollup -cw --environment DEST:main",
     "local": "rollup -c --environment DEST:local",
     "local:watch": "rollup -cw --environment DEST:local",
-    "test": "node src/tests/smoke.cjs && node src/tests/room-governor.cjs && node --test src/tests/remote-mining.cjs"
+    "test": "node src/tests/smoke.cjs && node src/tests/room-governor.cjs && node --test src/tests/remote-mining.cjs src/tests/work-position.cjs"
   },
   "repository": {
     "type": "git",

@@ -51,12 +51,16 @@ function canWorkFromCurrentPos(creep, target) {
 
 function ensureWorkPos(creep, task, target) {
     if (!creep.room || !target || !target.pos) return task.workPos || null;
-    if (task.workPos && !WorkPositionCoordinator.claimedByOther(creep.room, creep, task.workPos)) {
+    if (WorkPositionCoordinator.isValidWorkPos(creep.room, creep, target, task.workPos)) {
         return task.workPos;
     }
 
     const reservation = WorkPositionCoordinator.refresh(creep.room, creep, target, task.workPos);
-    if (!reservation) return null;
+    if (!reservation) {
+        delete task.workPos;
+        delete task.workPosReservedAt;
+        return null;
+    }
 
     task.workPos = reservation.workPos;
     task.workPosReservedAt = reservation.workPosReservedAt;
@@ -135,6 +139,7 @@ const ActionParser = {
 
         let result = OK;
         let range = 1;
+        let movementTarget = target;
 
         switch (task.type) {
             case TaskTypes.HARVEST:
@@ -171,7 +176,7 @@ const ActionParser = {
                     const workTarget = plannedWorkTarget(creep, task);
                     if (workTarget) {
                         result = ERR_NOT_IN_RANGE;
-                        target.pos = workTarget.pos;
+                        movementTarget = workTarget;
                         range = 0;
                         break;
                     }
@@ -187,7 +192,7 @@ const ActionParser = {
                     const workTarget = plannedWorkTarget(creep, task);
                     if (workTarget) {
                         result = ERR_NOT_IN_RANGE;
-                        target.pos = workTarget.pos;
+                        movementTarget = workTarget;
                         range = 0;
                         break;
                     }
@@ -232,7 +237,7 @@ const ActionParser = {
         }
 
         if (result === ERR_NOT_IN_RANGE) {
-            result = moveToTarget(creep, target, task, range);
+            result = moveToTarget(creep, movementTarget, task, range);
             if (result === ERR_NO_PATH) clearTask(creep, 'move_no_path', result);
             if (result === ERR_INVALID_TARGET) clearTask(creep, 'move_invalid_target', result);
         } else if (result === ERR_INVALID_ARGS || result === ERR_NO_BODYPART) {
