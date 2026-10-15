@@ -21,6 +21,7 @@ class MinerStrategyService extends BaseService {
 
         for (const name in Game.creeps) {
             const creep = Game.creeps[name];
+            if (creep.memory.remoteId || creep.memory.remoteStatus === 'orphaned_actor') continue;
             if (creep.memory.role === 'scout' && !creep.memory.task) {
                 this.assignRoomMove(creep);
             }

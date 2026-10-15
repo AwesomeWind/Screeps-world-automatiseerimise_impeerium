@@ -1,5 +1,6 @@
 import BaseService from '../core/BaseService.js';
 import { ensureEmpireControl } from '../config/EmpirePolicy.js';
+import { beginObservationTick, prepareObservationSample, pauseObservation } from '../core/MetricObservationWindow.js';
 
 function compactUpgradeWorkControl(roomName, governor, bureau, roomControl) {
     const upgradeCapability = governor && governor.capabilities && governor.capabilities.upgradeWork;
@@ -69,6 +70,7 @@ class EmpireMetricsService extends BaseService {
     cleanup() {
         const control = ensureEmpireControl();
         if (control.policy.telemetry.enabled === false) return;
+        this.prepareRemoteObservation(control);
         const interval = Math.max(1, control.policy.telemetry.metricsInterval || 10);
         if (Game.time % interval !== 0) return;
 
@@ -155,6 +157,69 @@ class EmpireMetricsService extends BaseService {
             const historyInterval = Math.max(1, control.policy.telemetry.metricsHistoryInterval || 50);
             if (Game.time % historyInterval === 0) this.recordHistory(control, roomName);
         }
+    }
+
+    prepareRemoteObservation(control) {
+        const scope = Object.values(global.RemoteMining || {}).find(value => value.config.enabled && value.operation.status !== 'disabled');
+        const telemetry = global.EmpireTelemetry;
+        if (!scope || !control.policy.remoteMining.enabled) {
+            if (control.metrics.remoteObservation) control.metrics.remoteObservation = pauseObservation(
+                control.metrics.remoteObservation, { tick: Game.time, reason: 'pilot_disabled' });
+            return;
+        }
+        if (!telemetry?.enabled || telemetry.tick !== Game.time) return;
+        const operation = scope.operation;
+        const home = scope.facts.home;
+        const recovery = global.RoomPhase?.[scope.config.baseRoom]?.recovery;
+        const market = global.ResourceMarket?.[scope.config.baseRoom];
+        const identity = { codeVersion: telemetry.codeVersion, scopeId: operation.remoteId, epoch: operation.epoch };
+        let state = beginObservationTick(control.metrics.remoteObservation, { tick: telemetry.tick, ...identity });
+        const ownerCount = ['supply', 'demand'].reduce((sum, side) => sum + Object.values(market?.reservations?.[side] || {})
+            .filter(Boolean).reduce((count, record) => count + Object.keys(record.owners || {}).length, 0), 0);
+        const finite = value => Number.isFinite(value) ? value : null;
+        const ledger = operation.ledger;
+        const coreGap = role => Number.isFinite(recovery?.coreUsable?.[role]) ? Math.max(0, 1 - recovery.coreUsable[role]) : null;
+        state = prepareObservationSample(state, { tick: Game.time, identity,
+            fields: {
+                controllerProgress: finite(home?.controller?.progress), controllerLevel: finite(home?.controller?.level),
+                controllerDowngrade: finite(home?.controller?.ticksToDowngrade),
+                coreMinerGap: coreGap('miner'), coreHaulerGap: coreGap('hauler'),
+                homeReserve: home?.storage?.store ? finite(home.storage.store.getUsedCapacity(RESOURCE_ENERGY)) : null,
+                sinkCapacity: scope.config.homeDeliveryTargetIds.reduce((sum, id) => {
+                    const target = Game.getObjectById(id);
+                    return sum + (target?.store?.getFreeCapacity(RESOURCE_ENERGY) || 0);
+                }, 0),
+                reservationOwners: ownerCount, transportGap: finite(operation.transportCapacity?.gap),
+                outboundTicks: finite(operation.route?.outboundTicks), inboundTicks: finite(operation.route?.inboundTicks),
+                rollingCpuP95: finite(control.telemetry.totalCpuP95),
+                spawnEnergyUnknownUpperBound: ledger.spawnEnergyUnknownUpperBound || 0
+            },
+            counters: {
+                returnedEnergyConfirmed: ledger.returnedEnergyConfirmed || 0,
+                spawnEnergyConfirmed: ledger.spawnEnergyConfirmed || 0,
+                spawnCostUnknown: ledger.spawnCostUnknown || 0,
+                infrastructureEnergyConfirmed: ledger.infrastructureEnergyConfirmed || 0,
+                infrastructureEnergyUnknownUpperBound: ledger.infrastructureEnergyUnknownUpperBound || 0,
+                confirmationUnknown: ledger.confirmationUnknown || 0,
+                reservationReleased: ledger.reservationReleased || 0,
+                carriedLossUnknownUpperBound: ledger.carriedLossUnknownUpperBound || 0,
+                pickedUpEnergyConfirmed: ledger.pickedUpEnergyConfirmed || 0
+            },
+            flags: {
+                state_active: operation.status === 'active', state_preparing: operation.status === 'preparing',
+                state_discovering: operation.status === 'discovering', state_suspended: operation.status === 'suspended',
+                state_recovering: operation.status === 'recovering', state_awaiting_source_selection: operation.status === 'awaiting_source_selection',
+                existingContainer: operation.containerReady === true,
+                containerWork: (ledger.infrastructureEnergyConfirmed || 0) > 0,
+                homeHealthy: scope.facts.homeHealthy === true, returnedEnergy: (ledger.returnedEnergyConfirmed || 0) > 0,
+                roleReplacement: operation.replacementObserved === true,
+                dangerPause: operation.reasons.includes('danger'), fullSink: !scope.facts.sinkAvailable,
+                budgetPause: operation.reasons.includes('spawn_budget') || operation.reasons.includes('infrastructure_budget'),
+                manualHold: scope.config.hold === true,
+                spawnCostUnknown: (ledger.spawnCostUnknown || 0) > 0
+            }
+        });
+        control.metrics.remoteObservation = state;
     }
 
     recordHistory(control, roomName) {

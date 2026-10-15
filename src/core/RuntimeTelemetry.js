@@ -1,4 +1,5 @@
 import { ensureEmpireControl } from '../config/EmpirePolicy.js';
+import { beginObservationTick, finishObservationTick, pauseObservation } from './MetricObservationWindow.js';
 
 const ALPHA = 0.2;
 
@@ -22,6 +23,12 @@ const RuntimeTelemetry = {
             totalCpu: null,
             errors: {}
         };
+        const metrics = ensureEmpireControl().metrics;
+        if (metrics.remoteObservation?.current && (metrics.remoteObservation.current.status === 'collecting' || !enabled)) {
+            metrics.remoteObservation = enabled ? beginObservationTick(metrics.remoteObservation, {
+                tick: Game.time, ...metrics.remoteObservation.current.identity, codeVersion
+            }) : pauseObservation(metrics.remoteObservation, { tick: Game.time, reason: 'telemetry_disabled' });
+        }
     },
 
     measure(name, phase, callback) {
@@ -50,6 +57,15 @@ const RuntimeTelemetry = {
         const state = global.EmpireTelemetry;
         state.totalCpu = state.startedAt !== null && end !== null ? Math.max(0, end - state.startedAt) : null;
         const control = ensureEmpireControl();
+        if (control.metrics.remoteObservation?.current) {
+            const hasErrors = Object.keys(state.errors).length > 0;
+            control.metrics.remoteObservation = hasErrors ?
+                pauseObservation(control.metrics.remoteObservation, { tick: Game.time, reason: 'runtime_error' }) :
+                finishObservationTick(control.metrics.remoteObservation, {
+                    tick: Game.time, codeVersion: state.codeVersion, totalCpu: state.totalCpu,
+                    bucket: Game.cpu && Number.isFinite(Game.cpu.bucket) ? Game.cpu.bucket : null
+                });
+        }
         const roomHistories = control.metrics.histories || {};
         for (const history of Object.values(roomHistories)) {
             const last = Array.isArray(history.samples) && history.samples[history.samples.length - 1];

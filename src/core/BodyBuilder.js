@@ -315,6 +315,14 @@ function resolveSpec(role, room, context, capacity) {
         return meleeDefenderSpec(capacity);
     }
 
+    if (profile === 'remote_balanced_hauler') return {
+        base: [CARRY, MOVE],
+        steps: [{ parts: [CARRY, MOVE], typeLimits: { [CARRY]: 8, [MOVE]: 8 } }]
+    };
+    if (profile === 'remote_balanced_miner') return {
+        base: [WORK, CARRY, MOVE, MOVE],
+        steps: [{ parts: [WORK, MOVE], typeLimits: { [WORK]: 5, [MOVE]: 6 } }]
+    };
     if (profile === 'scout') return { base: [MOVE] };
 
     if (profile === 'reserver') {

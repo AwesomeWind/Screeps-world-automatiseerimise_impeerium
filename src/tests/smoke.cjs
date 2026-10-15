@@ -4577,6 +4577,11 @@ async function runBehaviorChecks() {
 
         feedbackMarket = createFeedbackMarket();
         feedbackMarket.demands[0].amount = 1000;
+        targetEnergy = 0;
+        feedbackTarget = {
+            id: 'feedback-sink', pos: { x: 25, y: 25, roomName: 'W1N1' },
+            store: { getUsedCapacity: () => targetEnergy, getFreeCapacity: () => 1000 - targetEnergy }
+        };
         global.ResourceMarket = { W1N1: feedbackMarket };
         Game.creeps = {};
         for (let i = 0; i < 201; i++) {
@@ -4665,9 +4670,10 @@ async function runBehaviorChecks() {
         find: (type) => type === FIND_SOURCES ? [] : []
     };
     const remoteMiningService = new RemoteMiningService('RemoteMining');
+    remoteMiningService.init();
     remoteMiningService.analyze();
     const reserverRequest = EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'reserver');
-    assert.deepStrictEqual(reserverRequest.data.body, [CLAIM, MOVE], 'remote mining reserver demand should use the scaled reserver body');
+    assert.strictEqual(reserverRequest, undefined, 'legacy remote config must not bypass the disabled pilot or publish a raw reserver request');
 
     EventBus.topics = {};
     global.Memory.empire.remoteRooms = { W3N3: { enabled: true, baseRoom: 'W1N1', distance: 60 } };
@@ -4679,11 +4685,7 @@ async function runBehaviorChecks() {
     };
     remoteMiningService.analyze();
     const remoteMinerRequest = EventBus.topics.REQ_SPAWN && EventBus.topics.REQ_SPAWN.find((event) => event.data.role === 'remoteMiner');
-    assert.ok(
-        remoteMinerRequest.data.body.filter((part) => part === MOVE).length >
-        standardRemoteMinerBody.capacity.moveParts,
-        'long-distance remote miner demand should use a travel-heavy body'
-    );
+    assert.strictEqual(remoteMinerRequest, undefined, 'legacy distance hints must not activate an unvalidated remote source outside the single adjacent-room pilot');
 
     const defenderService = new DefenderStrategyService('DefenderStrategy');
     global.Security = { W1N1: { primaryTargetId: 'hostile1' } };

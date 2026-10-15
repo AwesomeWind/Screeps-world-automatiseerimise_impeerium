@@ -26,6 +26,7 @@ import RemoteMiningService from './services/RemoteMiningService.js';
 import EmpireMetricsService from './services/EmpireMetricsService.js';
 
 import MinerStrategyService from './strategies/MinerStrategyService.js';
+import RemoteMiningStrategyService from './strategies/RemoteMiningStrategyService.js';
 import BuilderStrategyService from './strategies/BuilderStrategyService.js';
 import RepairerStrategyService from './strategies/RepairerStrategyService.js';
 import HaulerStrategyService from './strategies/HaulerStrategyService.js';
@@ -49,10 +50,12 @@ function createServices() {
         new SecurityService('Security'),
         new RoomPhaseService('RoomPhase'),
         new RoomGovernorService('RoomGovernor'),
+        new RemoteMiningService('RemoteMining'),
         new SpawnBureauService('SpawnBureau'),
         new SpawnService('Spawn'),
         new TaskGuardService('TaskGuard'),
         new ResourceMarketService('ResourceMarket'),
+        new RemoteMiningStrategyService('RemoteMiningStrategy'),
         new MinerStrategyService('MinerStrategy'),
         new BuilderStrategyService('BuilderStrategy'),
         new RepairerStrategyService('RepairerStrategy'),
@@ -70,7 +73,6 @@ function createServices() {
         new RoadPlannerService('RoadPlanner'),
         new LabService('Lab'),
         new MarketService('Market'),
-        new RemoteMiningService('RemoteMining'),
         new EmpireMetricsService('EmpireMetrics')
     ];
 }

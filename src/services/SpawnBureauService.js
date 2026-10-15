@@ -11,6 +11,14 @@ import { getSourceOutputPolicy } from '../planning/CityAssetPolicy.js';
 import { getControllerContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
 import { shouldUseStrictSourceRuntime } from '../planning/RuntimeReadiness.js';
 
+function remoteRequestFields(intent) {
+    const fields = {};
+    for (const key of ['requestId', 'grantId', 'deadline']) {
+        if (intent[key] !== undefined) fields[key] = intent[key];
+    }
+    return fields;
+}
+
 class SpawnBureauService extends BaseService {
     analyze() {
         global.SpawnBureau = {};
@@ -46,8 +54,9 @@ class SpawnBureauService extends BaseService {
                     roomName: intent.roomName,
                     role: intent.role,
                     body: intent.body,
-                    memory: intent.memory
-                }, intent.expireIn || 1);
+                    memory: intent.memory,
+                    ...remoteRequestFields(intent)
+                }, intent.deadline !== undefined ? Math.max(0, intent.deadline - Game.time) : (intent.expireIn || 1));
             }
         }
     }
@@ -200,15 +209,25 @@ class SpawnBureauService extends BaseService {
     addDemandIntents(room, state) {
         const demands = global.SpawnDemands && global.SpawnDemands[room.name] ? global.SpawnDemands[room.name] : [];
         for (const demand of demands) {
+            if (demand.requiresRemoteGrant && !demand.grantId) {
+                state.blockedDemands.push({ quotaKey: demand.quotaKey, reason: 'budget_authorization_missing' });
+                continue;
+            }
             const quotaKey = demand.quotaKey || `${demand.role}:${room.name}:demand`;
             const maxCount = demand.maxCount || demand.minCount || 1;
-            if (this.countQuota(room.name, quotaKey, state) >= maxCount) continue;
+            const remote = demand.memory && demand.memory.remoteId && global.RemoteMining && global.RemoteMining[demand.memory.remoteId];
+            const covered = remote ? remote.population.covered[demand.role] : this.countQuota(room.name, quotaKey, state);
+            if (covered >= maxCount) continue;
 
             this.addIntent(room, state, {
                 role: demand.role,
                 quotaKey,
                 priority: demand.priority || 50,
                 bodyProfile: demand.bodyProfile || demand.role,
+                energyCapacity: demand.owner === 'remoteMining' ? Math.min(room.energyAvailable || 0, demand.maxEnergy) : undefined,
+                requestId: demand.requestId,
+                grantId: demand.grantId,
+                deadline: demand.deadline,
                 memory: demand.memory || { role: demand.role, homeRoom: room.name },
                 reason: demand.reason || 'demand'
             });
@@ -250,6 +269,7 @@ class SpawnBureauService extends BaseService {
             bodyProfile: intent.bodyProfile,
             body: bodySpec.body,
             memory: Object.assign({ quotaKey: intent.quotaKey }, intent.memory),
+            ...remoteRequestFields(intent),
             reason: intent.reason
         };
     }

@@ -6,6 +6,7 @@ const ROLE_ALLOWLIST = {
     repairer: new Set([TaskTypes.REPAIR, TaskTypes.WITHDRAW, TaskTypes.PICKUP, TaskTypes.UPGRADE, TaskTypes.MOVE_TO]),
     upgrader: new Set([TaskTypes.UPGRADE, TaskTypes.WITHDRAW, TaskTypes.PICKUP, TaskTypes.MOVE_TO]),
     hauler: new Set([TaskTypes.TRANSFER, TaskTypes.WITHDRAW, TaskTypes.PICKUP, TaskTypes.MOVE_TO]),
+    remoteHauler: new Set([TaskTypes.TRANSFER, TaskTypes.WITHDRAW, TaskTypes.MOVE_TO]),
     miner: new Set([TaskTypes.HARVEST, TaskTypes.MOVE_TO]),
     remoteMiner: new Set([TaskTypes.HARVEST, TaskTypes.MOVE_TO]),
     defender: new Set([TaskTypes.ATTACK, TaskTypes.RANGED_ATTACK, TaskTypes.MOVE_TO]),
@@ -93,7 +94,16 @@ const TaskGuard = {
         if (reservation && Number.isFinite(reservation.maxExpiresAt) && Game.time > reservation.maxExpiresAt) {
             return { valid: false, reason: 'expired_task' };
         }
-        if (!roleAllowsTask(creep.memory && creep.memory.role, task.type)) {
+        const scopedRemoteMiner = creep.memory && creep.memory.role === 'remoteMiner' && creep.memory.remoteId;
+        const remoteWork = scopedRemoteMiner && [TaskTypes.BUILD, TaskTypes.REPAIR, TaskTypes.TRANSFER].includes(task.type);
+        if (remoteWork) {
+            const scope = task.remoteWorkScope;
+            if (!scope || scope.remoteId !== creep.memory.remoteId || scope.epoch !== creep.memory.epoch ||
+                scope.sourceId !== creep.memory.sourceId || scope.targetId !== task.targetId) {
+                return { valid: false, reason: 'invalid_remote_work_scope' };
+            }
+        }
+        if (!remoteWork && !roleAllowsTask(creep.memory && creep.memory.role, task.type)) {
             return { valid: false, reason: 'role_disallowed_task' };
         }
         if (!targetExists(task)) {

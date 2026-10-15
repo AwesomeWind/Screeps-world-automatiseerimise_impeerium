@@ -1,6 +1,7 @@
 import BaseService from '../core/BaseService.js';
 import EventBus from '../core/EventBus.js';
 import { ensureEmpireControl } from '../config/EmpirePolicy.js';
+import { validateSpawnGrant, recordSpawnResult } from './RemoteMiningLedger.js';
 
 class SpawnService extends BaseService {
     constructor(serviceName) {
@@ -55,6 +56,11 @@ class SpawnService extends BaseService {
             return true;
         }
         const roomName = data.roomName;
+        const remoteContext = this.remoteSpawnContext(data);
+        if (remoteContext.required && !remoteContext.allowed) {
+            this.recordIntake(roomName, 'stale_remote_grant');
+            return true;
+        }
         if ((data.name !== undefined && (typeof data.name !== 'string' || !data.name.length || data.name.length > 100)) ||
             (event.expireAt !== undefined && (!Number.isFinite(event.expireAt) || event.expireAt < Game.time))) {
             this.recordIntake(roomName, 'invalid_request');
@@ -62,7 +68,7 @@ class SpawnService extends BaseService {
         }
         const requestId = data.requestId || event.id;
         const quotaKey = data.memory && data.memory.quotaKey;
-        const economicQuota = ['miner', 'hauler', 'upgrader', 'builder', 'repairer'].includes(data.role || (data.memory && data.memory.role)) && quotaKey;
+        const economicQuota = ['miner', 'hauler', 'upgrader', 'builder', 'repairer', 'scout', 'reserver', 'remoteMiner', 'remoteHauler'].includes(data.role || (data.memory && data.memory.role)) && quotaKey;
         const scopedQuota = economicQuota && `${roomName}:${quotaKey}`;
         if ((requestId && (this.pendingRequestKeys.has(requestId) || this.requestReceipts[requestId])) ||
             (scopedQuota && this.pendingQuotas.has(scopedQuota)) ||
@@ -100,6 +106,10 @@ class SpawnService extends BaseService {
         if (scopedQuota) this.pendingQuotas.add(scopedQuota);
         this.pendingNames.add(name);
         this.pendingTasks.push({ spawn, data, name, cost, requestId, event });
+        if (remoteContext.grant) {
+            remoteContext.grant.executing = true;
+            remoteContext.grant.executingAt = Game.time;
+        }
         this.recordIntake(roomName, 'accepted');
         return true;
     }
@@ -107,10 +117,19 @@ class SpawnService extends BaseService {
     run() {
         for (const task of this.pendingTasks) {
             const memory = task.data.memory || { role: task.data.role };
+            const remoteContext = this.remoteSpawnContext(task.data, 'run');
+            if (remoteContext.required && !remoteContext.allowed) {
+                this.energyBalance[task.data.roomName] += task.cost;
+                this.recordIntake(task.data.roomName, 'stale_remote_grant');
+                continue;
+            }
             const result = task.spawn.spawnCreep(task.data.body, task.name, {
                 memory,
                 directions: task.data.directions
             });
+            if (remoteContext.required) recordSpawnResult(remoteContext.budget, remoteContext.operation.ledger, {
+                requestId: task.requestId, name: task.name, result, body: task.data.body, acceptedAt: Game.time
+            }, Game.time);
             if (result === OK) {
                 this.acceptedSpawnNames[task.name] = true;
                 if (typeof Memory !== 'undefined') {
@@ -141,6 +160,28 @@ class SpawnService extends BaseService {
             }
         }
         this.pendingTasks = [];
+    }
+
+    remoteSpawnContext(data, stage = 'intake') {
+        const memory = data.memory || {};
+        const required = !!memory.remoteId || ['scout', 'reserver', 'remoteMiner', 'remoteHauler'].includes(data.role || memory.role);
+        if (!required) return { required: false };
+        const policy = ensureEmpireControl().policy.remoteMining;
+        const scope = global.RemoteMining && global.RemoteMining[memory.remoteId];
+        const budget = Memory.empire.remoteMining && Memory.empire.remoteMining.budgets[data.roomName];
+        if (!policy.enabled || !scope || !budget || scope.operation.evaluatedAt !== Game.time) return { required, allowed: false };
+        const raw = Memory.empire.remoteRooms && Memory.empire.remoteRooms[scope.config.targetRoom];
+        if (!raw || raw.enabled !== true || data.roomName !== scope.config.baseRoom || memory.homeRoom !== scope.config.baseRoom ||
+            memory.targetRoom !== scope.config.targetRoom || memory.sourceId !== scope.config.sourceId) return { required, allowed: false };
+        const role = data.role || memory.role;
+        const requiredParts = { scout: [MOVE], reserver: [CLAIM, MOVE], remoteMiner: [WORK, CARRY, MOVE], remoteHauler: [CARRY, MOVE] };
+        if (memory.role !== role || !requiredParts[role] || !requiredParts[role].every(part => data.body.includes(part)) ||
+            (role === 'scout' ? !scope.state.allowRecon : !scope.state.allowEconomicDeparture)) return { required, allowed: false };
+        const request = { requestId: data.requestId, grantId: data.grantId, remoteId: memory.remoteId,
+            epoch: memory.epoch, role: data.role || memory.role, quotaKey: memory.quotaKey, stage };
+        const validation = validateSpawnGrant(budget, request, scope.operation, Game.time);
+        return { required, budget, operation: scope.operation, grant: validation.grant,
+            allowed: validation.allowed && this.calculateBodyCost(data.body) <= validation.grant.maxEnergy };
     }
 
     recordIntake(roomName, reason) {

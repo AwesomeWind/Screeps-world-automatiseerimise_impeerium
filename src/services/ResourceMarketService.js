@@ -1,5 +1,6 @@
 import BaseService from '../core/BaseService.js';
-import { reserveForTask, reconcileReservations } from './ResourceReservationFeedback.js';
+import { reserveForTask, reconcileReservations, availableTargetCapacity } from './ResourceReservationFeedback.js';
+import { recordRemoteResolution } from './RemoteMiningLedger.js';
 import { recoveryAllowsRequest, recoveryRestricted, controllerEmergency } from './RoomRecoveryPolicy.js';
 import EventBus from '../core/EventBus.js';
 import TaskTypes from '../core/TaskTypes.js';
@@ -227,7 +228,7 @@ class ResourceMarketService extends BaseService {
             const feedbackStats = {};
             if (savedMarket && savedMarket.reservations) {
                 if (!savedMarket.feedbackTotals) savedMarket.feedbackTotals = {};
-                reconcileReservations(savedMarket.reservations, feedbackStats, savedMarket.feedbackTotals);
+                this.consumeRemoteResolutions(reconcileReservations(savedMarket.reservations, feedbackStats, savedMarket.feedbackTotals));
             }
             this.buildRoomMarket(room);
             Object.assign(global.ResourceMarket[roomName].stats, feedbackStats);
@@ -238,11 +239,63 @@ class ResourceMarketService extends BaseService {
     cleanup() {
         for (const roomName in (global.ResourceMarket || {})) {
             const market = this.ensureMarketShape(global.ResourceMarket[roomName], roomName);
-            reconcileReservations(market.reservations, market.stats, market.feedbackTotals);
+            this.consumeRemoteResolutions(reconcileReservations(market.reservations, market.stats, market.feedbackTotals));
             this.pruneReservations(market.reservations);
             this.captureMarketStats(market);
             this.persistMarket(roomName, market);
         }
+    }
+
+    consumeRemoteResolutions(resolutions) {
+        for (const resolution of resolutions) {
+            const context = resolution.context;
+            const operation = context && Memory.empire.remoteMining && Memory.empire.remoteMining.operations[context.remoteId];
+            if (!operation) continue;
+            recordRemoteResolution(operation.ledger,resolution,operation.epoch,operation.config.homeDeliveryTargetIds);
+        }
+    }
+
+    createRemotePickupTask(creep, context) {
+        return this.createScopedRemoteTask(creep,context,'pickup');
+    }
+
+    createRemoteHomeDeliveryTask(creep, context) {
+        return this.createScopedRemoteTask(creep,context,'home_delivery');
+    }
+
+    createScopedRemoteTask(creep, context, leg) {
+        const scope = context && global.RemoteMining && global.RemoteMining[context.remoteId];
+        if (!scope || creep.memory.role !== 'remoteHauler' || creep.memory.remoteId !== context.remoteId ||
+            creep.memory.epoch !== context.epoch || context.epoch !== scope.operation.epoch || typeof context.tripId !== 'string') return null;
+        if (creep.memory.homeRoom !== scope.config.baseRoom || creep.memory.targetRoom !== scope.config.targetRoom ||
+            creep.memory.sourceId !== scope.config.sourceId) return null;
+        const receipts = scope.operation.ledger.settlementReceipts || {};
+        for (const [name, receipt] of Object.entries(receipts)) {
+            if (!Game.creeps[name] && Game.time - receipt.assignedAt > 50) delete receipts[name];
+        }
+        if (!receipts[creep.name] && Object.keys(receipts).length >= 16) return null;
+        if (leg === 'pickup' && !scope.state.allowEconomicDeparture) return null;
+        const target = leg === 'pickup' ? scope.facts.container : Game.getObjectById(context.targetId);
+        if (!target || !target.pos || !target.store || !creep.pos.inRangeTo(target.pos,1)) return null;
+        if (leg === 'home_delivery' && (!scope.config.homeDeliveryTargetIds.includes(target.id) || target.pos.roomName !== scope.config.baseRoom ||
+            ![STRUCTURE_STORAGE, STRUCTURE_TERMINAL, STRUCTURE_CONTAINER].includes(target.structureType) ||
+            target.structureType !== STRUCTURE_CONTAINER && target.my !== true)) return null;
+        const market = global.ResourceMarket && global.ResourceMarket[scope.config.baseRoom];
+        if (!market) return null;
+        const owners = ['supply','demand'].flatMap(side=>Object.values(market.reservations[side] || {}).filter(Boolean).flatMap(record=>Object.values(record.owners || {})));
+        if (owners.some(owner=>owner.creepName === creep.name)) return null;
+        const side = leg === 'pickup' ? 'supply' : 'demand';
+        const id = `remote:${scope.config.remoteId}:${leg}:${target.id}`;
+        const reserved = market.reservations[side][id];
+        if (side === 'supply' && reserved && reserved.expiresAt >= Game.time) return null;
+        const quantity = side === 'supply' ? target.store.getUsedCapacity(RESOURCE_ENERGY) : availableTargetCapacity(market, target, RESOURCE_ENERGY);
+        const actorQuantity = side === 'supply' ? creep.store.getFreeCapacity(RESOURCE_ENERGY) : creep.store.getUsedCapacity(RESOURCE_ENERGY);
+        const amount = Math.min(quantity,actorQuantity,context.amount === undefined ? actorQuantity : context.amount);
+        if (!Number.isFinite(amount) || amount <= 0) return null;
+        const task = {type:side === 'supply'?TaskTypes.WITHDRAW:TaskTypes.TRANSFER,targetId:target.id,resourceType:RESOURCE_ENERGY,amount};
+        if (!reserveForTask(market,side,{id,resourceType:RESOURCE_ENERGY},amount,creep,task,{...context,leg})) return null;
+        this.persistMarket(scope.config.baseRoom,market);
+        return task;
     }
 
     buildRoomMarket(room) {
@@ -425,7 +478,7 @@ class ResourceMarketService extends BaseService {
             targetId: demand.targetId,
             resourceType: demand.resourceType
         };
-        if (this.shouldLimitTransferAmount(demand)) task.amount = amount;
+        if (this.shouldLimitTransferAmount(demand) || amount < creep.store.getUsedCapacity(demand.resourceType)) task.amount = amount;
         if (!reserveForTask(market, 'demand', demand, amount, creep, task)) return null;
         return task;
     }
@@ -435,29 +488,34 @@ class ResourceMarketService extends BaseService {
         if (!room) return null;
 
         for (const resourceType of carriedResources) {
-            const target = this.findFallbackStoreTarget(room, resourceType);
+            const target = this.findFallbackStoreTarget(room, resourceType, market);
             if (target) {
-                market.stats.fallbackStoreAssignments++;
-                return {
+                const amount = Math.min(creep.store.getUsedCapacity(resourceType), availableTargetCapacity(market, target, resourceType));
+                const task = {
                     type: TaskTypes.TRANSFER,
                     targetId: target.id,
                     resourceType
                 };
+                if (amount < creep.store.getUsedCapacity(resourceType)) task.amount = amount;
+                if (!reserveForTask(market, 'demand', { id: `fallback-demand:${target.id}:${resourceType}`, resourceType }, amount, creep, task)) continue;
+                market.stats.fallbackStoreAssignments++;
+                return task;
             }
         }
 
         return null;
     }
 
-    findFallbackStoreTarget(room, resourceType) {
+    findFallbackStoreTarget(room, resourceType, market) {
         const primary = resourceType === RESOURCE_ENERGY ? [room.storage, room.terminal] : [room.terminal, room.storage];
         for (const target of primary) {
-            if (this.canStoreResource(target, resourceType)) return target;
+            if (this.canStoreResource(target, resourceType) && (!market || availableTargetCapacity(market, target, resourceType) > 0)) return target;
         }
 
         const containers = room.find(FIND_STRUCTURES, {
             filter: (structure) => {
-                return structure.structureType === STRUCTURE_CONTAINER && this.canStoreResource(structure, resourceType);
+                return structure.structureType === STRUCTURE_CONTAINER && this.canStoreResource(structure, resourceType) &&
+                    (!market || availableTargetCapacity(market, structure, resourceType) > 0);
             }
         });
         return containers[0] || null;
@@ -1111,7 +1169,9 @@ class ResourceMarketService extends BaseService {
         const reservation = market.reservations.demand[demand.id];
         const reserved = reservation && reservation.expiresAt >= Game.time ? reservation.amount : 0;
         if (demand.amount === undefined) return Infinity;
-        return Math.max(0, demand.amount - reserved);
+        const target = Game.getObjectById(demand.targetId);
+        const capacity = availableTargetCapacity(market, target, demand.resourceType);
+        return Math.max(0, Math.min(demand.amount - reserved, capacity === null ? Infinity : capacity));
     }
 
     getPickupAmount(creep, supply, market) {

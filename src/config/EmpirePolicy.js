@@ -31,6 +31,24 @@ export const DEFAULT_EMPIRE_POLICY = {
     spawnIntake: {
         maxReceiptsPerRoom: 200
     },
+    remoteMining: {
+        enabled: false,
+        maxOperations: 1,
+        intelTtl: 100,
+        safeStreakTicks: 100,
+        reconCooldownTicks: 200,
+        windowTicks: 1000,
+        budgetBucketTicks: 50,
+        spawnEnergyLimit: 2000,
+        infrastructureEnergyLimit: 6000,
+        maxGrants: 16,
+        maxReceipts: 16,
+        maxLegTicks: 300,
+        loadingWaitTicks: 10,
+        roleLimits: { scout: 1, remoteMiner: 1, remoteHauler: 2, reserver: 1 },
+        bodyEnergyLimits: { scout: 50, remoteMiner: 800, remoteHauler: 800, reserver: 650 },
+        priorities: { scout: 35, remoteMiner: 45, remoteHauler: 45, reserver: 30 }
+    },
     roomGovernor: {
         enabled: true,
         shadow: true,

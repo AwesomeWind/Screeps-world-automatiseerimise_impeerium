@@ -1,5 +1,25 @@
 export const TASK_VERSION = 1;
 const taskReservations = new WeakMap();
+const taskObservations = new WeakMap();
+
+export function registerTaskObservation(task, context) {
+    taskObservations.set(task, context);
+}
+
+export function observeTaskAction(creep, target) {
+    const meta = creep.memory.taskMeta;
+    if (!meta || !meta.observationContext) return;
+    meta.actionBefore = { ownerEnergy: creep.store.getUsedCapacity(RESOURCE_ENERGY),
+        targetProgress: Number.isFinite(target.progress) ? target.progress : null,
+        targetHits: Number.isFinite(target.hits) ? target.hits : null, targetId: target.id };
+}
+
+export function recordTaskActionResult(creep, { attempted, actionType, result }) {
+    const meta = creep.memory.taskMeta;
+    if (!meta || !meta.observationContext || !meta.actionBefore) return;
+    creep.memory.lastActionObservation = { id: `${creep.name}:${Game.time}:${actionType}`, tick: Game.time,
+        actionType, attempted, result, context: { ...meta.observationContext }, before: { ...meta.actionBefore } };
+}
 
 export function registerTaskReservation(task, reservation) {
     taskReservations.set(task, reservation);
@@ -27,6 +47,8 @@ export function assignTask(creep, task) {
     };
     const reservation = taskReservations.get(task);
     if (reservation) creep.memory.taskMeta.logisticsReservation = { ...reservation };
+    const context = taskObservations.get(task);
+    if (context) creep.memory.taskMeta.observationContext = { ...context };
     delete creep.memory.lastTaskClear;
     return task;
 }

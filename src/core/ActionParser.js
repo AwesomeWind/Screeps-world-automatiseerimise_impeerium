@@ -1,6 +1,6 @@
 import TaskTypes from './TaskTypes.js';
 import WorkPositionCoordinator from './WorkPositionCoordinator.js';
-import { clearTaskState, observeTaskResource } from './TaskMetadata.js';
+import { clearTaskState, observeTaskResource, observeTaskAction, recordTaskActionResult } from './TaskMetadata.js';
 
 function clearTask(creep, reason, result) {
     clearTaskState(creep, reason, result === undefined ? {} : { result });
@@ -65,6 +65,9 @@ function ensureWorkPos(creep, task, target) {
 
 function moveToTarget(creep, target, task, range) {
     if (!target || !target.pos) return ERR_INVALID_TARGET;
+    if (task.path) {
+        return creep.moveByPath(task.path.map(pos => new RoomPosition(pos.x, pos.y, pos.roomName)));
+    }
     return creep.moveTo(target.pos, {
         reusePath: task.reusePath === undefined ? 10 : task.reusePath,
         range,
@@ -97,7 +100,7 @@ function updateMoveProgress(creep, task) {
         return true;
     }
 
-    if (samePos(task.lastPos, pos)) task.stuckTicks = (task.stuckTicks || 0) + 1;
+    if (samePos(task.lastPos, pos) && !(task.ignoreFatigueForStuck && creep.fatigue > 0)) task.stuckTicks = (task.stuckTicks || 0) + 1;
     else {
         task.lastPos = pos;
         task.stuckTicks = 0;
@@ -111,6 +114,13 @@ const ActionParser = {
     run(creep) {
         const task = creep.memory.task;
         if (!task || !task.type) return;
+        if (task.path && (!Array.isArray(task.path) || !task.path.length || task.path.length > 300 ||
+            !Array.isArray(task.allowedRooms) || task.allowedRooms.length > 2 ||
+            !task.allowedRooms.includes(creep.room.name) || !task.allowedRooms.includes(task.pos && task.pos.roomName) ||
+            !task.path.every(pos => pos && Number.isInteger(pos.x) && Number.isInteger(pos.y) && pos.x >= 0 && pos.x <= 49 && pos.y >= 0 && pos.y <= 49 && task.allowedRooms.includes(pos.roomName)))) {
+            clearTask(creep,'move_invalid_path');
+            return;
+        }
 
         const target = targetFromTask(task);
         if (!target) {
@@ -118,6 +128,10 @@ const ActionParser = {
             return;
         }
         if ([TaskTypes.TRANSFER, TaskTypes.WITHDRAW, TaskTypes.PICKUP].includes(task.type)) observeTaskResource(creep, target);
+        if ([TaskTypes.BUILD, TaskTypes.REPAIR].includes(task.type)) {
+            observeTaskAction(creep, target);
+            recordTaskActionResult(creep, { attempted: false, actionType: task.type, result: null });
+        }
 
         let result = OK;
         let range = 1;
@@ -163,6 +177,7 @@ const ActionParser = {
                     }
                 }
                 result = creep.build(target);
+                recordTaskActionResult(creep, { attempted: true, actionType: task.type, result });
                 if (result === ERR_NOT_ENOUGH_RESOURCES) clearTask(creep, 'build_no_energy', result);
                 if (result === ERR_INVALID_TARGET) clearTask(creep, 'build_invalid_target', result);
                 break;
@@ -178,6 +193,7 @@ const ActionParser = {
                     }
                 }
                 result = creep.repair(target);
+                recordTaskActionResult(creep, { attempted: true, actionType: task.type, result });
                 if (result === ERR_NOT_ENOUGH_RESOURCES) clearTask(creep, 'repair_no_energy', result);
                 if (result === ERR_INVALID_TARGET) clearTask(creep, 'repair_invalid_target', result);
                 if (repairTargetReached(task, target)) clearTask(creep, 'repair_target_reached', result);
