@@ -18,7 +18,9 @@
 
 新增服务时要确认它依赖的全局状态是否已经由前序服务写入。当前关键顺序是：
 
-`RoomCache -> WarIntel/WarStrategy/Combat/Security -> RoomPhase -> RoomGovernor -> SpawnBureau/Spawn -> TaskGuard -> ResourceMarket -> role strategies -> Tower/Planning/Lab/Market/RemoteMining -> EmpireMetrics`
+`RoomCache -> WarIntel/WarStrategy/Combat/Security -> RoomPhase -> RoomGovernor -> GoalPlan -> RemoteReconTrial -> RemoteMining -> SpawnBureau/Spawn -> TaskGuard -> ResourceMarket -> role strategies -> Tower/Planning/Lab/Market -> EmpireMetrics`
+
+`RemoteReconTrial` 是默认关闭的 P0 侦察会话守卫，在需求和动作之前撤权；仅在人工启动的托管会话中收窄既有许可。总期限、唯一孵化额度、关闭回读及结果保存在 Memory，遥测关闭不关闭守卫。没有新鲜 scope/许可时拒绝出发，已有安全返程沿用原门槛。
 
 ## 帝国控制基础层
 

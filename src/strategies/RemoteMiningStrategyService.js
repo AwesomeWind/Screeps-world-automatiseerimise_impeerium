@@ -5,6 +5,7 @@ import { ensureEmpireControl } from '../config/EmpirePolicy.js';
 import { planRemoteRoute, createRemoteMoveTask, pathAvoidsDanger } from '../services/RemoteMiningRoute.js';
 import { reserveInfrastructureAttempt } from '../services/RemoteMiningLedger.js';
 import { remoteActorIdentityMatches, remoteQuotaKey } from '../services/RemoteMiningState.js';
+import { getReconTrialPermit } from '../services/RemoteReconTrialService.js';
 
 const MOVE_RETRY_LIMIT = 1;
 const MOVE_RETRY_COOLDOWN_TICKS = 2;
@@ -51,6 +52,10 @@ export default class RemoteMiningStrategyService extends BaseService {
                 if (creep.memory.remoteLeg) delete creep.memory.remoteLeg.goalKey;
             }
             if (creep.memory.role === 'remoteMiner') this.prepareMinerHandoff(creep, scope.operation);
+            const trial = getReconTrialPermit({ remoteId: creep.memory.remoteId, epoch: creep.memory.epoch,
+                trialId: creep.memory.reconTrialId, sequence: creep.memory.reconTrialSequence, action: 'outbound' });
+            if (trial.managed && !trial.allowOutbound && creep.memory.task?.type === TaskTypes.MOVE_TO &&
+                creep.memory.task.pos?.roomName !== scope.config.baseRoom) clearTaskState(creep, 'recon_trial_stopped');
             if (creep.memory.task?.type === TaskTypes.MOVE_TO &&
                 !pathAvoidsDanger(creep.memory.task.path, scope.operation.lastDangerZones || [])) {
                 clearTaskState(creep, 'remote_route_danger_changed');
@@ -64,12 +69,13 @@ export default class RemoteMiningStrategyService extends BaseService {
                 this.assignRemoteHaulerTask(creep, scope.operation, scope.facts, scope.state);
                 continue;
             }
-            const reconScout = creep.memory.role === 'scout' && (scope.state.allowRecon ||
+            const reconScout = creep.memory.role === 'scout' && (!trial.managed || trial.allowOutbound) && (scope.state.allowRecon ||
                 scope.operation.status === 'recovering' && creep.room.name === scope.config.targetRoom);
             if ((!scope.state.allowEconomicDeparture && !reconScout) || creep.memory.remoteRetiring) {
                 if (creep.memory.task?.type === TaskTypes.MOVE_TO &&
                     creep.memory.remoteLeg?.state === 'returning' &&
-                    creep.memory.task.pos?.roomName === scope.config.baseRoom) continue;
+                    creep.memory.task.pos?.roomName === scope.config.baseRoom &&
+                    (!trial.managed || scope.facts.homeHealthy)) continue;
                 if (creep.memory.task) clearTaskState(creep, 'remote_paused');
                 this.returnActor(creep, scope.operation, scope.facts);
                 continue;
@@ -95,9 +101,13 @@ export default class RemoteMiningStrategyService extends BaseService {
         const goalKey = `${goal.roomName}:${goal.x}:${goal.y}:${operation.recoverySequence || 0}`;
         const scope = global.RemoteMining?.[operation.remoteId];
         const returning = goal.roomName === operation.config.baseRoom;
+        const trial = getReconTrialPermit({ remoteId: creep.memory.remoteId, epoch: creep.memory.epoch,
+            trialId: creep.memory.reconTrialId, sequence: creep.memory.reconTrialSequence,
+            action: returning ? 'return' : 'outbound' });
         const reconScout = creep.memory.role === 'scout' && (scope?.state.allowRecon ||
             operation.status === 'recovering' && creep.room.name === operation.config.targetRoom);
-        const allowed = scope && scope.operation === operation && creep.memory.remoteId === operation.remoteId &&
+        const allowed = (!trial.managed || (returning ? trial.allowReturn : trial.allowOutbound)) &&
+            scope && scope.operation === operation && creep.memory.remoteId === operation.remoteId &&
             creep.memory.epoch === operation.epoch &&
             remoteActorIdentityMatches(creep.memory, operation.config) &&
             scope.facts.homeHealthy && !scope.facts.homeDanger &&

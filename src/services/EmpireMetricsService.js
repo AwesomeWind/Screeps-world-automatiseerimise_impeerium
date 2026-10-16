@@ -74,6 +74,9 @@ class EmpireMetricsService extends BaseService {
         const interval = Math.max(1, control.policy.telemetry.metricsInterval || 10);
         if (Game.time % interval !== 0) return;
 
+        if (global.RemoteReconTrial?.summary) {
+            control.metrics.reconTrial = { ...global.RemoteReconTrial.summary, capturedAt: Game.time };
+        }
         if (global.GoalPlan) {
             const summary = global.GoalPlan.summary || {};
             const fresh = global.GoalPlan.tick === Game.time;

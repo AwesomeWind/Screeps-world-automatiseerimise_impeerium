@@ -70,7 +70,7 @@ export function canAttemptRecoveryRecon(operation, facts, policy, tick) {
     if (facts.foreignControl) reasons.push('foreign_control');
     if (!facts.entrance || !facts.reconRouteSafe) reasons.push('no_safe_entrance');
     if (Number.isFinite(operation.lastAlertAt) && tick - operation.lastAlertAt < policy.reconCooldownTicks ||
-        !facts.reconActorExists && Number.isFinite(operation.lastReconAt) && tick - operation.lastReconAt < policy.reconCooldownTicks) reasons.push('recon_cooldown');
+        !facts.reconActorExists && !facts.reconRequestContinuation && Number.isFinite(operation.lastReconAt) && tick - operation.lastReconAt < policy.reconCooldownTicks) reasons.push('recon_cooldown');
     return { allowed: reasons.length === 0, reasons };
 }
 

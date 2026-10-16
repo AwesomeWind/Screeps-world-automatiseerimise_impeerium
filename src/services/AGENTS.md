@@ -10,6 +10,8 @@
 - `ResourceMarketService`: 资源市场与资源请求中心，写 `global.ResourceMarket`，暴露 `requestResource(creep, request)` 和 `assignHauler(creep)`。
 - `SpawnBureauService`: 汇总经济与外部 spawn 需求，通过 `EventBus` 发布 `REQ_SPAWN`。
 - `SpawnService`: 消费 `REQ_SPAWN`，实际执行 spawn。
+- `RemoteReconTrialService`: 默认关闭的有限侦察守卫；纯状态转换位于 `RemoteReconTrialModel`，只读事实位于 `RemoteReconTrialFacts`。托管会话最多一名成功 scout，关闭需下一 tick 回读；不能用摘要、请求接受或 move OK 代替出生/实际位移证据。
+- 试点的 `not_started/not_called` 与 `call_started` 必须区分：已证明未调用引擎的本轮 pendingTask 可退款，调用结果不明的 grant 不得清空后再次孵化。资源与费用仍走既有市场及 RemoteMiningLedger。
 
 ## 资源市场 API
 

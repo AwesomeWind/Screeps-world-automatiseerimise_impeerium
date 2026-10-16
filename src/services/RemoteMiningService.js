@@ -6,6 +6,7 @@ import { currentCreepPopulation } from '../core/CreepPopulation.js';
 import { normalizeRemoteConfig, collectRemoteActors, evaluateRemoteState, remoteQuotaKey, estimateRemoteHaulerNeed, collectRemoteIntel } from './RemoteMiningState.js';
 import { reserveSpawnGrant, cancelSpawnGrant, recordInfrastructureResult, remoteBudgetStatus, reconcileSpawnExecution } from './RemoteMiningLedger.js';
 import { planRemoteRoute } from './RemoteMiningRoute.js';
+import { getReconTrialPermit, observeReconTrialScope, bindReconTrialSpawnRequest, isReconTrialSpawnContinuation } from './RemoteReconTrialService.js';
 
 class RemoteMiningService extends BaseService {
     init() {
@@ -101,6 +102,7 @@ class RemoteMiningService extends BaseService {
             facts.reconRouteSafe = !!scoutRoute?.valid;
             facts.reconActorExists = currentCreepPopulation().some(entry => entry.state !== 'invalid' &&
                 entry.memory.remoteId === config.remoteId && entry.memory.role === 'scout');
+            facts.reconRequestContinuation = isReconTrialSpawnContinuation(operation);
             this.consumeInfrastructure(operation);
             const roomBudget = Memory.empire.remoteMining.budgets[config.baseRoom] || {};
             Memory.empire.remoteMining.budgets[config.baseRoom] = roomBudget;
@@ -135,14 +137,22 @@ class RemoteMiningService extends BaseService {
             });
             const population = collectRemoteActors(populationFacts, config.remoteId, operation.epoch, policy.roleLimits, config);
             global.RemoteMining[config.remoteId] = { operation, config, facts, state, population };
+            const trial = observeReconTrialScope(global.RemoteMining[config.remoteId]);
+            if (trial.managed) {
+                state.allowRecon = state.allowRecon && trial.allowOutbound;
+                state.allowEconomicDeparture = false;
+                operation.allowRecon = state.allowRecon;
+                operation.allowEconomicDeparture = false;
+            }
             if (!state.allowEconomicDeparture && !state.allowRecon) {
-                this.cancelQueued(config.remoteId);
+                if (!trial.managed) this.cancelQueued(config.remoteId);
                 continue;
             }
             const desired = state.allowRecon ? { scout: 1 } : { remoteMiner: 1,
                 ...(container ? { remoteHauler: operation.transportCapacity?.desiredCount || 1 } : {}),
                 ...(config.reserveController ? { reserver: 1 } : {}) };
             for (const [role, count] of Object.entries(desired)) {
+                if (trial.managed && (role !== 'scout' || !getReconTrialPermit({ remoteId: config.remoteId, epoch: operation.epoch }).allowSpawn)) continue;
                 if (population.covered[role] >= count || !population.canAdd(role)) continue;
                 const quotaKey = remoteQuotaKey(config, role);
                 let request = operation.requests[quotaKey];
@@ -150,17 +160,21 @@ class RemoteMiningService extends BaseService {
                     request = { requestId: `remote:${config.remoteId}:${operation.epoch}:${++operation.requestSequence}`, deadline: Game.time + 5 };
                     operation.requests[quotaKey] = request;
                 }
+                const binding = bindReconTrialSpawnRequest(global.RemoteMining[config.remoteId], request);
+                if (!binding) continue;
+                request = { requestId: binding.requestId, deadline: binding.deadline };
+                operation.requests[quotaKey] = request;
                 const demand = { owner: 'remoteMining', roomName: config.baseRoom, role, quotaKey,
                     maxCount: count, minCount: count, priority: policy.priorities[role],
                     bodyProfile: role === 'remoteMiner' ? 'remote_balanced_miner' : role === 'remoteHauler' ? 'remote_balanced_hauler' : role,
                     maxEnergy: policy.bodyEnergyLimits[role], requestId: request.requestId, deadline: request.deadline,
                     requiresRemoteGrant: true,
                     memory: { role, homeRoom: config.baseRoom, targetRoom, sourceId: config.sourceId,
-                        remoteId: config.remoteId, epoch: operation.epoch, quotaKey } };
+                        remoteId: config.remoteId, epoch: operation.epoch, quotaKey, ...binding.memoryTags } };
                 const budget = Memory.empire.remoteMining.budgets[config.baseRoom] || {};
                 Memory.empire.remoteMining.budgets[config.baseRoom] = budget;
                 const granted = reserveSpawnGrant(budget, { ...request, role, quotaKey, remoteId: config.remoteId,
-                    epoch: operation.epoch, maxEnergy: demand.maxEnergy }, Game.time, policy);
+                    epoch: operation.epoch, maxEnergy: demand.maxEnergy, ...binding.grantTags }, Game.time, policy);
                 if (granted.granted) demand.grantId = granted.grantId;
                 else demand.blockedReason = granted.reason;
                 if (role === 'scout' && granted.granted && state.allowRecon) operation.lastReconAt = Game.time;
