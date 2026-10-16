@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 1,
+  "kind": "offline_scout_occupancy_retest_review_only",
+  "requiresNewUserAuthorization": true,
+  "onlineConfigWritten": false,
+  "started": false,
+  "deployment": {
+    "codeCommit": "9e415d1eb33398b6f5d0d22e4e9a16622154905d",
+    "serviceVersion": "1792137398079",
+    "mainSha256": "ba3d35a8a236d1e406b6d65e2b4793ce25e9277d2ae669f2600192f02ed77733",
+    "mapSha256": "53366a678b8b5308bd36eb9d960b7555204e2f74272ba164b6131a2bcfc205fd"
+  },
+  "remoteMiningEnabled": false,
+  "proposedRemoteRooms": {
+    "W48N41": {
+      "enabled": false,
+      "hold": true,
+      "baseRoom": "W49N41",
+      "sourceId": null,
+      "containerId": null,
+      "containerPos": {
+        "x": 19,
+        "y": 6,
+        "roomName": "W48N41"
+      },
+      "allowContainerBuild": false,
+      "homeDeliveryTargetIds": [
+        "6ad0b55bceeb3db0d3b4dda0"
+      ],
+      "reserveController": false
+    }
+  },
+  "candidateSourceForReadOnlyValidation": "5bbcaa6d9099fc012e63155b",
+  "policyProtections": {
+    "roleLimits": {
+      "scout": 1,
+      "remoteMiner": 0,
+      "remoteHauler": 0,
+      "reserver": 0
+    },
+    "windowTicks": 1000,
+    "spawnEnergyLimit": 2000,
+    "infrastructureEnergyLimit": 6000,
+    "intelTtl": 100,
+    "safeStreakTicks": 100,
+    "reconCooldownTicks": 200,
+    "maxLegTicks": 300,
+    "goalPlanningEnabled": false,
+    "governorShadow": true,
+    "schedulerEnforce": false,
+    "marketEnabled": false
+  },
+  "retestBounds": {
+    "maxObservedTicks": 300,
+    "maxWallMilliseconds": 1200000,
+    "maxConsecutiveReadFailures": 3,
+    "maxLegReplans": 1,
+    "replanCooldownTicks": 2,
+    "preserveOriginalLegDeadline": true,
+    "automaticReplacement": false,
+    "automaticEconomicEnable": false,
+    "forcedCongestionOrThreat": false,
+    "closeAndHoldAfterResult": true
+  },
+  "latestPreparationEvidence": {
+    "sdkPersistedRuntimeTick": 83679160,
+    "sdkOperationEvaluatedAt": 83679165,
+    "sdkObservedAt": "2026-10-16T07:58:47.073Z",
+    "nativeConsoleVerifiedThisRelease": false,
+    "terminalFree": null,
+    "liveActorCount": null,
+    "spawnIdle": null,
+    "homeRecovery": "normal",
+    "observationAndClosureTransportMustBeVerifiedBeforeStart": true,
+    "currentFactsMustBeRecheckedBeforeStart": true
+  },
+  "acceptance": {
+    "releaseFingerprintAndClosedControlsVerified": true,
+    "newScoutBirthVerified": false,
+    "newScoutMovementVerified": false,
+    "visibleTargetRouteVerified": false,
+    "continuousSafetyVerified": false,
+    "onlineRecoveryScenarioCovered": false,
+    "actualTransportEnabled": false,
+    "longWindowAccepted": false
+  }
+}
