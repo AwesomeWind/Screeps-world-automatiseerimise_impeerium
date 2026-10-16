@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "kind": "offline_guarded_recon_retest_review_only",
+  "requiresNewUserAuthorization": true,
+  "onlineConfigWritten": false,
+  "started": false,
+  "deployment": {
+    "codeCommit": "0f6ece7c4aed2697ac068683116b3199a6915e69",
+    "serviceVersion": "1792144535858",
+    "mainSha256": "432069bb521ddb9e52dc68b230c705b851f9cba734de5c160b647ce5c41c47a9",
+    "mapSha256": "98ef3a4c18b81b9fd1bec287730cff8958343e2386ba722d93b7af0b2952c6c3"
+  },
+  "remoteMiningEnabled": false,
+  "proposedRemoteRooms": {
+    "W48N41": {
+      "enabled": false,
+      "hold": true,
+      "baseRoom": "W49N41",
+      "sourceId": null,
+      "containerId": null,
+      "containerPos": {
+        "x": 19,
+        "y": 6,
+        "roomName": "W48N41"
+      },
+      "allowContainerBuild": false,
+      "homeDeliveryTargetIds": [
+        "6ad0b55bceeb3db0d3b4dda0"
+      ],
+      "reserveController": false
+    }
+  },
+  "candidateSourceForReadOnlyValidation": "5bbcaa6d9099fc012e63155b",
+  "policyProtections": {
+    "roleLimits": {
+      "scout": 1,
+      "remoteMiner": 0,
+      "remoteHauler": 0,
+      "reserver": 0
+    },
+    "windowTicks": 1000,
+    "spawnEnergyLimit": 2000,
+    "infrastructureEnergyLimit": 6000,
+    "intelTtl": 100,
+    "safeStreakTicks": 100,
+    "reconCooldownTicks": 200,
+    "maxLegTicks": 300,
+    "goalPlanningEnabled": false,
+    "governorShadow": true,
+    "schedulerEnforce": false,
+    "marketEnabled": false
+  },
+  "retestBounds": {
+    "maxObservedTicks": 300,
+    "maxWallMilliseconds": 1200000,
+    "maxConsecutiveReadFailures": 3,
+    "maxLegReplans": 1,
+    "replanCooldownTicks": 2,
+    "preserveOriginalLegDeadline": true,
+    "automaticReplacement": false,
+    "automaticEconomicEnable": false,
+    "forcedCongestionOrThreat": false,
+    "closeAndHoldAfterResult": true
+  },
+  "latestPreparationEvidence": {
+    "sdkObservedAt": "2026-10-16T09:57:51.946Z",
+    "persistedRuntimeTick": 83680890,
+    "operationEvaluatedAt": 83680895,
+    "epoch": 1,
+    "guardEnabled": false,
+    "guardRequestNull": true,
+    "trialStoreAbsent": true,
+    "telemetryServicePresent": true,
+    "nativeConsoleVerifiedThisRelease": false,
+    "terminalFree": null,
+    "liveActorCount": null,
+    "spawnIdle": null,
+    "homeRecovery": "normal",
+    "currentFactsMustBeRecheckedBeforeStart": true
+  },
+  "acceptance": {
+    "releaseFingerprintAndClosedControlsVerified": true,
+    "newScoutBirthVerified": false,
+    "newScoutMovementVerified": false,
+    "visibleTargetRouteVerified": false,
+    "continuousSafetyVerified": false,
+    "onlineRecoveryScenarioCovered": false,
+    "actualTransportEnabled": false,
+    "longWindowAccepted": false,
+    "guardPilotExecuted": false
+  },
+  "notExecutable": true,
+  "guardPolicy": {
+    "enabled": false,
+    "request": null
+  },
+  "startRequestSpecification": {
+    "schemaVersion": 1,
+    "action": "start",
+    "remoteId": "W49N41:W48N41",
+    "codeVersion": "1792144535858",
+    "candidateSourceId": "5bbcaa6d9099fc012e63155b",
+    "idGeneratedAtStart": true,
+    "sequenceFromFreshHighWater": true,
+    "epochFromFreshOperation": true,
+    "activationTickOffset": 1,
+    "totalTickLimit": 300,
+    "wallMilliseconds": 1200000,
+    "atomicWithExplicitGuardAndModuleAndRoomEnable": true,
+    "unknownWriteResultMustNotBeReplayed": true
+  }
+}
