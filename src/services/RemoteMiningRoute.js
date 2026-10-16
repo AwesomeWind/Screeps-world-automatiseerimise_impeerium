@@ -1,5 +1,22 @@
 function partType(part) { return typeof part === 'string' ? part : part.type; }
 
+function samePosition(left, right) {
+    return !!left && !!right && left.roomName === right.roomName &&
+        left.x === right.x && left.y === right.y;
+}
+
+function blockRouteOccupancy(matrix, room, origin, mode) {
+    if (!mode || !room) return;
+    const creeps = mode === 'live_creeps' ? room.find(FIND_CREEPS) : Object.values(Game.creeps);
+    for (const creep of creeps) {
+        const pos = creep.pos;
+        if (!pos || pos.roomName !== room.name || samePosition(pos, origin)) continue;
+        if (mode === 'work_positions' && !samePosition(pos, creep.memory?.miningPos) &&
+            !samePosition(pos, creep.memory?.task?.workPos)) continue;
+        matrix.set(pos.x, pos.y, 255);
+    }
+}
+
 export function pathAvoidsDanger(path, zones = []) {
     return Array.isArray(path) && path.every(point => zones.every(zone =>
         point.roomName !== zone.roomName ||
@@ -26,6 +43,9 @@ export function estimateLegTicks(body, steps, loadState = { energy: 0 }) {
 }
 
 export function planRemoteRoute(home, target, facts, policy, tick) {
+    if (facts.occupancyMode !== undefined && !['work_positions', 'live_creeps'].includes(facts.occupancyMode)) {
+        return { valid: false, reasons: ['invalid_occupancy_mode'] };
+    }
     const allowedRooms = [facts.baseRoom || home.roomName, facts.targetRoom || target.roomName];
     if (!allowedRooms.includes(home.roomName) || !allowedRooms.includes(target.roomName) || !global.PathFinder) return { valid: false, reasons: ['route_unavailable'] };
     const zones = facts.dangerZones || [];
@@ -38,9 +58,14 @@ export function planRemoteRoute(home, target, facts, policy, tick) {
             const matrix = new PathFinder.CostMatrix();
             const room = Game.rooms[roomName];
             for (const structure of room ? room.find(FIND_STRUCTURES) : []) {
-                if (structure.structureType === STRUCTURE_ROAD) matrix.set(structure.pos.x, structure.pos.y, 1);
+                if (structure.structureType === STRUCTURE_ROAD) {
+                    if (matrix.get(structure.pos.x, structure.pos.y) !== 255) matrix.set(structure.pos.x, structure.pos.y, 1);
+                }
                 else if (structure.structureType !== STRUCTURE_CONTAINER && !(structure.structureType === STRUCTURE_RAMPART && (structure.my || structure.isPublic))) matrix.set(structure.pos.x, structure.pos.y, 255);
             }
+            // Opt-in scout snapshots; empty work positions and stale Memory are not obstacles.
+            // Skipping the actor's origin never clears static structures or danger costs.
+            blockRouteOccupancy(matrix, room, home, facts.occupancyMode);
             for (const zone of zones.filter(value => value.roomName === roomName)) {
                 for (let x = Math.max(0, zone.x-zone.range); x <= Math.min(49, zone.x+zone.range); x++) {
                     for (let y = Math.max(0, zone.y-zone.range); y <= Math.min(49, zone.y+zone.range); y++) matrix.set(x,y,255);

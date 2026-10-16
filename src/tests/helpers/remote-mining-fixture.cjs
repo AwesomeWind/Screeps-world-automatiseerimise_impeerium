@@ -18,7 +18,7 @@ function installGlobals() {
     for (const type of ['SPAWN','EXTENSION','CONTAINER','STORAGE','TERMINAL','LINK','ROAD','RAMPART','WALL','TOWER','LAB','EXTRACTOR']) {
         global[`STRUCTURE_${type}`] = type === 'WALL' ? 'constructedWall' : type.toLowerCase();
     }
-    for (const type of ['SOURCES','STRUCTURES','MY_STRUCTURES','MY_SPAWNS','MY_CREEPS','HOSTILE_CREEPS','HOSTILE_STRUCTURES','CONSTRUCTION_SITES','MY_CONSTRUCTION_SITES','DROPPED_RESOURCES','TOMBSTONES','RUINS','MINERALS']) global[`FIND_${type}`] = type;
+    for (const type of ['SOURCES','STRUCTURES','MY_STRUCTURES','MY_SPAWNS','CREEPS','MY_CREEPS','HOSTILE_CREEPS','HOSTILE_STRUCTURES','CONSTRUCTION_SITES','MY_CONSTRUCTION_SITES','DROPPED_RESOURCES','TOMBSTONES','RUINS','MINERALS']) global[`FIND_${type}`] = type;
     global.LOOK_STRUCTURES = 'structure'; global.LOOK_CREEPS = 'creep'; global.LOOK_TERRAIN = 'terrain';
     global.RoomPosition = class RoomPosition {
         constructor(x, y, roomName) { Object.assign(this, { x, y, roomName }); }
@@ -53,6 +53,7 @@ async function createRemoteFixture(options = {}) {
                 if (type === FIND_MY_SPAWNS) values = Object.values(f.spawns).filter(spawn => spawn.room.name === name);
                 if (type === FIND_MY_CREEPS) values = Object.values(Game.creeps).filter(creep => creep.room.name === name);
                 if (type === FIND_HOSTILE_CREEPS) values = f.visibleHostiles.filter(creep => creep.pos.roomName === name);
+                if (type === FIND_CREEPS) values = Object.values(Game.creeps).concat(f.visibleHostiles).filter(creep => creep.pos.roomName === name);
                 if ([FIND_CONSTRUCTION_SITES,FIND_MY_CONSTRUCTION_SITES].includes(type)) values = objects.filter(object => object.kind === 'site');
                 return opts && opts.filter ? values.filter(opts.filter) : values;
             },

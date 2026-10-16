@@ -96,6 +96,7 @@ class RemoteMiningService extends BaseService {
             const scoutRoute = facts.entrance && home && planRemoteRoute(
                 Object.values(Game.spawns).find(spawn => spawn.room.name === config.baseRoom)?.pos || home.controller.pos,
                 facts.entrance, { baseRoom: config.baseRoom, targetRoom, body: [MOVE], range: 0,
+                    occupancyMode: 'work_positions',
                     dangerZones: operation.lastDangerZones || [] }, policy, Game.time);
             facts.reconRouteSafe = !!scoutRoute?.valid;
             facts.reconActorExists = currentCreepPopulation().some(entry => entry.state !== 'invalid' &&

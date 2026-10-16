@@ -153,8 +153,11 @@ export default class RemoteMiningStrategyService extends BaseService {
             leg.retryCount = (leg.retryCount || 0) + 1;
             delete leg.retryAfter;
         }
+        const occupancyMode = creep.memory.role === 'scout' ?
+            (leg.goalKey === goalKey && leg.retryCount === 1 ? 'live_creeps' : 'work_positions') : undefined;
         const route = planRemoteRoute(creep.pos,goal,{baseRoom:operation.config.baseRoom,targetRoom:operation.config.targetRoom,
             body:creep.body,loadState:{energy:creep.store.getUsedCapacity()},range:goal.range,
+            occupancyMode,
             dangerZones: operation.lastDangerZones || []},policy,Game.time);
         route.recoverySequence = operation.recoverySequence || 0;
         const task = createRemoteMoveTask(creep.memory.remoteLeg,route,goal,Game.time);
