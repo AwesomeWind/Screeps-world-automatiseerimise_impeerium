@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "kind": "offline_recon_retest_review_only",
+  "requiresNewUserAuthorization": true,
+  "onlineConfigWritten": false,
+  "started": false,
+  "deployment": {
+    "codeCommit": "fe061d4a1e3548e71d7b31dd575b3c18b52c7f3a",
+    "serviceVersion": "1792128523514",
+    "mainSha256": "82b5f7f9473e986d89d3a8084ef095ea55f0c468578936ce1d636d5a006d33ac",
+    "mapSha256": "14ce4141c8676bfb474d8b0b569da19967e425fa9e04fd0dfe9843db3b846939"
+  },
+  "remoteMiningEnabled": false,
+  "proposedRemoteRooms": {
+    "W48N41": {
+      "enabled": false,
+      "hold": true,
+      "baseRoom": "W49N41",
+      "sourceId": null,
+      "containerId": null,
+      "containerPos": { "x": 19, "y": 6, "roomName": "W48N41" },
+      "allowContainerBuild": false,
+      "homeDeliveryTargetIds": ["6ad0b55bceeb3db0d3b4dda0"],
+      "reserveController": false
+    }
+  },
+  "candidateSourceForReadOnlyValidation": "5bbcaa6d9099fc012e63155b",
+  "policyProtections": {
+    "roleLimits": { "scout": 1, "remoteMiner": 0, "remoteHauler": 0, "reserver": 0 },
+    "windowTicks": 1000,
+    "spawnEnergyLimit": 2000,
+    "infrastructureEnergyLimit": 6000,
+    "intelTtl": 100,
+    "safeStreakTicks": 100,
+    "reconCooldownTicks": 200,
+    "maxLegTicks": 300,
+    "goalPlanningEnabled": false,
+    "governorShadow": true,
+    "schedulerEnforce": false,
+    "marketEnabled": false
+  },
+  "retestBounds": {
+    "maxObservedTicks": 300,
+    "maxWallMilliseconds": 1200000,
+    "maxConsecutiveReadFailures": 3,
+    "maxLegReplans": 1,
+    "replanCooldownTicks": 2,
+    "preserveOriginalLegDeadline": true,
+    "automaticReplacement": false,
+    "automaticEconomicEnable": false,
+    "forcedCongestionOrThreat": false,
+    "closeAndHoldAfterResult": true
+  },
+  "latestPreparationEvidence": {
+    "nativeStatusTick": 83677028,
+    "nativeHomeTick": 83677033,
+    "remoteActorCount": 0,
+    "terminalFree": 300000,
+    "homeRecovery": "normal",
+    "spawnIdle": true,
+    "currentFactsMustBeRecheckedBeforeStart": true
+  },
+  "acceptance": {
+    "releaseFingerprintAndClosedControlsVerified": true,
+    "newScoutBirthVerified": false,
+    "newScoutMovementVerified": false,
+    "visibleTargetRouteVerified": false,
+    "continuousSafetyVerified": false,
+    "onlineRecoveryScenarioCovered": false,
+    "actualTransportEnabled": false,
+    "longWindowAccepted": false
+  }
+}

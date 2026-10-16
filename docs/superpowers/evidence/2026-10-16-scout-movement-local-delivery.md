@@ -1,5 +1,7 @@
 # scout 移动与有限恢复：本地交付
 
+后续状态：用户已另行授权发布，逻辑提交fe061d4已推送并部署。见[发布及关闭状态核对](2026-10-16-scout-movement-release.md)。下文保留本地交付阶段的边界和验证记录。
+
 日期：2026-10-16。用户已认可修复方案，并授权本地实现、RED→GREEN、完整测试和构建；不授权提交、推送、部署或重新启用侦察/采运/GoalPlan。
 
 工作区：C:/Users/mts-2/.codex/worktrees/single-remote-mining/automatiseerimise_impeerium；分支codex/single-remote-mining。HEAD保持6f2633a6747d78ec582fbd0cb847e9906874051e。本轮源码、回归和文档改动留在工作区，未暂存、提交、推送或部署；保留此前未提交的证据文档。
