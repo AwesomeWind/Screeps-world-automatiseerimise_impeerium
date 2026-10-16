@@ -427,6 +427,9 @@ async function runBehaviorChecks() {
     global.ERR_INVALID_ARGS = -10;
     global.ERR_NO_BODYPART = -12;
     global.ERR_NO_PATH = -2;
+    global.ERR_BUSY = -4;
+    global.ERR_NOT_FOUND = -5;
+    global.ERR_TIRED = -11;
     global.RESOURCE_ENERGY = 'energy';
     global.RESOURCE_UTRIUM = 'U';
     global.RESOURCE_LEMERGIUM = 'L';

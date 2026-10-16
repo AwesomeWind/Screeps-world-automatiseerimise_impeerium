@@ -6,9 +6,24 @@ import { planRemoteRoute, createRemoteMoveTask, pathAvoidsDanger } from '../serv
 import { reserveInfrastructureAttempt } from '../services/RemoteMiningLedger.js';
 import { remoteActorIdentityMatches, remoteQuotaKey } from '../services/RemoteMiningState.js';
 
+const MOVE_RETRY_LIMIT = 1;
+const MOVE_RETRY_COOLDOWN_TICKS = 2;
+
+function movementGoal(pos, range) {
+    return { x: pos.x, y: pos.y, roomName: pos.roomName, range };
+}
+
+function moveFailureMatchesGoal(clear, goal, leg) {
+    if (clear?.taskType !== TaskTypes.MOVE_TO) return false;
+    if (clear.moveGoal && (clear.moveGoal.roomName !== goal.roomName ||
+        clear.moveGoal.x !== goal.x || clear.moveGoal.y !== goal.y)) return false;
+    return !Number.isFinite(clear.legExpiresAt) || clear.legExpiresAt === leg.expiresAt;
+}
+
 export default class RemoteMiningStrategyService extends BaseService {
     analyze() {
         for (const creep of Object.values(Game.creeps)) {
+            if (creep.spawning) continue;
             if (creep.memory.remoteStatus === 'orphaned_actor') {
                 if (creep.memory.task) clearTaskState(creep, 'orphaned_remote_actor');
                 continue;
@@ -73,25 +88,88 @@ export default class RemoteMiningStrategyService extends BaseService {
     }
 
     moveActor(creep, operation, goal) {
+        if (creep.spawning) return false;
         const policy = ensureEmpireControl().policy.remoteMining;
         const leg = creep.memory.remoteLeg || (creep.memory.remoteLeg = {});
+        const movingState = leg.state === 'safe_wait' ? null : leg.state;
         const goalKey = `${goal.roomName}:${goal.x}:${goal.y}:${operation.recoverySequence || 0}`;
-        if (creep.memory.lastTaskClear?.reason === 'move_stuck_or_expired') leg.blockedGoalKey = leg.goalKey;
+        const scope = global.RemoteMining?.[operation.remoteId];
+        const returning = goal.roomName === operation.config.baseRoom;
+        const reconScout = creep.memory.role === 'scout' && (scope?.state.allowRecon ||
+            operation.status === 'recovering' && creep.room.name === operation.config.targetRoom);
+        const allowed = scope && scope.operation === operation && creep.memory.remoteId === operation.remoteId &&
+            creep.memory.epoch === operation.epoch &&
+            remoteActorIdentityMatches(creep.memory, operation.config) &&
+            scope.facts.homeHealthy && !scope.facts.homeDanger &&
+            (returning || policy.enabled && operation.config.enabled && !operation.config.hold &&
+                !operation.pendingConfig && !creep.memory.remoteRetiring &&
+                (reconScout || scope.state.allowEconomicDeparture));
+        if (!allowed) {
+            leg.state = 'safe_wait';
+            leg.blockedReason = 'departure_blocked';
+            return false;
+        }
+        if (leg.goalKey === goalKey) {
+            const invalidRetryCount = leg.retryCount !== undefined &&
+                (!Number.isSafeInteger(leg.retryCount) || leg.retryCount < 0 || leg.retryCount > MOVE_RETRY_LIMIT);
+            if (!Number.isFinite(leg.startedAt) || !Number.isFinite(leg.expiresAt) || invalidRetryCount) {
+                leg.state = 'safe_wait';
+                leg.blockedReason = 'leg_state_invalid';
+                return false;
+            }
+            if (Game.time > leg.expiresAt) {
+                leg.state = 'safe_wait';
+                leg.blockedGoalKey = goalKey;
+                leg.blockedReason = 'leg_expired';
+                delete leg.retryAfter;
+                return false;
+            }
+            const clear = creep.memory.lastTaskClear;
+            const retryable = clear?.reason === 'move_path_lost' ||
+                clear?.reason === 'move_stuck_or_expired' && clear.movementFailure !== 'leg_expired';
+            if (moveFailureMatchesGoal(clear, goal, leg)) {
+                const failureId = `${clear.tick}:${clear.reason}`;
+                if (retryable && leg.lastMoveFailureId !== failureId) {
+                    leg.lastMoveFailureId = failureId;
+                    leg.blockedGoalKey = goalKey;
+                    if ((leg.retryCount || 0) >= MOVE_RETRY_LIMIT) {
+                        leg.blockedReason = 'retry_exhausted';
+                        delete leg.retryAfter;
+                    } else {
+                        leg.retryAfter = clear.tick + MOVE_RETRY_COOLDOWN_TICKS;
+                        leg.blockedReason = 'retry_cooldown';
+                    }
+                } else if (['move_no_path', 'move_invalid_path', 'move_invalid_target'].includes(clear.reason)) {
+                    leg.blockedGoalKey = goalKey;
+                    leg.blockedReason = 'route_invalid';
+                    delete leg.retryAfter;
+                }
+            }
+        }
         if (leg.blockedGoalKey === goalKey) {
             leg.state = 'safe_wait';
-            leg.blockedReason = 'stuck_or_expired';
-            return false;
+            if (!Number.isFinite(leg.retryAfter) || Game.time < leg.retryAfter ||
+                (leg.retryCount || 0) >= MOVE_RETRY_LIMIT) return false;
+            leg.retryCount = (leg.retryCount || 0) + 1;
+            delete leg.retryAfter;
         }
         const route = planRemoteRoute(creep.pos,goal,{baseRoom:operation.config.baseRoom,targetRoom:operation.config.targetRoom,
             body:creep.body,loadState:{energy:creep.store.getUsedCapacity()},range:goal.range,
             dangerZones: operation.lastDangerZones || []},policy,Game.time);
         route.recoverySequence = operation.recoverySequence || 0;
-        if (!creep.memory.remoteLeg) creep.memory.remoteLeg = {};
         const task = createRemoteMoveTask(creep.memory.remoteLeg,route,goal,Game.time);
-        if (task) assignTask(creep,task);
+        if (task) {
+            leg.state = movingState || (returning ? 'returning' : 'to_remote');
+            delete leg.blockedGoalKey;
+            delete leg.blockedReason;
+            if (creep.memory.remoteStatus === 'safe_wait') delete creep.memory.remoteStatus;
+            assignTask(creep,task);
+        }
         else {
             creep.memory.remoteStatus = 'safe_wait';
-            creep.memory.remoteLeg.state = 'safe_wait';
+            leg.state = 'safe_wait';
+            leg.blockedGoalKey = goalKey;
+            leg.blockedReason = route.valid ? 'leg_expired' : 'route_invalid';
         }
         return !!task;
     }
@@ -104,7 +182,7 @@ export default class RemoteMiningStrategyService extends BaseService {
         }
         const goal = operation.config.homeDeliveryTargetIds.map(id => Game.getObjectById(id)).find(target => target?.pos);
         leg.state = 'returning';
-        if (goal) this.moveActor(creep, operation, { ...goal.pos, range: 1 });
+        if (goal) this.moveActor(creep, operation, movementGoal(goal.pos, 1));
         else leg.state = 'safe_wait';
     }
 
@@ -167,7 +245,7 @@ export default class RemoteMiningStrategyService extends BaseService {
                 if (!target) { leg.state = 'safe_wait'; return; }
                 this.ensureTrip(creep, operation);
                 leg.state = 'unloading';
-                if (!creep.pos.inRangeTo(target.pos, 1)) this.moveActor(creep, operation, { ...target.pos, range: 1 });
+                if (!creep.pos.inRangeTo(target.pos, 1)) this.moveActor(creep, operation, movementGoal(target.pos, 1));
                 else {
                     const delivery = market.createRemoteHomeDeliveryTask(creep, {
                         remoteId: operation.remoteId, epoch: operation.epoch,
@@ -182,7 +260,7 @@ export default class RemoteMiningStrategyService extends BaseService {
             delete creep.memory.remoteTrip;
             leg.state = 'to_remote';
             const goal = facts.container?.pos || config.containerPos;
-            if (goal) this.moveActor(creep, operation, { ...goal, range: 1 });
+            if (goal) this.moveActor(creep, operation, movementGoal(goal, 1));
             return;
         }
         if (returnOnly || energy >= creep.store.getCapacity(RESOURCE_ENERGY) ||
@@ -190,14 +268,14 @@ export default class RemoteMiningStrategyService extends BaseService {
             leg.state = returnOnly ? 'returning' : 'to_home';
             const target = config.homeDeliveryTargetIds.map(id => Game.getObjectById(id))
                 .find(value => value?.pos?.roomName === config.baseRoom && value.store?.getFreeCapacity(RESOURCE_ENERGY) > 0);
-            if (target && !facts.homeDanger) this.moveActor(creep, operation, { ...target.pos, range: 1 });
+            if (target && !facts.homeDanger) this.moveActor(creep, operation, movementGoal(target.pos, 1));
             else leg.state = 'safe_wait';
             return;
         }
         if (!facts.container) { leg.state = 'safe_wait'; return; }
         if (!creep.pos.inRangeTo(facts.container.pos, 1)) {
             leg.state = 'to_remote';
-            this.moveActor(creep, operation, { ...facts.container.pos, range: 1 });
+            this.moveActor(creep, operation, movementGoal(facts.container.pos, 1));
             return;
         }
         this.ensureTrip(creep, operation);

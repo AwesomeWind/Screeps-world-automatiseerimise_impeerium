@@ -2,8 +2,8 @@ import TaskTypes from './TaskTypes.js';
 import WorkPositionCoordinator from './WorkPositionCoordinator.js';
 import { clearTaskState, observeTaskResource, observeTaskAction, recordTaskActionResult } from './TaskMetadata.js';
 
-function clearTask(creep, reason, result) {
-    clearTaskState(creep, reason, result === undefined ? {} : { result });
+function clearTask(creep, reason, result, details = {}) {
+    clearTaskState(creep, reason, { ...details, ...(result === undefined ? {} : { result }) });
 }
 
 function targetFromTask(task) {
@@ -91,8 +91,39 @@ function currentPos(creep) {
     };
 }
 
+function positionSnapshot(pos) {
+    return pos ? { x: pos.x, y: pos.y, roomName: pos.roomName } : null;
+}
+
+function moveFailureDetails(task, failure) {
+    return {
+        movementFailure: failure,
+        moveGoal: positionSnapshot(task.pos),
+        legExpiresAt: task.expiresAt ?? null
+    };
+}
+
+function recordMoveAttempt(creep, task, result) {
+    let failure = null;
+    if (result === ERR_NOT_FOUND) failure = 'path_lost';
+    else if (result === ERR_TIRED) failure = 'fatigue';
+    else if (result === ERR_BUSY) failure = 'busy';
+    else if (result !== OK) failure = 'move_rejected';
+    creep.memory.lastMoveAttempt = {
+        tick: Game.time,
+        from: currentPos(creep),
+        goal: positionSnapshot(task.pos),
+        pathFirst: positionSnapshot(task.path[0]),
+        result,
+        failure,
+        spawning: !!creep.spawning,
+        fatigue: creep.fatigue || 0
+    };
+}
+
 function updateMoveProgress(creep, task) {
     const now = typeof Game !== 'undefined' && Game.time !== undefined ? Game.time : 0;
+    if (Number.isFinite(task.expiresAt) && now > task.expiresAt) return 'leg_expired';
     const pos = currentPos(creep);
     const stuckLimit = task.stuckLimit === undefined ? 5 : task.stuckLimit;
     const maxTicks = task.maxTicks === undefined ? 50 : task.maxTicks;
@@ -101,7 +132,7 @@ function updateMoveProgress(creep, task) {
     if (!task.lastPos) {
         task.lastPos = pos;
         task.stuckTicks = 0;
-        return true;
+        return null;
     }
 
     if (samePos(task.lastPos, pos) && !(task.ignoreFatigueForStuck && creep.fatigue > 0)) task.stuckTicks = (task.stuckTicks || 0) + 1;
@@ -110,12 +141,14 @@ function updateMoveProgress(creep, task) {
         task.stuckTicks = 0;
     }
 
-    if ((task.stuckTicks || 0) >= stuckLimit) return false;
-    return now - task.startedAt <= maxTicks;
+    if (now - task.startedAt > maxTicks) return 'leg_expired';
+    if ((task.stuckTicks || 0) >= stuckLimit) return 'stuck';
+    return null;
 }
 
 const ActionParser = {
     run(creep) {
+        if (creep.spawning) return;
         const task = creep.memory.task;
         if (!task || !task.type) return;
         if (task.path && (!Array.isArray(task.path) || !task.path.length || task.path.length > 300 ||
@@ -224,12 +257,16 @@ const ActionParser = {
                 if (result === ERR_INVALID_TARGET) clearTask(creep, 'reserve_invalid_target', result);
                 if (result === ERR_NO_BODYPART) clearTask(creep, 'reserve_no_bodypart', result);
                 break;
-            case TaskTypes.MOVE_TO:
+            case TaskTypes.MOVE_TO: {
                 range = task.range === undefined ? 1 : task.range;
                 if (creep.pos.inRangeTo(target.pos, range)) clearTask(creep, 'move_arrived');
-                else if (!updateMoveProgress(creep, task)) clearTask(creep, 'move_stuck_or_expired');
-                else result = ERR_NOT_IN_RANGE;
+                else {
+                    const failure = updateMoveProgress(creep, task);
+                    if (failure) clearTask(creep, 'move_stuck_or_expired', undefined, moveFailureDetails(task, failure));
+                    else result = ERR_NOT_IN_RANGE;
+                }
                 break;
+            }
             default:
                 console.log(`[ActionParser] unknown task type: ${task.type}`);
                 clearTask(creep, 'unknown_task_type');
@@ -238,6 +275,10 @@ const ActionParser = {
 
         if (result === ERR_NOT_IN_RANGE) {
             result = moveToTarget(creep, movementTarget, task, range);
+            if (task.type === TaskTypes.MOVE_TO && task.path) recordMoveAttempt(creep, task, result);
+            if (result === ERR_NOT_FOUND && task.type === TaskTypes.MOVE_TO && task.path) {
+                clearTask(creep, 'move_path_lost', result, moveFailureDetails(task, 'path_lost'));
+            }
             if (result === ERR_NO_PATH) clearTask(creep, 'move_no_path', result);
             if (result === ERR_INVALID_TARGET) clearTask(creep, 'move_invalid_target', result);
         } else if (result === ERR_INVALID_ARGS || result === ERR_NO_BODYPART) {

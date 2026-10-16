@@ -70,6 +70,11 @@ export function createRemoteMoveTask(actorState, route, goal, tick) {
         actorState.goalKey = key;
         actorState.startedAt = tick;
         actorState.expiresAt = tick+duration;
+        actorState.retryCount = 0;
+        delete actorState.retryAfter;
+        delete actorState.lastMoveFailureId;
+        delete actorState.blockedGoalKey;
+        delete actorState.blockedReason;
     }
     if (tick > actorState.expiresAt) { actorState.blockedReason='leg_expired'; return null; }
     return { type:'MOVE_TO',pos:{x:goal.x,y:goal.y,roomName:goal.roomName},range:goal.range === undefined?1:goal.range,

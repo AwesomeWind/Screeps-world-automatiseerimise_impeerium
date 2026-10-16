@@ -886,12 +886,17 @@ test('source_task_guard_rejects_unscoped_container_work', async () => {
     assert.equal(Guard.validate(f.miner, { type: 'REPAIR', targetId: 'HomeSink' }).valid, false);
 });
 
-test('route_strategy_stuck_leg_not_reissued_each_tick', async () => {
+test('route_strategy_stuck_leg_retries_once_without_renewing_deadline', async () => {
     const f = await createRemoteFixture({ haulerAtHome: true });
-    for (let tick = 100; tick <= 109; tick++) { if (tick > 100) f.nextTick({ tick }); f.runTick(); }
+    f.runTick();
+    const deadline = f.hauler.memory.remoteLeg.expiresAt;
+    for (let tick = 101; tick <= 115; tick++) { f.nextTick({ tick }); f.runTick(); }
     assert.equal(f.hauler.memory.remoteLeg.state, 'safe_wait');
     assert.equal(f.hauler.memory.task || null, null);
-    assert.ok(f.moves.length <= 5);
+    assert.equal(f.hauler.memory.remoteLeg.retryCount, 1);
+    assert.equal(f.hauler.memory.remoteLeg.blockedReason, 'retry_exhausted');
+    assert.equal(f.hauler.memory.remoteLeg.expiresAt, deadline);
+    assert.ok(f.moves.filter(move => move.name === f.hauler.name).length <= 10);
 });
 
 test('review_R1_return_leg_revalidates_new_danger', async () => {
@@ -1102,10 +1107,15 @@ test('review_R6_late_proof_resolves_gauge_without_counter_reset', async () => {
 test('safety_paused_worker_return_keeps_stuck_guard', async () => {
     const f = await createRemoteFixture({ minerAtRemote: true });
     f.memory.empire.remoteRooms.W1N2.hold = true;
-    for (let tick = 100; tick <= 109; tick++) { if (tick > 100) f.nextTick({ tick }); f.runTick(); }
+    f.runTick();
+    const deadline = f.miner.memory.remoteLeg.expiresAt;
+    for (let tick = 101; tick <= 115; tick++) { f.nextTick({ tick }); f.runTick(); }
     assert.equal(f.miner.memory.remoteLeg.state, 'safe_wait');
     assert.equal(f.miner.memory.task || null, null);
-    assert.ok(f.moves.filter(move => move.name === f.miner.name).length <= 5);
+    assert.equal(f.miner.memory.remoteLeg.retryCount, 1);
+    assert.equal(f.miner.memory.remoteLeg.expiresAt, deadline);
+    assert.equal(f.miner.memory.remoteLeg.blockedReason, 'retry_exhausted');
+    assert.ok(f.moves.filter(move => move.name === f.miner.name).length <= 10);
 });
 
 test('quota_conflicting_source_identity_cannot_cover_or_execute', async () => {
