@@ -11,6 +11,7 @@ async function createReconTrialFixture(options = {}) {
     Memory.empire.market.enabled = false;
     delete Game.rooms.W1N2;
     global.EmpireServicesVersion = 'trial-v1';
+    Game.cpu.tickLimit = 20;
     let nowMs = options.nowMs ?? 1000000;
     let blocked = false;
     const moves = [];
@@ -19,7 +20,7 @@ async function createReconTrialFixture(options = {}) {
     const baseReset = fixture.resetRuntime;
     const resetRuntime = () => {
         baseReset();
-        fixture.services.unshift(new Guard('RemoteReconTrial', { now: () => nowMs }));
+        fixture.services.unshift(new Guard('RemoteReconTrial', { ...options.guardOptions, now: () => nowMs }));
         global.EmpireServices = fixture.services;
     };
     resetRuntime();
@@ -36,7 +37,7 @@ async function createReconTrialFixture(options = {}) {
                     const index = path.findIndex(point => point.isEqualTo(actor.pos));
                     const next = path[index + 1];
                     const result = !next || index < 0 && actor.pos.getRangeTo(path[0]) > 1 ? ERR_NOT_FOUND : OK;
-                    moves.push({ tick: Game.time, name, result, from: actor.pos, next });
+                    moves.push({ tick: Game.time, name, result, from: actor.pos, next, goal: actor.memory.task?.pos });
                     if (result === OK && !blocked) pendingMoves.set(name, next);
                     return result;
                 };
@@ -90,7 +91,7 @@ async function createReconTrialFixture(options = {}) {
     };
     const prepare = (extra = {}) => {
         const activateAtTick = extra.activateAtTick ?? Game.time + 1;
-        Object.assign(raw, { enabled: true, hold: false });
+        Object.assign(Memory.empire.remoteRooms.W1N2, { enabled: true, hold: false });
         const remote = Memory.empire.control.policy.remoteMining;
         remote.enabled = true;
         remote.reconTrial = { enabled: true, request: { schemaVersion: 1, action: 'start', id: 'trial-one', sequence: 1,
@@ -98,7 +99,13 @@ async function createReconTrialFixture(options = {}) {
             expiresAtTick: activateAtTick + 300, issuedAtMs: nowMs, expiresAtMs: nowMs + 1200000,
             candidateSourceId: 'remoteSourceA', ...extra } };
     };
-    return { fixture, phases, moves, prepare, runTick, advance, resetRuntime,
+    const restoreMemory = () => {
+        global.Memory = JSON.parse(JSON.stringify(Memory));
+        for (const actor of Object.values(Game.creeps)) actor.memory = Memory.creeps[actor.name];
+        fixture.memory = Memory;
+        resetRuntime();
+    };
+    return { fixture, phases, moves, prepare, runTick, advance, resetRuntime, restoreMemory,
         setNowMs(value) { nowMs = value; }, setBlocked(value) { blocked = value; },
         get state() { return Memory.empire.remoteMining?.reconTrials; },
         get scout() { return Object.values(Game.creeps).find(creep => creep.memory.reconTrialId); } };

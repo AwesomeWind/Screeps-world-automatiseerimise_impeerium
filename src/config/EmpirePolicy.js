@@ -1,5 +1,8 @@
 export const EMPIRE_CONTROL_SCHEMA_VERSION = 1;
 
+// Read-only fallback values; explicit diagnostic policy is never rewritten.
+export const DEFAULT_REMOTE_DANGER_EVIDENCE_POLICY = Object.freeze({ reserveCpu: 5, maxCaptureCpu: 2 });
+
 export const DEFAULT_EMPIRE_POLICY = {
     autoExpansion: true,
     autoMarket: true,

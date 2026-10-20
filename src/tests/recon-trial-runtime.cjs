@@ -4,6 +4,281 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createReconTrialFixture } = require('./helpers/recon-trial-fixture.cjs');
 
+function dangerEnemy(roomName = 'W1N2') {
+    return { id: 'hostile-A', name: 'visitor', owner: { username: 'Invader' },
+        pos: new RoomPosition(5, 5, roomName), body: [{ type: MOVE, hits: 100 }] };
+}
+
+for (const fault of ['normal', 'recorder', 'owner', 'body', 'normalize', 'pending_write', 'final_write', 'schema', 'cpu']) {
+    test(`danger_record_failure_never_delays_shutdown_${fault}`, async () => {
+        const { recordStoppedTrialDanger } = await import('../services/RemoteDangerEvidence.js');
+        const seen = [];
+        let writes = 0;
+        const scene = await createReconTrialFixture({ guardOptions: { dangerRecorder(transition, deps) {
+            seen.push({ enabled: Memory.empire.remoteRooms.W1N2.enabled,
+                hold: Memory.empire.remoteRooms.W1N2.hold,
+                recon: Memory.empire.remoteMining.operations['W1N1:W1N2'].allowRecon,
+                outbound: global.RemoteReconTrial.permit.allowOutbound,
+                spawn: global.RemoteReconTrial.permit.allowSpawn,
+                outboundTask: Object.values(Game.creeps).some(actor => actor.memory.task?.pos?.roomName === 'W1N2') });
+            if (fault === 'recorder') throw new Error('injected recorder failure');
+            const overrides = { ...deps };
+            if (fault === 'normalize') overrides.normalizeActor = () => { throw new Error('normalizer failed'); };
+            if (['pending_write', 'final_write'].includes(fault)) overrides.writeStore = value => {
+                writes++;
+                if (fault === 'pending_write' || writes === 2) throw new Error('injected write failure');
+                Memory.empire.remoteMining.dangerEvidence = value;
+            };
+            return recordStoppedTrialDanger(transition, overrides);
+        } } });
+        scene.prepare(); scene.advance();
+        for (let tick = 102; tick <= 104; tick++) scene.advance({ tick });
+        const expires = scene.state.current.expiresAtTick;
+        const wall = scene.state.current.expiresAtMs;
+        const controls = structuredClone(Memory.empire.control.policy);
+        const enemy = dangerEnemy();
+        if (fault === 'owner' || fault === 'body') Object.defineProperty(enemy, fault, { get() { throw new Error('field failed'); } });
+        if (fault === 'schema') Memory.empire.remoteMining.dangerEvidence = { schemaVersion: 99, records: [] };
+        if (fault === 'cpu') Game.cpu.getUsed = () => 16;
+        scene.fixture.visibleHostiles.push(enemy);
+        const moveStart = scene.moves.length;
+        assert.doesNotThrow(() => scene.advance({ visibility: true }));
+        assert.deepEqual(seen, [{ enabled: false, hold: true, recon: false, outbound: false, spawn: false, outboundTask: false }]);
+        assert.equal(scene.state.current.outcome.stopReason, 'danger');
+        assert.equal(scene.state.current.outcome.decidedAtTick, Game.time);
+        assert.equal(scene.state.current.expiresAtTick, expires);
+        assert.equal(scene.state.current.expiresAtMs, wall);
+        assert.equal(scene.fixture.spawnCalls.filter(call => call.memory.reconTrialId).length, 1);
+        assert.ok(scene.moves.slice(moveStart).every(move => move.goal?.roomName !== 'W1N2'));
+        assert.deepEqual(Memory.empire.control.policy, { ...controls,
+            remoteMining: { ...controls.remoteMining, enabled: false } });
+        const data = Memory.empire.remoteMining.dangerEvidence;
+        if (fault === 'normal') assert.equal(data.records[0].actors[0].id, 'hostile-A');
+        if (fault === 'normalize') assert.equal(data.records[0].captureReason, 'normalize_failed');
+        if (fault === 'owner' || fault === 'body') assert.equal(data.records[0].captureStatus, 'partial');
+        if (fault === 'schema') assert.equal(data.schemaVersion, 99);
+        if (fault === 'pending_write') assert.equal(data, undefined);
+        if (fault === 'final_write') assert.equal(data.records[0].captureStatus, 'failed');
+        if (fault === 'cpu') assert.equal(data.records[0].captureStatus, 'skipped_cpu');
+        scene.advance();
+        assert.equal(scene.state.current.status, 'aborted');
+        assert.ok(scene.state.current.closureVerifiedAtTick > scene.state.current.closeAppliedAtTick);
+        assert.equal(seen.length, 1);
+    });
+}
+
+test('danger_capture_home_reason_uses_home_room', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare(); scene.advance();
+    scene.fixture.visibleHostiles.push(dangerEnemy('W1N1'));
+    scene.advance();
+    const record = Memory.empire.remoteMining.dangerEvidence.records[0];
+    assert.equal(record.stopReason, 'home_danger');
+    assert.equal(record.observedRoom, 'W1N1');
+    assert.equal(record.actors[0].pos.roomName, 'W1N1');
+});
+
+test('danger_hook_skipped_for_other_stop_causes', async () => {
+    let reads = 0;
+    const scene = await createReconTrialFixture({ guardOptions: { dangerRecorder() { reads++; } } });
+    scene.prepare(); scene.advance();
+    Memory.empire.remoteRooms.W1N2.hold = true;
+    scene.advance();
+    assert.equal(reads, 0);
+    assert.equal(Memory.empire.remoteMining.dangerEvidence, undefined);
+});
+
+test('danger_guard_still_closes_when_remote_p2_skipped', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare(); scene.advance();
+    scene.fixture.visibleHostiles.push(dangerEnemy());
+    scene.advance({ visibility: true, skipRemote: true });
+    assert.equal(scene.state.current.outcome.stopReason, 'danger');
+    assert.equal(Memory.empire.remoteRooms.W1N2.enabled, false);
+    assert.equal(Memory.empire.remoteMining.dangerEvidence.records[0].actors[0].id, 'hostile-A');
+});
+
+async function stoppedDangerScene(options = {}) {
+    const scene = await createReconTrialFixture(options);
+    scene.prepare(); scene.advance();
+    scene.fixture.visibleHostiles.push(dangerEnemy());
+    scene.advance({ visibility: true });
+    assert.equal(scene.state.current.status, 'stopping');
+    return scene;
+}
+
+test('danger_success_survives_memory_roundtrip_and_reset', async () => {
+    const scene = await stoppedDangerScene();
+    const snapshot = structuredClone(Memory.empire.remoteMining.dangerEvidence);
+    const outcome = structuredClone(scene.state.current.outcome);
+    scene.restoreMemory();
+    for (const actor of Object.values(Game.creeps)) assert.equal(actor.memory, Memory.creeps[actor.name]);
+    scene.advance({ visibility: false });
+    assert.deepEqual(Memory.empire.remoteMining.dangerEvidence, snapshot);
+    assert.deepEqual(scene.state.current.outcome, outcome);
+    assert.equal(scene.state.current.status, 'aborted');
+    assert.ok(scene.state.current.closureVerifiedAtTick > scene.state.current.closeAppliedAtTick);
+    assert.equal(scene.fixture.spawnCalls.filter(call => call.memory.reconTrialId).length, 1);
+});
+
+test('danger_reset_fixture_uses_current_memory', async () => {
+    const scene = await stoppedDangerScene();
+    const oldMemory = Memory;
+    scene.restoreMemory();
+    scene.prepare({ id: 'trial-two', sequence: 2 });
+    assert.equal(Memory.empire.remoteRooms.W1N2.enabled, true);
+    assert.equal(oldMemory.empire.remoteRooms.W1N2.enabled, false);
+    assert.equal(scene.fixture.memory, Memory);
+});
+
+test('danger_pending_reset_is_interrupted_not_backfilled', async () => {
+    const model = await import('../services/RemoteDangerEvidenceModel.js');
+    let context;
+    let captures = 0;
+    const scene = await stoppedDangerScene({ guardOptions: { dangerRecorder(transition) {
+        captures++;
+        context = model.dangerContextForStop(transition.before, transition.after, transition.clock);
+        Memory.empire.remoteMining.dangerEvidence = model.beginDangerEvidence(undefined, context).next;
+        return { attempted: true, persisted: true, captureStatus: 'pending' };
+    } } });
+    const pending = structuredClone(Memory.empire.remoteMining.dangerEvidence);
+    scene.restoreMemory();
+    scene.fixture.visibleHostiles.splice(0, Infinity, { ...dangerEnemy(), id: 'different-enemy' });
+    scene.advance({ visibility: true });
+    assert.equal(captures, 1);
+    assert.deepEqual(Memory.empire.remoteMining.dangerEvidence, pending);
+    const summary = model.dangerEvidenceSummary(pending, context, Game.time, 100);
+    assert.equal(summary.effectiveStatus, 'interrupted');
+    assert.equal(summary.rawCaptureStatus, 'pending');
+    assert.ok(!JSON.stringify(pending).includes('different-enemy'));
+    assert.equal(scene.state.current.status, 'aborted');
+});
+
+test('danger_committed_terminal_record_survives_new_module_instance', async () => {
+    const options = { guardOptions: {} };
+    const scene = await stoppedDangerScene(options);
+    const snapshot = structuredClone(Memory.empire.remoteMining.dangerEvidence);
+    const freshAdapter = await import('../services/RemoteDangerEvidence.js?reset-evidence=1');
+    let replays = 0;
+    options.guardOptions.dangerRecorder = (...args) => { replays++; return freshAdapter.recordStoppedTrialDanger(...args); };
+    scene.restoreMemory();
+    scene.advance();
+    assert.equal(replays, 0);
+    assert.deepEqual(Memory.empire.remoteMining.dangerEvidence, snapshot);
+    assert.equal(scene.state.current.status, 'aborted');
+});
+
+test('danger_terminal_result_is_not_overwritten', async () => {
+    const scene = await stoppedDangerScene();
+    const snapshot = structuredClone(Memory.empire.remoteMining.dangerEvidence);
+    const outcome = structuredClone(scene.state.current.outcome);
+    scene.restoreMemory();
+    scene.fixture.visibleHostiles.splice(0, Infinity, { ...dangerEnemy(), id: 'later-enemy' });
+    for (let index = 0; index < 3; index++) scene.advance({ visibility: index !== 1 });
+    assert.deepEqual(Memory.empire.remoteMining.dangerEvidence, snapshot);
+    assert.deepEqual(scene.state.current.outcome, outcome);
+});
+
+test('danger_legacy_aborted_trial_reports_not_recorded', async () => {
+    const scene = await stoppedDangerScene();
+    delete Memory.empire.remoteMining.dangerEvidence;
+    scene.restoreMemory(); scene.advance();
+    assert.equal(Memory.empire.remoteMining.dangerEvidence, undefined);
+    const { dangerEvidenceSummary } = await import('../services/RemoteDangerEvidenceModel.js');
+    const current = scene.state.current;
+    assert.equal(dangerEvidenceSummary(undefined, { identity: current.identity,
+        decidedAtTick: current.outcome.decidedAtTick, stopReason: current.outcome.stopReason }, Game.time, 100).effectiveStatus, 'not_recorded');
+});
+
+test('danger_schema_corruption_does_not_poison_guard', async () => {
+    const scene = await stoppedDangerScene();
+    Memory.empire.remoteMining.dangerEvidence = { schemaVersion: 99, records: ['preserve-me'] };
+    scene.restoreMemory(); scene.advance();
+    assert.equal(scene.state.current.status, 'aborted');
+    assert.equal(global.RemoteReconTrial.permit.allowOutbound, false);
+    assert.deepEqual(Memory.empire.remoteMining.dangerEvidence, { schemaVersion: 99, records: ['preserve-me'] });
+});
+
+test('danger_default_off_has_no_namespace_or_capture', async () => {
+    let calls = 0;
+    const scene = await createReconTrialFixture({ guardOptions: {
+        dangerRecorder() { calls++; }, dangerReader() { calls++; }
+    } });
+    scene.runTick(); scene.advance();
+    assert.equal(calls, 0);
+    assert.equal(Memory.empire.remoteMining.dangerEvidence, undefined);
+    assert.equal(scene.fixture.spawnCalls.filter(call => call.memory.reconTrialId).length, 0);
+});
+
+test('danger_summary_failure_preserves_control_summary', async () => {
+    const scene = await stoppedDangerScene({ guardOptions: { dangerReader() { throw new Error('reader failed'); } } });
+    assert.equal(global.RemoteReconTrial.summary.status, 'stopping');
+    assert.equal(global.RemoteReconTrial.permit.allowOutbound, false);
+    assert.equal(global.RemoteReconTrial.summary.dangerEvidence.current.effectiveStatus, 'read_failed');
+    scene.advance();
+    assert.equal(global.RemoteReconTrial.summary.status, 'aborted');
+    assert.equal(Memory.empire.remoteMining.dangerEvidence.records[0].captureStatus, 'captured');
+});
+
+test('danger_summary_does_not_duplicate_actors_and_metrics_preserves_times', async () => {
+    const scene = await stoppedDangerScene(); scene.advance();
+    const { default: Metrics } = await import('../services/EmpireMetricsService.js');
+    const metrics = new Metrics('EmpireMetrics');
+    Memory.empire.control.policy.telemetry.metricsInterval = 1;
+    metrics.cleanup();
+    const first = structuredClone(Memory.empire.control.metrics.reconTrial);
+    const before = first.dangerEvidence.current;
+    assert.equal(before.effectiveStatus, 'captured');
+    assert.equal(before.actors, undefined);
+    assert.ok(JSON.stringify(before).length <= 1500);
+    const record = structuredClone(Memory.empire.remoteMining.dangerEvidence);
+    scene.advance(); metrics.cleanup();
+    const after = Memory.empire.control.metrics.reconTrial;
+    assert.ok(after.capturedAt > first.capturedAt);
+    assert.equal(after.dangerEvidence.current.capturedAtTick, before.capturedAtTick);
+    assert.equal(after.dangerEvidence.current.decidedAtTick, before.decidedAtTick);
+    assert.deepEqual(Memory.empire.remoteMining.dangerEvidence, record);
+});
+
+test('danger_telemetry_disabled_does_not_disable_guard_capture', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare(); scene.advance();
+    Memory.empire.control.policy.telemetry.enabled = false;
+    scene.fixture.visibleHostiles.push(dangerEnemy());
+    scene.advance({ visibility: true });
+    assert.equal(Memory.empire.remoteMining.dangerEvidence.records[0].captureStatus, 'captured');
+    assert.equal(scene.state.current.outcome.stopReason, 'danger');
+    assert.equal(Memory.empire.control.metrics.reconTrial, undefined);
+});
+
+test('danger_snapshot_never_authorizes_economy', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare(); scene.advance();
+    const enemy = dangerEnemy(); enemy.owner.username = 'TrustedAlly';
+    scene.fixture.visibleHostiles.push(enemy); scene.advance({ visibility: true });
+    assert.equal(Memory.empire.remoteMining.dangerEvidence.records[0].actors[0].ownerUsername, 'TrustedAlly');
+    assert.equal(scene.state.current.outcome.stopReason, 'danger');
+    assert.equal(global.RemoteMining['W1N1:W1N2'].state.allowEconomicDeparture, false);
+    assert.equal(Memory.empire.control.policy.goalPlanning.enabled, false);
+    assert.equal(scene.fixture.spawnCalls.filter(call => ['remoteMiner', 'remoteHauler'].includes(call.memory.role)).length, 0);
+});
+
+test('danger_corrupt_captured_record_does_not_poison_shutdown', async () => {
+    const m = await import('../services/RemoteDangerEvidenceModel.js');
+    const scene = await createReconTrialFixture(); scene.prepare(); scene.advance();
+    const clock = { tick: Game.time, nowMs: 1000000, codeVersion: global.EmpireServicesVersion };
+    const context = m.dangerContextForStop(undefined, { ...scene.state.current,
+        outcome: { decidedAtTick: Game.time, stopReason: 'danger' } }, clock);
+    const damaged = m.beginDangerEvidence(undefined, context).next;
+    damaged.records[0].captureStatus = 'captured';
+    Memory.empire.remoteMining.dangerEvidence = damaged;
+    const before = structuredClone(damaged);
+    scene.fixture.visibleHostiles.push(dangerEnemy());
+    scene.advance({ visibility: true });
+    assert.equal(global.RemoteReconTrial.summary.dangerEvidence.current.effectiveStatus, 'store_invalid');
+    assert.deepEqual(Memory.empire.remoteMining.dangerEvidence, before);
+    assert.equal(global.RemoteReconTrial.permit.allowOutbound, false);
+    scene.advance();
+    assert.equal(scene.state.current.status, 'aborted');
+    assert.ok(scene.state.current.closureVerifiedAtTick > scene.state.current.closeAppliedAtTick);
+});
+
 test('trial_runtime_default_off_keeps_namespace_absent', async () => {
     const scene = await createReconTrialFixture();
     scene.runTick();

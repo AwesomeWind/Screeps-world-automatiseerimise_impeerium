@@ -24,3 +24,4 @@ smoke 测试覆盖：
 - 对新增 Memory/global 合约要加断言，防止后续重构破坏服务顺序。
 - 测试文件较大，新增用例优先放在相邻功能块附近，不另起无关区域。
 - `recon-trial-model.cjs` 覆盖纯会话协议；`recon-trial-runtime.cjs` 通过真实 RemoteMining/Bureau/Spawn/Strategy/ActionParser 验证动作前撤权、孵化中断、跨 tick 观测及终局。fixture 时钟通过构造器注入，不全局改写 Date.now；实际位移在下一 tick 应用。
+- `remote-danger-evidence.cjs` 覆盖独立危险ledger、字段/容量/CPU边界、写入结果不明及只读摘要；runtime测试在hook外断言已关停，再注入记录失败。`restoreMemory()`必须序列化Memory、重绑creep.memory并重建服务；不能用fixture旧raw闭包或global去重证明跨重置保留。

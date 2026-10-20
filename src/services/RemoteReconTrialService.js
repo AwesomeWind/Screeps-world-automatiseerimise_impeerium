@@ -4,6 +4,7 @@ import { clearTaskState } from '../core/TaskMetadata.js';
 import { cancelSpawnGrant } from './RemoteMiningLedger.js';
 import { advanceReconTrial, reconTrialPermission, summarizeReconTrial } from './RemoteReconTrialModel.js';
 import { collectReconTrialFacts } from './RemoteReconTrialFacts.js';
+import { recordStoppedTrialDanger, readTrialDangerEvidence } from './RemoteDangerEvidence.js';
 
 let runtime = null;
 
@@ -105,9 +106,12 @@ export function recordReconTrialSpawn(context, event, clock) {
 }
 
 export default class RemoteReconTrialService extends BaseService {
-    constructor(name, { now = Date.now } = {}) {
+    constructor(name, { now = Date.now, dangerRecorder = recordStoppedTrialDanger,
+        dangerReader = readTrialDangerEvidence } = {}) {
         super(name);
         this.now = now;
+        this.dangerRecorder = dangerRecorder;
+        this.dangerReader = dangerReader;
     }
 
     clock() {
@@ -138,8 +142,34 @@ export default class RemoteReconTrialService extends BaseService {
             Memory.empire.remoteMining.reconTrials = result.state;
         }
         for (const effect of result.effects) this.applyEffect(effect, facts, clock);
+        const failure = global.RemoteReconTrial?.dangerEvidenceFailure;
         global.RemoteReconTrial = { evaluatedAt: clock.tick, permit: result.permit,
-            summary: summarizeReconTrial(result.state, clock) };
+            summary: summarizeReconTrial(result.state, clock),
+            ...(failure?.evaluatedAt === clock.tick ? { dangerEvidenceFailure: failure } : {}) };
+        const before = input?.current;
+        const after = result.state?.current;
+        if (!before?.outcome && after?.outcome?.decidedAtTick === clock.tick &&
+            ['danger', 'home_danger'].includes(after.outcome.stopReason)) {
+            // Control state, close effects and deny permits must already be
+            // published. Optional diagnostics must never interrupt this path.
+            try {
+                const captured = this.dangerRecorder({ before, after, clock }, { readClock: () => this.clock() });
+                if (captured?.attempted && !captured.persisted) global.RemoteReconTrial.dangerEvidenceFailure = {
+                    evaluatedAt: clock.tick, reason: 'record_not_persisted'
+                };
+            } catch {
+                global.RemoteReconTrial.dangerEvidenceFailure = { evaluatedAt: clock.tick, reason: 'record_failed' };
+            }
+        }
+        if (global.RemoteReconTrial.summary) {
+            try {
+                global.RemoteReconTrial.summary.dangerEvidence = this.dangerReader({ state: result.state, clock });
+            } catch {
+                global.RemoteReconTrial.summary.dangerEvidence = {
+                    current: { effectiveStatus: 'read_failed', historical: true }, previous: null
+                };
+            }
+        }
         return result;
     }
 
