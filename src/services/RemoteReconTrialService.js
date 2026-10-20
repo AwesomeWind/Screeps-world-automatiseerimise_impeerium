@@ -5,6 +5,7 @@ import { cancelSpawnGrant } from './RemoteMiningLedger.js';
 import { advanceReconTrial, reconTrialPermission, summarizeReconTrial } from './RemoteReconTrialModel.js';
 import { collectReconTrialFacts } from './RemoteReconTrialFacts.js';
 import { recordStoppedTrialDanger, readTrialDangerEvidence } from './RemoteDangerEvidence.js';
+import { reduceReconTrialSettlement } from './RemoteReconTrialSettlement.js';
 
 let runtime = null;
 
@@ -107,11 +108,12 @@ export function recordReconTrialSpawn(context, event, clock) {
 
 export default class RemoteReconTrialService extends BaseService {
     constructor(name, { now = Date.now, dangerRecorder = recordStoppedTrialDanger,
-        dangerReader = readTrialDangerEvidence } = {}) {
+        dangerReader = readTrialDangerEvidence, settlementReducer = reduceReconTrialSettlement } = {}) {
         super(name);
         this.now = now;
         this.dangerRecorder = dangerRecorder;
         this.dangerReader = dangerReader;
+        this.settlementReducer = settlementReducer;
     }
 
     clock() {
@@ -136,7 +138,7 @@ export default class RemoteReconTrialService extends BaseService {
             return { state: undefined, permit, effects: [] };
         }
         const facts = collectReconTrialFacts(scope, clock);
-        const result = advanceReconTrial(input, event, facts, clock);
+        const result = advanceReconTrial(input, event, facts, clock, this.settlementReducer);
         if (result.state !== undefined && result.state !== input) {
             if (!Memory.empire.remoteMining) Memory.empire.remoteMining = { operations: {}, budgets: {} };
             Memory.empire.remoteMining.reconTrials = result.state;
@@ -199,7 +201,7 @@ export default class RemoteReconTrialService extends BaseService {
         const scope = global.RemoteMining?.[session.identity.remoteId];
         const facts = { ...collectReconTrialFacts(scope, clock), fatalReason: reason };
         const input = Memory.empire.remoteMining.reconTrials;
-        const result = advanceReconTrial(input, { kind: 'begin_tick' }, facts, clock);
+        const result = advanceReconTrial(input, { kind: 'begin_tick' }, facts, clock, this.settlementReducer);
         Memory.empire.remoteMining.reconTrials = result.state;
         for (const effect of result.effects) this.applyEffect(effect, facts, clock);
     }

@@ -1,3 +1,6 @@
+import { createReconTrialSettlement, reduceReconTrialSettlement,
+    fallbackReconTrialSettlement, reconTrialSettlementSourceStatus } from './RemoteReconTrialSettlement.js';
+
 const ACTIVE = new Set(['waiting_spawn', 'spawning', 'travelling', 'observing']);
 const TERMINAL = new Set(['completed', 'aborted']);
 const STATUSES = new Set([...ACTIVE, ...TERMINAL, 'stopping']);
@@ -157,7 +160,7 @@ function factFailure(facts) {
 }
 
 function makeSession(request, facts, clock) {
-    return { identity: { trialId: request.id, sequence: request.sequence, remoteId: request.remoteId,
+    const session = { identity: { trialId: request.id, sequence: request.sequence, remoteId: request.remoteId,
         epoch: request.epoch, codeVersion: request.codeVersion }, candidateSourceId: request.candidateSourceId,
         startedAtTick: request.activateAtTick, expiresAtTick: request.expiresAtTick,
         issuedAtMs: request.issuedAtMs, expiresAtMs: request.expiresAtMs,
@@ -165,6 +168,9 @@ function makeSession(request, facts, clock) {
         status: 'waiting_spawn', managed: true, lastTick: clock.tick, lastNowMs: clock.nowMs,
         spawn: {}, evidence: { safeStreak: 0, onlineRecoveryCovered: false,
             spawnEnergyBaseline: Number.isFinite(facts.spawnEnergyConfirmed) ? facts.spawnEnergyConfirmed : null }, events: [] };
+    const initial = createReconTrialSettlement(session.identity, clock.tick);
+    return { ...session, settlement: initial.settlement, settlementBinding: initial.binding,
+        settlementSourceStatus: initial.sourceStatus };
 }
 
 function rejection(state, request, clock, reason) {
@@ -224,7 +230,7 @@ function observeActor(session, facts, clock) {
     return null;
 }
 
-export function advanceReconTrial(input, event, facts, clock) {
+export function advanceReconTrial(input, event, facts, clock, settlementReducer = reduceReconTrialSettlement) {
     if (input !== undefined && !stateValid(input)) {
         return { state: input, permit: denied(true, clock.tick, 'state_invalid'), effects: [] };
     }
@@ -348,9 +354,23 @@ export function advanceReconTrial(input, event, facts, clock) {
             session.spawn.name = event.name;
         }
     }
-    if (facts.settlement) session.settlement = copy(facts.settlement);
+    try {
+        applySettlement(session, settlementReducer(session, facts.settlementEvidence, clock));
+    } catch {
+        // Only optional settlement diagnostics may fail here. Control effects
+        // must still be returned to the service and applied to the live scope.
+        applySettlement(session, fallbackReconTrialSettlement(session, clock));
+    }
     const permit = reconTrialPermission(state, { remoteId: session.identity.remoteId, epoch: session.identity.epoch }, clock);
     return { state, permit, effects };
+}
+
+function applySettlement(session, result) {
+    if (result.changed) {
+        session.settlement = result.settlement;
+        session.settlementBinding = result.binding;
+    }
+    if (result.sourceStatus !== 'legacy_unverified') session.settlementSourceStatus = result.sourceStatus;
 }
 
 export function summarizeReconTrial(state, clock) {
@@ -361,7 +381,8 @@ export function summarizeReconTrial(state, clock) {
         closeAppliedAtTick: session.closeAppliedAtTick, closureVerifiedAtTick: session.closureVerifiedAtTick,
         moduleShutdownConflict: session.moduleShutdownConflict === true,
         evidence: copy(session.evidence), outcome: session.outcome ? copy(session.outcome) : null,
-        settlement: session.settlement ? copy(session.settlement) : null, events: copy(session.events) });
+        settlement: session.settlement ? copy(session.settlement) : null,
+        settlementSourceStatus: reconTrialSettlementSourceStatus(session, clock), events: copy(session.events) });
     return { schemaVersion: 1, capturedAt: clock.tick, status: state.current?.status || 'rejected',
         current: compact(state.current), previous: compact(state.previous), lastRejection: state.lastRejection || null };
 }

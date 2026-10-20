@@ -1,5 +1,6 @@
 import { currentCreepPopulation } from '../core/CreepPopulation.js';
 import { normalizeRemoteConfig } from './RemoteMiningState.js';
+import { reconTrialSettlementReceipt } from './RemoteReconTrialSettlement.js';
 
 function position(pos) {
     return pos ? { x: pos.x, y: pos.y, roomName: pos.roomName } : null;
@@ -96,15 +97,10 @@ export function collectReconTrialFacts(scope, clock) {
             }
         } else if (sourceValid) visibleRoute = cached || null;
     }
-    let settlement = current?.settlement;
-    if (receipt?.remoteId === remoteId && receipt?.epoch === operation?.epoch && receipt?.cost === 50) {
-        if (settlement?.confirmedCost !== 50 || settlement?.unknownUpperBound !== 0) {
-            settlement = { confirmedCost: 50, unknownUpperBound: 0, updatedAtTick: clock.tick };
-        }
-    } else if (settlement?.confirmedCost !== 50) {
-        const unknown = current?.spawn?.callState === 'call_started';
-        settlement = { confirmedCost: unknown ? null : 0, unknownUpperBound: unknown ? 50 : 0, updatedAtTick: clock.tick };
-    }
+    const settlementEvidence = current ? { identity: { ...current.identity }, requestId: requestId ?? null,
+        receipt: receipt ? { requestId, name: receipt.name, remoteId: receipt.remoteId,
+            epoch: receipt.epoch, cost: receipt.cost, tick: receipt.tick } : null } : null;
+    const matchedReceipt = reconTrialSettlementReceipt(current, settlementEvidence, clock);
     return { guardEnabled: trial?.enabled === true, request: trial?.request || null, remoteId,
         baseRoom: raw?.baseRoom, targetRoom, epoch: operation?.epoch ?? trial?.request?.epoch,
         configFingerprint: fingerprint, controlSafe, isolated,
@@ -119,8 +115,7 @@ export function collectReconTrialFacts(scope, clock) {
         oldActors: population.length > 0 || actors.length > 0,
         unsettled: grants.length > 0,
         upcoming: population.some(entry => entry.name === relevantActor && ['accepted', 'spawning'].includes(entry.state)),
-        actors, spawnReceipt: receipt && receipt.remoteId === remoteId && receipt.epoch === operation?.epoch && receipt.cost === 50 ?
-            { requestId, name: receipt.name, tick: receipt.tick } : null,
+        actors, spawnReceipt: matchedReceipt ? { requestId, name: matchedReceipt.name, tick: matchedReceipt.tick } : null,
         spawnEnergyConfirmed: operation?.ledger?.spawnEnergyConfirmed || 0,
         scopeFresh: !!matchedScope,
         existingReconAllowed: !!matchedScope && (matchedScope.state.allowRecon === true ||
@@ -131,5 +126,5 @@ export function collectReconTrialFacts(scope, clock) {
         otherEnabledRooms,
         remoteSafe: !!remote && !foreign && !remoteDanger && !homeDanger,
         fatalReason,
-        sourceValid, visibleRoute, settlement };
+        sourceValid, visibleRoute, settlementEvidence };
 }

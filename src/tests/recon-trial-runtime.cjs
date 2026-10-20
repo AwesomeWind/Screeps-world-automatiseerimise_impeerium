@@ -601,6 +601,337 @@ test('trial_closure_requires_next_tick_confirmation', async () => {
     assert.equal(scene.fixture.spawnCalls.filter(call => call.memory.remoteId).length, 1);
 });
 
+async function paidTrialForSettlement() {
+    const scene = await createReconTrialFixture();
+    scene.prepare(); scene.advance();
+    for (let i = 0; i < 4; i++) scene.advance();
+    Memory.empire.remoteRooms.W1N2.hold = true;
+    scene.advance(); scene.advance();
+    const name = scene.scout.name;
+    delete Game.creeps[name]; delete Memory.creeps[name];
+    for (let i = 0; i < 205; i++) scene.advance();
+    return scene;
+}
+
+test('settle_p2_new_session_starts_zero', async () => {
+    const scene = await paidTrialForSettlement();
+    const previous = structuredClone(scene.state.current);
+    scene.prepare({ id: 'trial-two', sequence: 2 });
+    let beforeNative;
+    scene.advance({ betweenDispatchAndRun() { beforeNative = structuredClone(scene.state.current); } });
+    assert.equal(beforeNative.identity.trialId, 'trial-two');
+    assert.deepEqual(beforeNative.settlement, { confirmedCost: 0, unknownUpperBound: 0, updatedAtTick: Game.time });
+    assert.deepEqual(scene.state.previous, previous);
+    assert.equal(scene.state.current.settlement.confirmedCost, 50);
+});
+test('settle_p2_prior_paid_new_failed', async () => {
+    const scene = await paidTrialForSettlement();
+    const previous = structuredClone(scene.state.current);
+    scene.fixture.results.spawn = ERR_BUSY;
+    scene.prepare({ id: 'trial-two', sequence: 2 }); scene.advance();
+    assert.deepEqual([scene.state.current.settlement.confirmedCost, scene.state.current.settlement.unknownUpperBound], [0, 0]);
+    assert.ok(scene.state.current.settlement.updatedAtTick >= scene.state.current.startedAtTick);
+    assert.equal(scene.fixture.ledger.spawnEnergyConfirmed, 50);
+    assert.deepEqual(scene.state.previous, previous);
+});
+test('settle_p2_prior_paid_new_unknown', async () => {
+    const scene = await paidTrialForSettlement();
+    scene.prepare({ id: 'trial-two', sequence: 2 });
+    for (const spawn of Object.values(Game.spawns)) spawn.spawnCreep = () => { throw Error('lost B result'); };
+    assert.throws(() => scene.advance(), /lost B result/);
+    const deadline = scene.state.current.expiresAtTick;
+    assert.deepEqual([scene.state.current.settlement.confirmedCost, scene.state.current.settlement.unknownUpperBound], [null, 50]);
+    scene.resetRuntime(); scene.advance(); scene.advance();
+    assert.equal(scene.state.current.outcome.stopReason, 'spawn_unknown');
+    assert.equal(scene.fixture.ledger.spawnEnergyUnknownUpperBound, 50);
+    assert.equal(Memory.empire.remoteMining.budgets.W1N1.grants[scene.state.current.spawn.requestId].executing, true);
+    assert.equal(scene.state.current.expiresAtTick, deadline);
+    assert.equal(global.RemoteReconTrial.permit.allowSpawn, false);
+});
+test('settle_p2_old_unknown_blocks_new_start', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare();
+    for (const spawn of Object.values(Game.spawns)) spawn.spawnCreep = () => { throw Error('lost A result'); };
+    assert.throws(() => scene.advance(), /lost A result/);
+    scene.resetRuntime(); scene.advance(); scene.advance();
+    const original = structuredClone(scene.state.current.outcome);
+    const grant = scene.state.current.spawn.requestId;
+    for (let i = 0; i < 205; i++) scene.advance();
+    scene.prepare({ id: 'trial-two', sequence: 2 }); scene.advance();
+    assert.equal(scene.state.current.identity.trialId, 'trial-one');
+    assert.ok(['existing_scope', 'trial_in_progress'].includes(scene.state.lastRejection.reason));
+    assert.equal(scene.state.current.settlement.unknownUpperBound, 50);
+    assert.equal(Memory.empire.remoteMining.budgets.W1N1.grants[grant].executing, true);
+    assert.deepEqual(scene.state.current.outcome, original);
+});
+test('settle_p2_call_entry_is_unknown', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare();
+    let captured;
+    for (const spawn of Object.values(Game.spawns)) spawn.spawnCreep = () => {
+        captured = structuredClone(scene.state.current);
+        throw Error('entry snapshot');
+    };
+    assert.throws(() => scene.advance(), /entry snapshot/);
+    assert.equal(captured.spawn.callState, 'call_started');
+    assert.deepEqual([captured.settlement.confirmedCost, captured.settlement.unknownUpperBound], [null, 50]);
+});
+test('settle_p2_retry_name_rejects_old_receipt', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare();
+    scene.fixture.results.spawn = ERR_BUSY; scene.advance();
+    const current = scene.state.current;
+    const originalName = current.spawn.name;
+    current.spawn.name = 'new-retry-name';
+    const budget = Memory.empire.remoteMining.budgets.W1N1;
+    budget.receipts[current.spawn.requestId] = { name: originalName, cost: 50, tick: Game.time,
+        remoteId: current.identity.remoteId, epoch: current.identity.epoch };
+    const { collectReconTrialFacts } = await import('../services/RemoteReconTrialFacts.js');
+    const { reduceReconTrialSettlement } = await import('../services/RemoteReconTrialSettlement.js');
+    const before = structuredClone(Memory);
+    const sample = collectReconTrialFacts(global.RemoteMining[current.identity.remoteId],
+        { tick: Game.time, nowMs: 1000000, codeVersion: 'trial-v1' });
+    assert.equal(Object.hasOwn(sample, 'settlement'), false);
+    assert.equal(sample.settlementEvidence.receipt.name, originalName);
+    assert.equal(sample.spawnReceipt, null);
+    const result = reduceReconTrialSettlement(current, sample.settlementEvidence, { tick: Game.time });
+    assert.equal(result.settlement.confirmedCost, 0);
+    assert.equal(result.sourceStatus, 'invalid_evidence');
+    assert.deepEqual(Memory, before);
+});
+
+test('settle_p3_confirmed_survives_receipt_prune', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare(); scene.advance();
+    Memory.empire.remoteRooms.W1N2.hold = true; scene.advance(); scene.advance();
+    const before = structuredClone(scene.state.current);
+    scene.advance({ tick: 1200 });
+    assert.equal(Memory.empire.remoteMining.budgets.W1N1.receipts[before.spawn.requestId], undefined);
+    assert.deepEqual(scene.state.current.settlement, before.settlement);
+    assert.deepEqual(scene.state.current.settlementBinding, before.settlementBinding);
+    assert.equal(global.RemoteReconTrial.summary.current.settlementSourceStatus, 'scoped');
+});
+test('settle_p3_unknown_does_not_expire_to_zero', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare();
+    for (const spawn of Object.values(Game.spawns)) spawn.spawnCreep = () => { throw Error('unknown'); };
+    assert.throws(() => scene.advance(), /unknown/);
+    scene.resetRuntime(); scene.advance(); scene.advance();
+    const before = structuredClone(scene.state.current);
+    scene.advance({ tick: 1300 });
+    assert.equal(scene.state.current.settlement.unknownUpperBound, 50);
+    assert.equal(scene.state.current.settlement.updatedAtTick, before.settlement.updatedAtTick);
+    assert.equal(Memory.empire.remoteMining.budgets.W1N1.grants[before.spawn.requestId].executing, true);
+    assert.deepEqual(scene.state.current.outcome, before.outcome);
+});
+test('settle_p3_late_own_receipt_keeps_outcome', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare();
+    for (const spawn of Object.values(Game.spawns)) spawn.spawnCreep = () => { throw Error('unknown'); };
+    assert.throws(() => scene.advance(), /unknown/);
+    scene.resetRuntime(); scene.advance(); scene.advance();
+    const before = structuredClone(scene.state.current);
+    scene.advance({ tick: 500 });
+    const { recordSpawnResult } = await import('../services/RemoteMiningLedger.js');
+    recordSpawnResult(Memory.empire.remoteMining.budgets.W1N1, scene.fixture.ledger,
+        { requestId: before.spawn.requestId, name: before.spawn.name, result: OK, body: [MOVE] }, Game.time);
+    scene.advance();
+    assert.equal(scene.state.current.settlement.confirmedCost, 50);
+    assert.equal(scene.state.current.settlement.unknownUpperBound, 0);
+    assert.equal(scene.state.current.settlement.updatedAtTick, Game.time);
+    assert.deepEqual(scene.state.current.outcome, before.outcome);
+    assert.equal(scene.state.current.closeAppliedAtTick, before.closeAppliedAtTick);
+    assert.equal(scene.state.current.expiresAtTick, before.expiresAtTick);
+});
+test('settle_p3_old_terminal_is_legacy_unverified', async () => {
+    const scene = await paidTrialForSettlement();
+    delete scene.state.current.settlementBinding; delete scene.state.current.settlementSourceStatus;
+    scene.state.current.settlement.updatedAtTick = 77;
+    const before = structuredClone(scene.state.current);
+    scene.advance();
+    assert.deepEqual(scene.state.current, before);
+    assert.equal(global.RemoteReconTrial.summary.current.settlementSourceStatus, 'legacy_unverified');
+    scene.prepare({ id: 'trial-two', sequence: 2 }); scene.fixture.results.spawn = ERR_BUSY; scene.advance();
+    assert.deepEqual(scene.state.previous, before);
+    assert.equal(scene.state.current.settlement.confirmedCost, 0);
+    assert.equal(global.RemoteReconTrial.summary.previous.settlementSourceStatus, 'legacy_unverified');
+});
+test('settle_p3_legacy_unknown_accepts_only_own_late_receipt', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare();
+    for (const spawn of Object.values(Game.spawns)) spawn.spawnCreep = () => { throw Error('legacy unknown'); };
+    assert.throws(() => scene.advance(), /legacy unknown/);
+    scene.resetRuntime(); scene.advance(); scene.advance();
+    delete scene.state.current.settlementBinding; delete scene.state.current.settlementSourceStatus;
+    const original = structuredClone(scene.state.current.outcome);
+    const current = scene.state.current;
+    const { recordSpawnResult } = await import('../services/RemoteMiningLedger.js');
+    recordSpawnResult(Memory.empire.remoteMining.budgets.W1N1, scene.fixture.ledger,
+        { requestId: current.spawn.requestId, name: current.spawn.name, result: OK, body: [MOVE] }, Game.time);
+    scene.advance();
+    assert.equal(scene.state.current.settlement.confirmedCost, 50);
+    assert.equal(scene.state.current.settlementBinding.identity.trialId, 'trial-one');
+    assert.deepEqual(scene.state.current.outcome, original);
+});
+test('settle_p3_metrics_does_not_refresh_settlement', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare(); scene.advance();
+    const before = structuredClone(scene.state.current.settlement);
+    const { default: Metrics } = await import('../services/EmpireMetricsService.js');
+    const metrics = new Metrics('EmpireMetrics');
+    Memory.empire.control.policy.telemetry.metricsInterval = 1;
+    metrics.init(); metrics.cleanup();
+    const first = structuredClone(Memory.empire.control.metrics.reconTrial);
+    scene.advance(); metrics.cleanup();
+    const after = Memory.empire.control.metrics.reconTrial;
+    assert.ok(after.capturedAt > first.capturedAt);
+    assert.deepEqual(scene.state.current.settlement, before);
+    assert.equal(after.current.settlementSourceStatus, 'scoped');
+    assert.deepEqual(after.current.settlement, before);
+});
+
+test('settle_p4_restore_uses_current_memory', async () => {
+    for (const unknown of [false, true]) {
+        const scene = await createReconTrialFixture(); scene.prepare();
+        if (unknown) for (const spawn of Object.values(Game.spawns)) spawn.spawnCreep = () => { throw Error('reset unknown'); };
+        if (unknown) assert.throws(() => scene.advance(), /reset unknown/); else scene.advance();
+        const oldBinding = scene.state.current.settlementBinding;
+        const oldConfig = Memory.empire.remoteRooms.W1N2;
+        const before = structuredClone(scene.state.current.settlement);
+        const deadline = scene.state.current.expiresAtTick;
+        scene.restoreMemory();
+        assert.notEqual(scene.state.current.settlementBinding, oldBinding);
+        oldBinding.identity.trialId = 'stale-global-copy';
+        Memory.empire.remoteRooms.W1N2.hold = true;
+        assert.equal(oldConfig.hold, false);
+        scene.advance(); scene.advance();
+        assert.deepEqual(scene.state.current.settlement, before);
+        assert.equal(scene.state.current.settlementBinding.identity.trialId, 'trial-one');
+        assert.equal(scene.state.current.expiresAtTick, deadline);
+        assert.equal(global.RemoteReconTrial.permit.allowSpawn, false);
+    }
+});
+for (const point of ['before_native', 'after_native', 'after_ledger']) {
+    test('settle_p4_reset_' + point, async () => {
+        const scene = await createReconTrialFixture(); scene.prepare();
+        if (point === 'after_ledger') {
+            scene.fixture.services.find(s => s.name === 'Spawn').createSpawnMemoryRecord = () => { throw Error('interrupted'); };
+        } else {
+            for (const spawn of Object.values(Game.spawns)) {
+                const original = spawn.spawnCreep.bind(spawn);
+                spawn.spawnCreep = (...args) => {
+                    if (point === 'after_native') original(...args);
+                    throw Error('interrupted');
+                };
+            }
+        }
+        assert.throws(() => scene.advance(), /interrupted/);
+        const before = structuredClone(scene.state.current);
+        scene.restoreMemory();
+        for (let i = 0; i < 4; i++) scene.advance();
+        const current = scene.state.current;
+        assert.equal(current.expiresAtTick, before.expiresAtTick);
+        assert.equal(current.spawn.deadline, before.spawn.deadline);
+        assert.equal(current.spawn.requestId, before.spawn.requestId);
+        assert.ok(scene.fixture.spawnCalls.filter(c => c.memory.remoteId && c.result === OK).length <= 1);
+        if (point === 'after_ledger') {
+            assert.equal(current.settlement.confirmedCost, 50);
+            assert.equal(current.settlement.unknownUpperBound, 0);
+        } else {
+            assert.equal(current.settlement.confirmedCost, null);
+            assert.equal(current.settlement.unknownUpperBound, 50);
+            assert.equal(Memory.empire.remoteMining.budgets.W1N1.grants[current.spawn.requestId].executing, true);
+        }
+    });
+}
+for (const direct of [false, true]) {
+    test('settle_p4_reducer_fault_does_not_block_close_' + (direct ? 'direct' : 'advance'), async () => {
+        const { reduceReconTrialSettlement } = await import('../services/RemoteReconTrialSettlement.js');
+        let fail = false, failures = 0;
+        const scene = await createReconTrialFixture({ guardOptions: { settlementReducer(...args) {
+            if (fail) { failures++; throw Error('settlement-only fault'); }
+            return reduceReconTrialSettlement(...args);
+        } } });
+        scene.prepare(); scene.advance();
+        const before = structuredClone(scene.state.current);
+        fail = true;
+        if (direct) {
+            const service = scene.fixture.services.find(s => s.name === 'RemoteReconTrial');
+            assert.doesNotThrow(() => service.closeManagedScope(scene.state.current, 'test_close'));
+        } else {
+            Memory.empire.remoteRooms.W1N2.hold = true;
+            assert.doesNotThrow(() => scene.advance());
+        }
+        assert.ok(failures > 0, 'the injected reducer must actually run');
+        assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+        scene.advance(); scene.advance();
+        assert.equal(global.RemoteReconTrial.permit.allowSpawn, false);
+        assert.equal(global.RemoteReconTrial.permit.allowOutbound, false);
+        assert.ok(scene.state.current.closureVerifiedAtTick > scene.state.current.closeAppliedAtTick);
+        assert.deepEqual(scene.state.current.settlement, before.settlement);
+        assert.equal(scene.fixture.ledger.spawnEnergyConfirmed, 50);
+        assert.equal(scene.fixture.ledger.spawnEnergyUnknownUpperBound, 0);
+    });
+}
+test('settle_p4_unknown_fault_never_refunds_execution', async () => {
+    const { reduceReconTrialSettlement } = await import('../services/RemoteReconTrialSettlement.js');
+    let fail = false;
+    const scene = await createReconTrialFixture({ guardOptions: { settlementReducer(...args) {
+        if (fail) throw Error('settlement-only fault');
+        return reduceReconTrialSettlement(...args);
+    } } });
+    scene.prepare();
+    for (const spawn of Object.values(Game.spawns)) spawn.spawnCreep = () => { throw Error('unknown call'); };
+    assert.throws(() => scene.advance(), /unknown call/);
+    const requestId = scene.state.current.spawn.requestId;
+    fail = true; scene.restoreMemory(); scene.advance(); scene.advance();
+    assert.equal(scene.state.current.settlement.unknownUpperBound, 50);
+    assert.equal(Memory.empire.remoteMining.budgets.W1N1.grants[requestId].executing, true);
+    assert.equal(scene.fixture.ledger.spawnEnergyUnknownUpperBound, 50);
+    assert.equal(global.RemoteReconTrial.permit.allowSpawn, false);
+});
+
+test('settle_p3_telemetry_off_keeps_owned_unknown', async () => {
+    const scene = await createReconTrialFixture();
+    Memory.empire.control.policy.telemetry.enabled = false;
+    scene.prepare();
+    for (const spawn of Object.values(Game.spawns)) spawn.spawnCreep = () => { throw Error('unknown'); };
+    assert.throws(() => scene.advance(), /unknown/);
+    scene.restoreMemory(); scene.advance(); scene.advance();
+    assert.equal(scene.state.current.settlement.unknownUpperBound, 50);
+    assert.equal(global.RemoteReconTrial.permit.allowSpawn, false);
+    assert.equal(scene.state.current.settlementBinding.identity.trialId, 'trial-one');
+});
+test('settle_p4_foreign_budget_and_previous_are_untouched', async () => {
+    const scene = await paidTrialForSettlement();
+    const previous = structuredClone(scene.state.current);
+    Memory.empire.remoteMining.budgets.W9N9 = { grants: { foreign: { executing: true, maxEnergy: 50 } }, receipts: {}, buckets: [] };
+    const foreign = structuredClone(Memory.empire.remoteMining.budgets.W9N9);
+    scene.prepare({ id: 'trial-two', sequence: 2 }); scene.advance();
+    Memory.empire.remoteRooms.W1N2.hold = true;
+    scene.advance(); scene.advance();
+    assert.deepEqual(Memory.empire.remoteMining.budgets.W9N9, foreign);
+    assert.deepEqual(scene.state.previous, previous);
+    assert.equal(scene.state.current.settlement.confirmedCost, 50);
+});
+
+test('settle_review_conflicting_late_result_flags_diagnostic_only', async () => {
+    const scene = await createReconTrialFixture(); scene.prepare();
+    for (const spawn of Object.values(Game.spawns)) spawn.spawnCreep = () => { throw Error('unknown'); };
+    assert.throws(() => scene.advance(), /unknown/);
+    scene.resetRuntime(); scene.advance(); scene.advance();
+    const current = scene.state.current;
+    const { recordSpawnResult } = await import('../services/RemoteMiningLedger.js');
+    recordSpawnResult(Memory.empire.remoteMining.budgets.W1N1, scene.fixture.ledger,
+        { requestId: current.spawn.requestId, name: current.spawn.name, result: OK, body: [MOVE] }, Game.time);
+    scene.advance();
+    const before = structuredClone(scene.state.current);
+    const { recordReconTrialSpawn } = await import('../services/RemoteReconTrialService.js');
+    const result = recordReconTrialSpawn({ trialId: before.identity.trialId, sequence: before.identity.sequence,
+        remoteId: before.identity.remoteId, epoch: before.identity.epoch, requestId: before.spawn.requestId,
+        name: before.spawn.name, spawnName: before.spawn.spawnName, baseRoom: before.baseRoom, body: [MOVE] },
+    { type: 'result', result: ERR_BUSY });
+    assert.equal(result.applied, true);
+    assert.deepEqual(scene.state.current.settlement, before.settlement);
+    assert.deepEqual(scene.state.current.settlementBinding, before.settlementBinding);
+    assert.deepEqual(scene.state.current.outcome, before.outcome);
+    assert.equal(scene.fixture.ledger.spawnEnergyConfirmed, 50);
+    assert.equal(global.RemoteReconTrial.permit.allowSpawn, false);
+    assert.equal(global.RemoteReconTrial.summary.current.settlementSourceStatus, 'invalid_evidence');
+});
+
 test('trial_settlement_does_not_rewrite_outcome', async () => {
     const scene = await createReconTrialFixture();
     scene.prepare();

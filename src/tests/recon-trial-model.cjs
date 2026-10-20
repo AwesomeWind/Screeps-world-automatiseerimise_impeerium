@@ -185,3 +185,147 @@ test('trial_unknown_call_and_actor_loss_abort_without_new_budget', async () => {
     assert.equal(unknown.state.current.outcome.stopReason, 'spawn_unknown');
     assert.equal(unknown.state.current.spawn.callState, 'call_started');
 });
+
+
+test('settle_p2_old_unknown_fact_cannot_enter_new_admission', async () => {
+    const { advanceReconTrial } = await load();
+    let state = await start();
+    state = advanceReconTrial(state, { kind: 'begin_tick' }, facts({ fatalReason: 'manual_hold' }), clock(102)).state;
+    state = advanceReconTrial(state, { kind: 'begin_tick' }, facts({ closed: true }), clock(103)).state;
+    state.current.settlement = { confirmedCost: null, unknownUpperBound: 50, updatedAtTick: 102 };
+    const previous = structuredClone(state.current);
+    const nextRequest = request({ id: 'trial-two', sequence: 2, activateAtTick: 104, expiresAtTick: 404 });
+    const result = advanceReconTrial(state, { kind: 'begin_tick' }, facts({ request: nextRequest,
+        settlement: previous.settlement, settlementEvidence: { identity: previous.identity, requestId: null, receipt: null } }), clock(104));
+    assert.equal(result.state.current.identity.trialId, 'trial-two');
+    assert.deepEqual(result.state.current.settlement, { confirmedCost: 0, unknownUpperBound: 0, updatedAtTick: 104 });
+    assert.deepEqual(result.state.previous, previous);
+});
+test('settle_p3_same_tick_repeated_export_is_readonly', async () => {
+    const { advanceReconTrial, summarizeReconTrial } = await load();
+    let state = await start();
+    state = advanceReconTrial(state, { kind: 'begin_tick' }, facts(), clock()).state;
+    const before = structuredClone(state);
+    for (let i = 0; i < 3; i++) summarizeReconTrial(state, clock(102));
+    assert.deepEqual(state, before);
+});
+
+
+test('settle_review_receipt_and_failure_conflict_keeps_real_charge', async () => {
+    const { reduceReconTrialSettlement } = await loadSettlement();
+    const session = await settlementSession({ requestId: 'B:req', name: 'B-scout', callState: 'result_known',
+        result: -4, callTick: 314 });
+    const result = reduceReconTrialSettlement(session, settlementEvidence(session), { tick: 315 });
+    assert.equal(result.settlement.confirmedCost, 50);
+    assert.equal(result.settlement.unknownUpperBound, 0);
+    assert.equal(result.sourceStatus, 'invalid_evidence');
+});
+
+const loadSettlement = () => import('../services/RemoteReconTrialSettlement.js');
+const settlementIdentity = { trialId: 'B', sequence: 2, remoteId: 'W1N1:W1N2', epoch: 1, codeVersion: 'trial-v1' };
+async function settlementSession(spawn = {}) {
+    const module = await loadSettlement();
+    const initial = module.createReconTrialSettlement(settlementIdentity, 313);
+    return { identity: { ...settlementIdentity }, startedAtTick: 313, status: 'waiting_spawn', spawn,
+        settlement: initial.settlement, settlementBinding: initial.binding };
+}
+function settlementEvidence(session, patch = {}) {
+    return { identity: { ...session.identity }, requestId: session.spawn.requestId ?? null,
+        receipt: { requestId: session.spawn.requestId, name: session.spawn.name, remoteId: session.identity.remoteId,
+            epoch: session.identity.epoch, cost: 50, tick: 314, ...patch } };
+}
+test('settle_p1_init', async () => {
+    const { createReconTrialSettlement } = await loadSettlement();
+    const identity = { ...settlementIdentity };
+    const initial = createReconTrialSettlement(identity, 313);
+    assert.deepEqual(initial.settlement, { confirmedCost: 0, unknownUpperBound: 0, updatedAtTick: 313 });
+    assert.equal(initial.binding.requestId, null);
+    identity.trialId = 'mutated';
+    assert.equal(initial.binding.identity.trialId, 'B');
+});
+for (const [name, spawn, expected] of [
+    ['unstarted', {}, [0, 0]], ['intake', { callState: 'not_started' }, [0, 0]],
+    ['not_called', { callState: 'not_called' }, [0, 0]],
+    ['failed', { callState: 'result_known', result: -4 }, [0, 0]],
+    ['call_started', { callState: 'call_started', callTick: 314 }, [null, 50]],
+    ['ok_without_receipt', { callState: 'result_known', result: 0, acceptedAt: 314 }, [null, 50]]
+]) {
+    test('settle_p1_post_event_states_' + name, async () => {
+        const { reduceReconTrialSettlement } = await loadSettlement();
+        const session = await settlementSession({ requestId: 'B:req', name: 'B-scout', ...spawn });
+        const before = structuredClone(session);
+        const result = reduceReconTrialSettlement(session, null, { tick: 315 });
+        assert.deepEqual([result.settlement.confirmedCost, result.settlement.unknownUpperBound], expected);
+        assert.deepEqual(session, before);
+    });
+}
+for (const [field, value] of Object.entries({ trialId: 'A', sequence: 1, remoteId: 'W9N9:W9N8', epoch: 2, codeVersion: 'old' })) {
+    test('settle_p1_identity_mismatch_' + field, async () => {
+        const { reduceReconTrialSettlement } = await loadSettlement();
+        const session = await settlementSession({ requestId: 'B:req', name: 'B-scout', callState: 'call_started', callTick: 314 });
+        const evidence = settlementEvidence(session);
+        evidence.identity[field] = value;
+        const result = reduceReconTrialSettlement(session, evidence, { tick: 315 });
+        assert.deepEqual([result.settlement.confirmedCost, result.settlement.unknownUpperBound], [null, 50]);
+        assert.equal(result.sourceStatus, 'invalid_evidence');
+    });
+}
+for (const [name, patch] of [
+    ['request', { requestId: 'A:req' }], ['name', { name: 'old-scout' }],
+    ['remote', { remoteId: 'other' }], ['epoch', { epoch: 7 }],
+    ['cost', { cost: 49 }], ['string_cost', { cost: '50' }],
+    ['early', { tick: 312 }], ['before_call', { tick: 313 }], ['future', { tick: 316 }], ['fraction', { tick: 314.5 }]
+]) {
+    test('settle_p1_receipt_reject_' + name, async () => {
+        const { reduceReconTrialSettlement } = await loadSettlement();
+        const session = await settlementSession({ requestId: 'B:req', name: 'B-scout', callState: 'call_started', callTick: 314 });
+        const result = reduceReconTrialSettlement(session, settlementEvidence(session, patch), { tick: 315 });
+        assert.deepEqual([result.settlement.confirmedCost, result.settlement.unknownUpperBound], [null, 50]);
+        assert.equal(result.sourceStatus, 'invalid_evidence');
+    });
+}
+test('settle_p1_receipt_late_valid_and_bad_input_preserves_proven_cost', async () => {
+    const { reduceReconTrialSettlement } = await loadSettlement();
+    const session = await settlementSession({ requestId: 'B:req', name: 'B-scout', callState: 'call_started', callTick: 314 });
+    const result = reduceReconTrialSettlement(session, settlementEvidence(session, { tick: 700 }), { tick: 701 });
+    assert.deepEqual(result.settlement, { confirmedCost: 50, unknownUpperBound: 0, updatedAtTick: 701 });
+    session.settlement = result.settlement; session.settlementBinding = result.binding;
+    const next = reduceReconTrialSettlement(session, settlementEvidence(session, { name: 'wrong' }), { tick: 702 });
+    assert.deepEqual(next.settlement, session.settlement);
+    assert.deepEqual(next.binding, session.settlementBinding);
+    assert.equal(next.sourceStatus, 'invalid_evidence');
+});
+test('settle_p1_equal_amount_wrong_binding', async () => {
+    const { reduceReconTrialSettlement } = await loadSettlement();
+    const session = await settlementSession();
+    session.settlement = { confirmedCost: 50, unknownUpperBound: 0, updatedAtTick: 101 };
+    session.settlementBinding.identity.trialId = 'A';
+    session.settlementBinding.confirmedReceiptTick = 101;
+    const result = reduceReconTrialSettlement(session, null, { tick: 313 });
+    assert.deepEqual(result.settlement, { confirmedCost: 0, unknownUpperBound: 0, updatedAtTick: 313 });
+    assert.equal(result.sourceStatus, 'invalid_evidence');
+});
+
+for (const [name, corrupt] of [
+    ['missing', s => { delete s.settlementBinding; }],
+    ['array', s => { s.settlementBinding = []; }],
+    ['schema', s => { s.settlementBinding.schemaVersion = 99; }],
+    ['identity', s => { s.settlementBinding.identity.sequence = 1; }],
+    ['future_receipt', s => { s.settlementBinding.confirmedReceiptTick = 999; }]
+]) {
+    test('settle_p4_invalid_proof_' + name, async () => {
+        const { reduceReconTrialSettlement, reconTrialSettlementSourceStatus } = await loadSettlement();
+        const session = await settlementSession({ requestId: 'B:req', name: 'B-scout', callState: 'call_started', callTick: 314 });
+        const confirmed = reduceReconTrialSettlement(session, settlementEvidence(session), { tick: 315 });
+        session.settlement = confirmed.settlement; session.settlementBinding = confirmed.binding;
+        session.settlementSourceStatus = 'scoped';
+        corrupt(session);
+        const before = structuredClone(session);
+        const result = reduceReconTrialSettlement(session, null, { tick: 316 });
+        assert.equal(result.settlement.confirmedCost, null);
+        assert.equal(result.settlement.unknownUpperBound, 50);
+        assert.equal(result.sourceStatus, 'invalid_evidence');
+        assert.equal(reconTrialSettlementSourceStatus(session), 'invalid_evidence');
+        assert.deepEqual(session, before);
+    });
+}

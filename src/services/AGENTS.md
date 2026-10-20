@@ -11,6 +11,7 @@
 - `SpawnBureauService`: 汇总经济与外部 spawn 需求，通过 `EventBus` 发布 `REQ_SPAWN`。
 - `SpawnService`: 消费 `REQ_SPAWN`，实际执行 spawn。
 - `RemoteReconTrialService`: 默认关闭的有限侦察守卫；纯状态转换位于 `RemoteReconTrialModel`，只读事实位于 `RemoteReconTrialFacts`。托管会话最多一名成功 scout，关闭需下一 tick 回读；不能用摘要、请求接受或 move OK 代替出生/实际位移证据。
+- `RemoteReconTrialSettlement`: 纯费用摘要归约，使用完整会话身份和本轮 request/name/receipt；在事件推进后计算 0/0、null/50 或 50/0。`settlementEvidence` 不从旧摘要复制金额，`settlementBinding` 在 Memory 保留本会话确认；旧终态缺绑定标记 `legacy_unverified`。这些诊断字段不参与许可、不退款或修改真实账本，结算故障不能阻断原关停 effects。
 - `RemoteDangerEvidence`/`RemoteDangerEvidenceModel`: 仅在守卫完成首次危险关停后尽力记录同 tick 对象，详细快照独立存于 `Memory.empire.remoteMining.dangerEvidence`，不参与许可。最多两事故/每次十单位；pending 跨 tick 只读显示 interrupted，不补录旧案。CPU策略从policy只读解析，记录/摘要失败不能阻断关停；guard schema及既有安全返程不变。
 - 试点的 `not_started/not_called` 与 `call_started` 必须区分：已证明未调用引擎的本轮 pendingTask 可退款，调用结果不明的 grant 不得清空后再次孵化。资源与费用仍走既有市场及 RemoteMiningLedger。
 
