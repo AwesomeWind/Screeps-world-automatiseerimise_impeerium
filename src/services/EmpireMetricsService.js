@@ -77,6 +77,9 @@ class EmpireMetricsService extends BaseService {
         if (global.RemoteReconTrial?.summary) {
             control.metrics.reconTrial = { ...global.RemoteReconTrial.summary, capturedAt: Game.time };
         }
+        if (global.RemoteEconomicTrial?.summary) {
+            control.metrics.economicTrial = { ...global.RemoteEconomicTrial.summary, capturedAt: Game.time };
+        }
         if (global.GoalPlan) {
             const summary = global.GoalPlan.summary || {};
             const fresh = global.GoalPlan.tick === Game.time;

@@ -3,6 +3,14 @@ import EventBus from '../core/EventBus.js';
 import { ensureEmpireControl } from '../config/EmpirePolicy.js';
 import { validateSpawnGrant, recordSpawnResult } from './RemoteMiningLedger.js';
 import { getReconTrialPermit, recordReconTrialSpawn } from './RemoteReconTrialService.js';
+import { getEconomicTrialPermit, recordEconomicTrialSpawn, settleEconomicTrialSpawn } from './RemoteEconomicTrialService.js';
+
+function economicTrialContext(data, name, spawnName) {
+    const memory = data.memory || {};
+    return { trialId: memory.economicTrialId, sequence: memory.economicTrialSequence, remoteId: memory.remoteId,
+        epoch: memory.epoch, codeVersion: global.EmpireServicesVersion, role: memory.role,
+        requestId: data.requestId, grantId: data.grantId, baseRoom: data.roomName, name, spawnName, body: [...data.body] };
+}
 
 function reconTrialContext(data, name, spawnName) {
     const memory = data.memory || {};
@@ -110,6 +118,12 @@ class SpawnService extends BaseService {
         const roleName = String(data.role || (data.memory && data.memory.role) || 'creep').slice(0, 20);
         const name = data.name || `${roleName}_${Game.time}_${String(spawnName).slice(0, 30)}_${this.nameSequence++}`;
         const trialContext = remoteContext.trialManaged ? reconTrialContext(data, name, spawnName) : null;
+        const economicContext = remoteContext.economicManaged ? economicTrialContext(data, name, spawnName) : null;
+        if (economicContext && !recordEconomicTrialSpawn(economicContext, { type: 'intake' }).allowed) {
+            spawns.push(spawn);
+            this.recordIntake(roomName, 'stale_economic_trial');
+            return true;
+        }
         if (trialContext && !recordReconTrialSpawn(trialContext, { type: 'intake' }).allowed) {
             spawns.push(spawn);
             this.recordIntake(roomName, 'stale_recon_trial');
@@ -119,7 +133,7 @@ class SpawnService extends BaseService {
         if (requestId) this.pendingRequestKeys.add(requestId);
         if (scopedQuota) this.pendingQuotas.add(scopedQuota);
         this.pendingNames.add(name);
-        this.pendingTasks.push({ spawn, data, name, cost, requestId, event, trialContext });
+        this.pendingTasks.push({ spawn, data, name, cost, requestId, event, trialContext, economicContext });
         if (remoteContext.grant) {
             remoteContext.grant.executing = true;
             remoteContext.grant.executingAt = Game.time;
@@ -135,6 +149,7 @@ class SpawnService extends BaseService {
             if (remoteContext.required && !remoteContext.allowed) {
                 this.energyBalance[task.data.roomName] += task.cost;
                 if (task.trialContext) recordReconTrialSpawn(task.trialContext, { type: 'not_called' });
+                if (task.economicContext) recordEconomicTrialSpawn(task.economicContext, { type: 'not_called' });
                 this.recordIntake(task.data.roomName, 'stale_remote_grant');
                 continue;
             }
@@ -145,14 +160,22 @@ class SpawnService extends BaseService {
                 this.recordIntake(task.data.roomName, 'stale_recon_trial');
                 continue;
             }
+            if (task.economicContext && !recordEconomicTrialSpawn(
+                economicTrialContext(task.data, task.name, task.economicContext.spawnName), { type: 'call_started' }).allowed) {
+                this.energyBalance[task.data.roomName] += task.cost;
+                recordEconomicTrialSpawn(task.economicContext, { type: 'not_called' });
+                continue;
+            }
             const result = task.spawn.spawnCreep(task.data.body, task.name, {
                 memory,
                 directions: task.data.directions
             });
-            if (remoteContext.required) recordSpawnResult(remoteContext.budget, remoteContext.operation.ledger, {
+            if (task.economicContext) settleEconomicTrialSpawn(task.economicContext, result, remoteContext.budget, remoteContext.operation);
+            else if (remoteContext.required) recordSpawnResult(remoteContext.budget, remoteContext.operation.ledger, {
                 requestId: task.requestId, name: task.name, result, body: task.data.body, acceptedAt: Game.time
             }, Game.time);
             if (task.trialContext) recordReconTrialSpawn(task.trialContext, { type: 'result', result });
+            if (task.economicContext) recordEconomicTrialSpawn(task.economicContext, { type: 'result', result });
             if (result === OK) {
                 this.acceptedSpawnNames[task.name] = true;
                 if (typeof Memory !== 'undefined') {
@@ -197,6 +220,11 @@ class SpawnService extends BaseService {
         if (!raw || raw.enabled !== true || data.roomName !== scope.config.baseRoom || memory.homeRoom !== scope.config.baseRoom ||
             memory.targetRoom !== scope.config.targetRoom || memory.sourceId !== scope.config.sourceId) return { required, allowed: false };
         const role = data.role || memory.role;
+        const economic = getEconomicTrialPermit({ remoteId: memory.remoteId, epoch: memory.epoch, role,
+            trialId: memory.economicTrialId, sequence: memory.economicTrialSequence, requestId: data.requestId, action: 'spawn' });
+        if (economic.managed && (!economic.allowed || !memory.economicTrialId || !Number.isSafeInteger(memory.economicTrialSequence))) {
+            return { required, allowed: false, economicManaged: true };
+        }
         const trial = getReconTrialPermit({ remoteId: memory.remoteId, epoch: memory.epoch,
             trialId: memory.reconTrialId, sequence: memory.reconTrialSequence, requestId: data.requestId, action: 'spawn' });
         if (trial.managed && (!trial.allowSpawn || role !== 'scout' || data.grantId !== data.requestId || !memory.reconTrialId ||
@@ -205,11 +233,12 @@ class SpawnService extends BaseService {
         }
         const requiredParts = { scout: [MOVE], reserver: [CLAIM, MOVE], remoteMiner: [WORK, CARRY, MOVE], remoteHauler: [CARRY, MOVE] };
         if (memory.role !== role || !requiredParts[role] || !requiredParts[role].every(part => data.body.includes(part)) ||
-            (role === 'scout' ? !scope.state.allowRecon : !scope.state.allowEconomicDeparture)) return { required, allowed: false };
+            (role === 'scout' ? !(scope.state.allowRecon || economic.managed && scope.state.allowEconomicDeparture) :
+                !scope.state.allowEconomicDeparture)) return { required, allowed: false };
         const request = { requestId: data.requestId, grantId: data.grantId, remoteId: memory.remoteId,
             epoch: memory.epoch, role: data.role || memory.role, quotaKey: memory.quotaKey, stage };
         const validation = validateSpawnGrant(budget, request, scope.operation, Game.time);
-        return { required, budget, operation: scope.operation, grant: validation.grant, trialManaged: trial.managed,
+        return { required, budget, operation: scope.operation, grant: validation.grant, trialManaged: trial.managed, economicManaged: economic.managed,
             allowed: validation.allowed && this.calculateBodyCost(data.body) <= validation.grant.maxEnergy };
     }
 

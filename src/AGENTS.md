@@ -76,3 +76,7 @@
 - service 之间通过 `global.*`、`Memory.*`、`EventBus` 协作时，必须考虑生命周期顺序。
 - 新任务应使用 `assignTask(creep, task)`，不要直接写 `creep.memory.task`，除非是兼容旧状态。
 - 长期状态写入 `Memory`，单 tick 派生状态写入 `global`。
+
+## 有限经济试点
+
+`RemoteEconomicTrial` 默认关闭，作为P0放在RemoteReconTrial后、RemoteMining前。托管会话独立保留Identity、三role唯一额度、绝对期限及关闭结果；仅收窄原执行许可。Game重建后从Memory恢复，不能靠global摘要授权。首个本轮正数次tick入库同步撤权；原安全返程/已有货物确认按有限tail执行，不授权第二趟。

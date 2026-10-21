@@ -1,6 +1,6 @@
 import BaseService from '../core/BaseService.js';
 import { reserveForTask, reconcileReservations, availableTargetCapacity, availableSupplyAmount } from './ResourceReservationFeedback.js';
-import { recordRemoteResolution } from './RemoteMiningLedger.js';
+import { getEconomicTrialPermit, checkpointEconomicTrialResolution, applyEconomicTrialResolution } from './RemoteEconomicTrialService.js';
 import { recoveryAllowsRequest, recoveryRestricted, controllerEmergency } from './RoomRecoveryPolicy.js';
 import EventBus from '../core/EventBus.js';
 import TaskTypes from '../core/TaskTypes.js';
@@ -224,7 +224,7 @@ class ResourceMarketService extends BaseService {
             const feedbackStats = {};
             if (savedMarket && savedMarket.reservations) {
                 if (!savedMarket.feedbackTotals) savedMarket.feedbackTotals = {};
-                this.consumeRemoteResolutions(reconcileReservations(savedMarket.reservations, feedbackStats, savedMarket.feedbackTotals));
+                this.consumeRemoteResolutions(reconcileReservations(savedMarket.reservations, feedbackStats, savedMarket.feedbackTotals, checkpointEconomicTrialResolution));
             }
             this.buildRoomMarket(room);
             Object.assign(global.ResourceMarket[roomName].stats, feedbackStats);
@@ -235,7 +235,7 @@ class ResourceMarketService extends BaseService {
     cleanup() {
         for (const roomName in (global.ResourceMarket || {})) {
             const market = this.ensureMarketShape(global.ResourceMarket[roomName], roomName);
-            this.consumeRemoteResolutions(reconcileReservations(market.reservations, market.stats, market.feedbackTotals));
+            this.consumeRemoteResolutions(reconcileReservations(market.reservations, market.stats, market.feedbackTotals, checkpointEconomicTrialResolution));
             this.pruneReservations(market.reservations);
             this.captureMarketStats(market);
             this.persistMarket(roomName, market);
@@ -247,7 +247,7 @@ class ResourceMarketService extends BaseService {
             const context = resolution.context;
             const operation = context && Memory.empire.remoteMining && Memory.empire.remoteMining.operations[context.remoteId];
             if (!operation) continue;
-            recordRemoteResolution(operation.ledger,resolution,operation.epoch,operation.config.homeDeliveryTargetIds);
+            applyEconomicTrialResolution(resolution, operation);
         }
     }
 
@@ -289,6 +289,12 @@ class ResourceMarketService extends BaseService {
         const amount = Math.min(quantity,actorQuantity,context.amount === undefined ? actorQuantity : context.amount);
         if (!Number.isFinite(amount) || amount <= 0) return null;
         const task = {type:side === 'supply'?TaskTypes.WITHDRAW:TaskTypes.TRANSFER,targetId:target.id,resourceType:RESOURCE_ENERGY,amount};
+        const economic = getEconomicTrialPermit({ remoteId: context.remoteId, epoch: context.epoch });
+        if (economic.managed || creep.memory.economicTrialId) {
+            const guard = global.RemoteEconomicTrial;
+            if (guard?.evaluatedAt !== Game.time || !guard.service?.taskPermission(creep, task, false).allowed) return null;
+            context = { ...context, ...Memory.empire.remoteMining.economicTrials.current.identity };
+        }
         if (!reserveForTask(market,side,{id,resourceType:RESOURCE_ENERGY},amount,creep,task,{...context,leg})) return null;
         this.persistMarket(scope.config.baseRoom,market);
         return task;

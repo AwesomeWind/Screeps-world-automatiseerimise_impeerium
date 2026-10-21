@@ -43,3 +43,13 @@
 - `ResourceMarket.analyze()` 只建市场，不抢先消耗 hauler 任务；hauler 派活由 `HaulerStrategy` 或资源请求即时唤醒触发。
 - `RoomCache` 缓存事实，不应保存 builder 专用排序结果。
 - `SpawnBureau` 只发布意图，实际 spawn 由 `SpawnService` 做。
+
+## 首批入库经济守卫
+
+- `RemoteEconomicTrialFacts/Model/Evidence/Service` 分别只读事实、纯协议、带来源归约和控制效果；policy.remoteMining.economicTrial默认false/null，不自动创建线上目标或release旧侦察锁。
+- 每轮最多scout/miner/hauler各1，1000ticks/90分钟，100连续安全ticks；Body上限50/800/800，本轮1650孵化/6000基建与原滚动预算取交集。不同role按实际receipt结算，未知调用保留claim并停止。
+- 托管物流在删除owner前同步持久化outbox，prepared/applying/applied分开；应用不明不能重放原账本。原ledger金额和严格次tick归因不变，首批必须同trial/trip pickup→指定terminal确认，旧库存不冒充新产出。
+- 记录失败不能阻断关闭。失败移交保留最小unknown证据，原owner仍由既有TTL/maxTaskTicks清理。基建仅保留一个在途应用凭证，应用不明同样停止，不推测消失工地的费用。
+- pickup owner存在时只暂停本trial矿工对同容器deposit，避免主动制造无法分解的净变化；其他并发仍记unknown。母房非remote回执不进入trial。
+- metrics只读，关闭不依赖遥测。outcome冻结；control closure、有限tail及新产出证据分别展示；newProductionConfirmed缺证据为null。
+- 首次role request只在可用Spawn等条件满足时绑定，绑定后不得续期。P0按完整slot/grant证明not_started未调用后再取消；spawn接受与原账本applying/applied分开，半完成receipt不能清除unknown，托管未决grant禁止旧对账自动重放。未知策略类型与接纳前请求不能退回非托管执行；tailStatus自动归约仍未实现，当前unverified不可当尾部结清。

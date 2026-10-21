@@ -195,7 +195,7 @@ function confirmOwner(owner, creep, stats, totals) {
     return { status: 'confirmed', confirmedAmount: ownerDelta };
 }
 
-export function reconcileReservations(reservations, stats, totals) {
+export function reconcileReservations(reservations, stats, totals, checkpoint) {
     const limits = policy() || DEFAULT_EMPIRE_POLICY.resourceReservations;
     const resolutions = [];
     for (const side of ['supply', 'demand']) {
@@ -207,7 +207,8 @@ export function reconcileReservations(reservations, stats, totals) {
                 const clearedThis = clear && clear.logisticsReservation && clear.logisticsReservation.reservationId === id;
                 const currentRef = creep && creep.memory.taskMeta && creep.memory.taskMeta.logisticsReservation;
                 let resolution;
-                if (owner.status === 'awaiting_confirmation') {
+                if (owner.deferredResolution) resolution = owner.deferredResolution;
+                else if (owner.status === 'awaiting_confirmation') {
                     if (Game.time <= owner.resultAt) continue;
                     resolution = confirmOwner(owner, creep, stats, totals);
                 } else if (clearedThis && SUCCESS_REASONS.has(clear.reason) && clear.result === OK) {
@@ -223,9 +224,16 @@ export function reconcileReservations(reservations, stats, totals) {
                     increment(stats, 'reservationReleased', 1, totals);
                     resolution = { status: 'released', confirmedAmount: 0 };
                 }
-                resolutions.push({ reservationId: id, creepName: owner.creepName, ownerRole: owner.ownerRole,
+                const resolved = owner.deferredResolution || { reservationId: id, creepName: owner.creepName, ownerRole: owner.ownerRole,
                     assignedAt: owner.assignedAt, sequence: owner.sequence, context: owner.context,
-                    resourceType: owner.resourceType, targetId: owner.targetId, targetRoom: owner.targetRoom, ...resolution });
+                    actionTick: owner.resultAt, reservedAmount: owner.amount,
+                    resourceType: owner.resourceType, targetId: owner.targetId, targetRoom: owner.targetRoom, ...resolution };
+                if (checkpoint) {
+                    let accepted = false;
+                    try { accepted = checkpoint(resolved) === true; } catch { /* Keep the owner until a safe handoff. */ }
+                    if (!accepted) { owner.deferredResolution = resolved; continue; }
+                }
+                resolutions.push(resolved);
                 delete record.owners[id];
                 if (clearedThis) delete clear.logisticsReservation;
             }

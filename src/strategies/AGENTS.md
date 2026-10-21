@@ -32,3 +32,7 @@
 - 需要能量的 worker 不要自己写复杂找能逻辑，调用 `ResourceMarketService.requestResource` 或兼容的 `planWorkerEnergyTask`。
 - builder/repairer/upgrader 等 worker 等待 hauler 配送时，`memory.task` 可以保持 `null/undefined`，诊断看 `builderState` 或资源市场 stats。
 - 不要把维修逻辑重新放回 builder；维修属于 repairer/tower。
+
+## 有限经济会话
+
+RemoteMiningStrategy按经济会话role许可取交集；观察期不整体篡改原scope使scout提前返回。托管基建观察带完整会话Identity；物流任务由原ResourceMarket生成，context由已验证slot派生。阶段/停止拒绝新任务，最终原生入口仍由ActionParser复核；safe_wait不等于恢复许可。

@@ -6,6 +6,7 @@ import { planRemoteRoute, createRemoteMoveTask, pathAvoidsDanger } from '../serv
 import { reserveInfrastructureAttempt } from '../services/RemoteMiningLedger.js';
 import { remoteActorIdentityMatches, remoteQuotaKey } from '../services/RemoteMiningState.js';
 import { getReconTrialPermit } from '../services/RemoteReconTrialService.js';
+import { getEconomicTrialPermit } from '../services/RemoteEconomicTrialService.js';
 
 const MOVE_RETRY_LIMIT = 1;
 const MOVE_RETRY_COOLDOWN_TICKS = 2;
@@ -39,6 +40,18 @@ export default class RemoteMiningStrategyService extends BaseService {
             if (!remoteActorIdentityMatches(creep.memory, scope.config)) {
                 if (creep.memory.task) clearTaskState(creep, 'remote_identity_conflict');
                 creep.memory.remoteStatus = 'identity_conflict';
+                continue;
+            }
+            const economic = getEconomicTrialPermit({ remoteId: creep.memory.remoteId, epoch: creep.memory.epoch,
+                trialId: creep.memory.economicTrialId, sequence: creep.memory.economicTrialSequence,
+                role: creep.memory.role, name: creep.name, action: 'outbound' });
+            if (economic.managed && !economic.allowed) {
+                if (creep.memory.task && !global.RemoteEconomicTrial?.service?.taskPermission(creep, creep.memory.task).allowed) {
+                    clearTaskState(creep, 'economic_trial_stopped');
+                }
+                if (creep.memory.role === 'remoteHauler') this.assignRemoteHaulerTask(creep, scope.operation, scope.facts,
+                    { ...scope.state, allowEconomicDeparture: false });
+                else this.returnActor(creep, scope.operation, scope.facts);
                 continue;
             }
             Object.assign(creep.memory, {
@@ -370,6 +383,7 @@ export default class RemoteMiningStrategyService extends BaseService {
             const context = {remoteId:config.remoteId,epoch:operation.epoch,creepName:creep.name,
                 attemptId:`${creep.name}:${Game.time}:${task.type}`,actionType:task.type,targetId:task.targetId,
                 boosted:creep.body.some(part=>part.boost)};
+            if (creep.memory.economicTrialId) Object.assign(context, Memory.empire.remoteMining.economicTrials.current.identity);
             if (!reserveInfrastructureAttempt(budget,context,cost,Game.time).granted) return;
             registerTaskObservation(task,context);
         }

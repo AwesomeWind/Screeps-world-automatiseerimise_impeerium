@@ -4,9 +4,10 @@ import BodyBuilder from '../core/BodyBuilder.js';
 import { ensureEmpireControl } from '../config/EmpirePolicy.js';
 import { currentCreepPopulation } from '../core/CreepPopulation.js';
 import { normalizeRemoteConfig, collectRemoteActors, evaluateRemoteState, remoteQuotaKey, estimateRemoteHaulerNeed, collectRemoteIntel } from './RemoteMiningState.js';
-import { reserveSpawnGrant, cancelSpawnGrant, recordInfrastructureResult, remoteBudgetStatus, reconcileSpawnExecution } from './RemoteMiningLedger.js';
+import { reserveSpawnGrant, cancelSpawnGrant, remoteBudgetStatus, reconcileSpawnExecution } from './RemoteMiningLedger.js';
 import { planRemoteRoute } from './RemoteMiningRoute.js';
 import { getReconTrialPermit, observeReconTrialScope, bindReconTrialSpawnRequest, isReconTrialSpawnContinuation } from './RemoteReconTrialService.js';
+import { getEconomicTrialPermit, observeEconomicTrialScope, bindEconomicTrialSpawnRequest, isEconomicTrialSpawnContinuation, applyEconomicTrialInfrastructure, canBindEconomicTrialRole, canReconcileEconomicSpawn } from './RemoteEconomicTrialService.js';
 
 class RemoteMiningService extends BaseService {
     init() {
@@ -102,11 +103,11 @@ class RemoteMiningService extends BaseService {
             facts.reconRouteSafe = !!scoutRoute?.valid;
             facts.reconActorExists = currentCreepPopulation().some(entry => entry.state !== 'invalid' &&
                 entry.memory.remoteId === config.remoteId && entry.memory.role === 'scout');
-            facts.reconRequestContinuation = isReconTrialSpawnContinuation(operation);
+            facts.reconRequestContinuation = isReconTrialSpawnContinuation(operation) || isEconomicTrialSpawnContinuation(operation);
             this.consumeInfrastructure(operation);
             const roomBudget = Memory.empire.remoteMining.budgets[config.baseRoom] || {};
             Memory.empire.remoteMining.budgets[config.baseRoom] = roomBudget;
-            reconcileSpawnExecution(roomBudget, operation, Game.time);
+            reconcileSpawnExecution(roomBudget, operation, Game.time, canReconcileEconomicSpawn);
             facts.budgetStatus = remoteBudgetStatus(roomBudget, policy, Game.time);
             facts.economicRoute = this.validateEconomicRoutes(operation, facts, policy);
             if (facts.economicRoute?.valid) operation.route = {
@@ -138,6 +139,7 @@ class RemoteMiningService extends BaseService {
             const population = collectRemoteActors(populationFacts, config.remoteId, operation.epoch, policy.roleLimits, config);
             global.RemoteMining[config.remoteId] = { operation, config, facts, state, population };
             const trial = observeReconTrialScope(global.RemoteMining[config.remoteId]);
+            const economic = observeEconomicTrialScope(global.RemoteMining[config.remoteId]);
             if (trial.managed) {
                 state.allowRecon = state.allowRecon && trial.allowOutbound;
                 state.allowEconomicDeparture = false;
@@ -151,8 +153,11 @@ class RemoteMiningService extends BaseService {
             const desired = state.allowRecon ? { scout: 1 } : { remoteMiner: 1,
                 ...(container ? { remoteHauler: operation.transportCapacity?.desiredCount || 1 } : {}),
                 ...(config.reserveController ? { reserver: 1 } : {}) };
+            if (economic.managed) desired.scout = 1;
             for (const [role, count] of Object.entries(desired)) {
                 if (trial.managed && (role !== 'scout' || !getReconTrialPermit({ remoteId: config.remoteId, epoch: operation.epoch }).allowSpawn)) continue;
+                if (economic.managed && !getEconomicTrialPermit({ remoteId: config.remoteId, epoch: operation.epoch, role, action: 'spawn' }).allowed) continue;
+                if (economic.managed && !canBindEconomicTrialRole(config.remoteId, role)) continue;
                 if (population.covered[role] >= count || !population.canAdd(role)) continue;
                 const quotaKey = remoteQuotaKey(config, role);
                 let request = operation.requests[quotaKey];
@@ -160,7 +165,8 @@ class RemoteMiningService extends BaseService {
                     request = { requestId: `remote:${config.remoteId}:${operation.epoch}:${++operation.requestSequence}`, deadline: Game.time + 5 };
                     operation.requests[quotaKey] = request;
                 }
-                const binding = bindReconTrialSpawnRequest(global.RemoteMining[config.remoteId], request);
+                let binding = bindReconTrialSpawnRequest(global.RemoteMining[config.remoteId], request);
+                if (binding && economic.managed) binding = bindEconomicTrialSpawnRequest(global.RemoteMining[config.remoteId], role, request);
                 if (!binding) continue;
                 request = { requestId: binding.requestId, deadline: binding.deadline };
                 operation.requests[quotaKey] = request;
@@ -305,6 +311,11 @@ class RemoteMiningService extends BaseService {
                 !config.containerPos || !facts.source || !facts.source.pos.inRangeTo(config.containerPos,1)) continue;
             if (ensureEmpireControl().policy.remoteMining.infrastructureEnergyLimit <= 0) continue;
             if (operation.siteRequest && operation.siteRequest.expiresAt >= Game.time) continue;
+            const economic = getEconomicTrialPermit({ remoteId: operation.remoteId, epoch: operation.epoch,
+                role: 'remoteMiner', action: 'container_site' });
+            if (economic.managed && (!economic.allowed || !['preparing', 'hauling'].includes(
+                Memory.empire.remoteMining.economicTrials?.current?.status))) continue;
+            if (economic.managed && !global.RemoteEconomicTrial?.service?.beforeContainerSite(scope).allowed) continue;
             const result = facts.remote.createConstructionSite(config.containerPos.x,config.containerPos.y,STRUCTURE_CONTAINER);
             operation.siteRequest = { result, acceptedAt:Game.time,expiresAt:Game.time+5 };
             if (result !== OK) operation.reasons = [...operation.reasons.filter(reason=>reason!=='container_site_failed'),'container_site_failed'];
@@ -323,11 +334,11 @@ class RemoteMiningService extends BaseService {
                 observation = {id:pending.attemptId,tick:pending.tick,before:{},context:{...pending,executionUnknown:true}};
             }
             const target = Game.getObjectById(pending.targetId);
-            recordInfrastructureResult(budget,operation.ledger,observation,{
+            applyEconomicTrialInfrastructure(budget,operation,observation,{
                 ownerEnergy:creep && creep.store.getUsedCapacity(RESOURCE_ENERGY),
                 targetProgress:target && target.progress,
                 targetHits:target && target.hits
-            },Game.time);
+            });
         }
     }
 

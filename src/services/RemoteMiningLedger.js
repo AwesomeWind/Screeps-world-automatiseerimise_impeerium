@@ -110,12 +110,20 @@ export function remoteBudgetStatus(budget, policy, tick) {
     };
 }
 
-export function reconcileSpawnExecution(budget, operation, tick) {
+export function reconcileSpawnExecution(budget, operation, tick, canReconcile) {
     const ledger = operation.ledger;
     let unresolvedUpper = 0;
     for (const grant of Object.values(budget.grants || {})) {
         if (grant.remoteId !== operation.remoteId || grant.epoch !== operation.epoch || !grant.executing ||
             (grant.executingAt ?? grant.issuedAt ?? tick - 1) >= tick) continue;
+        if (canReconcile && !canReconcile(grant)) {
+            if (!grant.unknownReported) {
+                grant.unknownReported = true;
+                ledger.spawnCostUnknown = (ledger.spawnCostUnknown || 0) + 1;
+            }
+            unresolvedUpper += grant.maxEnergy;
+            continue;
+        }
         const backup = Object.entries(Memory.empire.spawningCreeps || {}).find(([name, record]) => {
             const memory = record?.memory;
             const evidence = Game.spawns[record?.spawnName]?.spawning?.name === name ||

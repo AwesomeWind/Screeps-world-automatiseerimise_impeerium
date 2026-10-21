@@ -151,6 +151,29 @@ const ActionParser = {
         if (creep.spawning) return;
         const task = creep.memory.task;
         if (!task || !task.type) return;
+        const economic = global.RemoteEconomicTrial;
+        const currentTrial = globalThis.Memory?.empire?.remoteMining?.economicTrials?.current;
+        const configuredTrial = globalThis.Memory?.empire?.control?.policy?.remoteMining?.economicTrial;
+        const remoteActor = !!creep.memory.remoteId;
+        const managedEconomic = !!creep.memory.economicTrialId || remoteActor &&
+            (currentTrial?.managed && creep.memory.remoteId === currentTrial.identity?.remoteId ||
+            configuredTrial?.enabled === true && creep.memory.remoteId === configuredTrial.request?.remoteId);
+        if (managedEconomic || remoteActor && economic?.evaluatedAt === Game.time) {
+            let allowed = false;
+            try {
+                allowed = economic?.evaluatedAt === Game.time && economic.service?.beforeAction(creep, task).allowed === true;
+            } catch { /* A missing or failed guard cannot authorize an engine call. */ }
+            if (!allowed) {
+                if (['BUILD', 'REPAIR'].includes(task.type)) {
+                    const workTarget = targetFromTask(task);
+                    if (workTarget) {
+                        observeTaskAction(creep, workTarget);
+                        recordTaskActionResult(creep, { attempted: false, actionType: task.type, result: null });
+                    }
+                }
+                clearTask(creep, 'economic_trial_action_denied'); return;
+            }
+        }
         if (task.path && (!Array.isArray(task.path) || !task.path.length || task.path.length > 300 ||
             !Array.isArray(task.allowedRooms) || task.allowedRooms.length > 2 ||
             !task.allowedRooms.includes(creep.room.name) || !task.allowedRooms.includes(task.pos && task.pos.roomName) ||

@@ -39,3 +39,7 @@ clearTaskState(creep, 'build_invalid_target', { result });
 - `ActionParser` 只执行既定任务，不做高层策略选择。
 - `TaskGuard` 只清理明显非法或过期的任务，不做“最优调度”。
 - `WorkPositionCoordinator` 只处理工位占用，不决定目标优先级。
+
+## 托管远程动作边界
+
+ActionParser通过当前tick的RemoteEconomicTrial适配器复核托管动作；适配器缺失、陈旧或异常时拒绝引擎调用。普通母房/非托管行为保持原流程，Memory未安装的独立测试也可运行。BUILD/REPAIR若在原生前撤权，记录已证明attempted=false的原观察以结算0实际费用，不能把未知引擎结果伪装成未调用。

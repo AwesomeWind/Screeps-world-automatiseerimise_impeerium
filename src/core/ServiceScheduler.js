@@ -3,7 +3,7 @@ import { recordEmpireEvent } from './EmpireEventLog.js';
 
 const P0 = new Set([
     'RoomCache', 'WarIntel', 'WarStrategy', 'CombatPlanner', 'Security', 'RoomPhase',
-    'RemoteReconTrial', 'SpawnBureau', 'Spawn', 'TaskGuard', 'ResourceMarket', 'MinerStrategy',
+    'RemoteReconTrial', 'RemoteEconomicTrial', 'SpawnBureau', 'Spawn', 'TaskGuard', 'ResourceMarket', 'MinerStrategy',
     'BuilderStrategy', 'RepairerStrategy', 'HaulerStrategy', 'UpgraderStrategy',
     'DefenderStrategy', 'Link', 'StructureLifecycle', 'CreepRetirement', 'TowerDefense'
 ]);

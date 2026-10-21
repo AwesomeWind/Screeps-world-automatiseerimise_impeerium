@@ -47,6 +47,7 @@ export const DEFAULT_EMPIRE_POLICY = {
     remoteMining: {
         enabled: false,
         reconTrial: { enabled: false, request: null },
+        economicTrial: { enabled: false, request: null },
         maxOperations: 1,
         intelTtl: 100,
         safeStreakTicks: 100,
