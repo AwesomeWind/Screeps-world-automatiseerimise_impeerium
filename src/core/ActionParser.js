@@ -70,13 +70,30 @@ function ensureWorkPos(creep, task, target) {
 function moveToTarget(creep, target, task, range) {
     if (!target || !target.pos) return ERR_INVALID_TARGET;
     if (task.path) {
-        return creep.moveByPath(task.path.map(pos => new RoomPosition(pos.x, pos.y, pos.roomName)));
+        return creep.moveByPath(nativeMovePath(creep, task));
     }
     return creep.moveTo(target.pos, {
         reusePath: task.reusePath === undefined ? 10 : task.reusePath,
         range,
         visualizePathStyle: task.visualize ? { stroke: '#ffaa00' } : undefined
     });
+}
+
+function nativeMovePath(creep, task) {
+    const path = task.path.map(pos => new RoomPosition(pos.x, pos.y, pos.roomName));
+    const from = creep.pos, first = path[0];
+    if (task.type !== TaskTypes.MOVE_TO || !first || task.allowedRooms.length !== 2 ||
+        first.roomName === from.roomName || path.some(pos => samePos(pos, from)) ||
+        (from.x === 0 || from.x === 49) && (from.y === 0 || from.y === 49)) return path;
+    const exits = Game.map?.describeExits?.(from.roomName) || {};
+    const pairedExit = exits[LEFT] === first.roomName && from.x === 0 && first.x === 49 && from.y === first.y ||
+        exits[RIGHT] === first.roomName && from.x === 49 && first.x === 0 && from.y === first.y ||
+        exits[TOP] === first.roomName && from.y === 0 && first.y === 49 && from.x === first.x ||
+        exits[BOTTOM] === first.roomName && from.y === 49 && first.y === 0 && from.x === first.x;
+    // Native moveByPath needs the origin for a first step already in the next
+    // room. Anchor only paired exits; ordinary off-path movement must fail.
+    if (pairedExit) path.unshift(new RoomPosition(from.x, from.y, from.roomName));
+    return path;
 }
 
 function samePos(a, b) {

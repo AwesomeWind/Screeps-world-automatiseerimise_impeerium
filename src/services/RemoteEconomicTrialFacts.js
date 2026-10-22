@@ -52,8 +52,7 @@ export function collectEconomicTrialFacts(scope, clock) {
         maxLegTicks: remotePolicy.maxLegTicks, reconCooldownTicks: remotePolicy.reconCooldownTicks
     });
     const fatalReason = !normalized?.valid ? 'config_invalid' : !raw.enabled || raw.hold || !remotePolicy.enabled ? 'manual_hold' :
-        homeDanger ? 'home_danger' : remoteDanger ? 'danger' : foreign ? 'foreign_control' :
-        current?.visionAcquired && !remote ? 'vision_lost' : null;
+        homeDanger ? 'home_danger' : remoteDanger ? 'danger' : foreign ? 'foreign_control' : null;
     return {
         guardEnabled: settings?.enabled === true, request: settings?.request || null, remoteId, baseRoom, targetRoom,
         epoch: operation?.epoch ?? settings?.request?.epoch, configFingerprint: fingerprint,
@@ -89,7 +88,8 @@ export function collectEconomicTrialFacts(scope, clock) {
             operation?.allowRecon !== true && operation?.allowEconomicDeparture !== true,
         actors: actors.map(actor => ({ name: actor.name, role: actor.memory.role, epoch: actor.memory.epoch,
             trialId: actor.memory.economicTrialId, sequence: actor.memory.economicTrialSequence,
-            spawning: !!actor.spawning, pos: { ...actor.pos }, hasMove: actor.getActiveBodyparts(MOVE) > 0,
+            spawning: !!actor.spawning, pos: { x: actor.pos.x, y: actor.pos.y, roomName: actor.pos.roomName },
+            hasMove: actor.getActiveBodyparts(MOVE) > 0,
             leg: actor.memory.remoteLeg, body: actor.body.map(part => part.type), energy: actor.store.getUsedCapacity(RESOURCE_ENERGY) })),
         receipts: budget?.receipts || {}, grants, infrastructurePending: infraPending
     };

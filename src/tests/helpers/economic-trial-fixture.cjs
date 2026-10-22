@@ -1,7 +1,9 @@
 const { createRemoteFixture, store } = require('./remote-mining-fixture.cjs');
+const { edgeDestination, nativeMoveDecision, positionSnapshot } = require('./native-room-movement.cjs');
 
 async function createEconomicTrialFixture(options = {}) {
-    const f = await createRemoteFixture({ containerBuilt: options.containerBuilt ?? true, pendingEnergy: options.pendingEnergy ?? 500 });
+    const f = await createRemoteFixture({ containerBuilt: options.containerBuilt ?? true, pendingEnergy: options.pendingEnergy ?? 500,
+        nativeMovement: options.nativeMovement, nativePositions: options.nativePositions });
     const { default: Guard } = await import('../../services/RemoteEconomicTrialService.js');
     const { default: Recon } = await import('../../services/RemoteReconTrialService.js');
     const { collectEconomicTrialFacts } = await import('../../services/RemoteEconomicTrialFacts.js');
@@ -35,6 +37,13 @@ async function createEconomicTrialFixture(options = {}) {
     resetRuntime();
     const instrument = actor => {
         actor.moveByPath = route => {
+            if (options.nativeMovement) {
+                const decision = nativeMoveDecision(actor, route);
+                calls.push({ tick: Game.time, name: actor.name, method: 'moveByPath', result: decision.result,
+                    from: positionSnapshot(actor.pos), direction: decision.direction });
+                if (decision.result === OK && !options.blockMoves) pendingMoves.set(actor.name, decision.next);
+                return decision.result;
+            }
             const index = route.findIndex(point => actor.pos.isEqualTo(point));
             const next = route[index + 1];
             const result = actor.fatigue ? ERR_TIRED : !next || index < 0 && !actor.pos.inRangeTo(route[0], 1) ? ERR_NOT_FOUND : OK;
@@ -113,6 +122,11 @@ async function createEconomicTrialFixture(options = {}) {
             Game.creeps[name].room = point.roomName === 'W1N1' ? f.home : f.remote;
         }
         pendingMoves.clear();
+        if (options.nativeMovement) for (const actor of Object.values(Game.creeps)) {
+            if (actor.spawning) continue;
+            actor.pos = edgeDestination(actor.pos);
+            actor.room = actor.pos.roomName === 'W1N1' ? f.home : f.remote;
+        }
         for (const spawn of Object.values(Game.spawns)) if (spawn.spawning && --spawn.spawning.remainingTime <= 0) {
             const actor = Game.creeps[spawn.spawning.name];
             if (actor) { actor.spawning = false; actor.pos = new RoomPosition(9, 10, 'W1N1'); }

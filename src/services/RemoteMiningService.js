@@ -112,7 +112,7 @@ class RemoteMiningService extends BaseService {
             facts.economicRoute = this.validateEconomicRoutes(operation, facts, policy);
             if (facts.economicRoute?.valid) operation.route = {
                 ...facts.economicRoute, generatedAt: Game.time,
-                sourcePos: { ...source.pos }
+                sourcePos: { x: source.pos.x, y: source.pos.y, roomName: source.pos.roomName }
             };
             const state = evaluateRemoteState(operation, facts, policy, Game.time);
             if (enabled > 1) {
@@ -262,7 +262,9 @@ class RemoteMiningService extends BaseService {
             operation.transportCapacity = { desiredCount: 1, known: false, gap: null, reasons: ['unsupported_route'] };
             return;
         }
-        operation.route = { ...route, generatedAt: Game.time, sourcePos: { ...facts.source.pos }, sinkPos: { ...sink.pos } };
+        operation.route = { ...route, generatedAt: Game.time,
+            sourcePos: { x: facts.source.pos.x, y: facts.source.pos.y, roomName: facts.source.pos.roomName },
+            sinkPos: { x: sink.pos.x, y: sink.pos.y, roomName: sink.pos.roomName } };
         operation.transportCapacity = estimateRemoteHaulerNeed({
             sourceCapacity: facts.source.energyCapacity, regenTicks: ENERGY_REGEN_TIME,
             minerWork: miner.getActiveBodyparts(WORK), carryCapacity: hauler.store.getCapacity(RESOURCE_ENERGY),
@@ -300,7 +302,8 @@ class RemoteMiningService extends BaseService {
             if (!outbound.valid || !inbound.valid) return { valid: false, reasons: ['unsupported_route'] };
             estimates[role] = { outboundTicks: outbound.estimatedLegTicks, inboundTicks: inbound.estimatedLegTicks };
         }
-        return { valid: true, sinkPos: { ...sink.pos }, outboundTicks: estimates.remoteHauler.outboundTicks,
+        return { valid: true, sinkPos: { x: sink.pos.x, y: sink.pos.y, roomName: sink.pos.roomName },
+            outboundTicks: estimates.remoteHauler.outboundTicks,
             inboundTicks: estimates.remoteHauler.inboundTicks, roles: estimates };
     }
 

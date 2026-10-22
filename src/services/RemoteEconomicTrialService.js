@@ -7,6 +7,18 @@ import { ECONOMIC_ROLE_LIMITS, economicResolutionKey, economicResolutionIdentity
 import { collectEconomicTrialFacts } from './RemoteEconomicTrialFacts.js';
 
 let runtime = null;
+function recoveryScoutMoveAllowed(creep, task, session, scope, facts) {
+    const entrance = scope.facts.entrance;
+    return creep.memory.role === 'scout' && !creep.memory.remoteRetiring &&
+        creep.pos.roomName === session.targetRoom && !scope.operation.pendingConfig &&
+        scope.operation.status === 'recovering' && scope.state.status === 'recovering' &&
+        scope.state.reasons.length === 1 && scope.state.reasons[0] === 'safe_streak' &&
+        !facts.fatalReason && facts.controlSafe && facts.isolated && facts.budgetSafe &&
+        facts.remoteVisible && facts.remoteSafe && facts.sourceValid && facts.routeValid === true &&
+        entrance && task.pos?.roomName === entrance.roomName && task.pos.x === entrance.x &&
+        task.pos.y === entrance.y && task.range === 0;
+}
+
 function settingsValid(settings) {
     return settings === undefined || settings !== null && typeof settings === 'object' && !Array.isArray(settings) &&
         typeof settings.enabled === 'boolean' && (settings.request === null ||
@@ -366,7 +378,11 @@ export default class RemoteEconomicTrialService extends BaseService {
         const facts = collectEconomicTrialFacts(scope, this.clock());
         if (!facts.homeHealthy || !facts.scopeFresh || facts.reconLocked) return denied('scope_or_home_unsafe');
         if (action === 'return') return gate;
-        if (action === 'outbound') return scope?.state.allowRecon || scope?.state.allowEconomicDeparture ? gate : denied('original_departure_blocked');
+        if (action === 'outbound') {
+            const allowed = scope.state.allowRecon || scope.state.allowEconomicDeparture ||
+                recoveryScoutMoveAllowed(creep, task, session, scope, facts);
+            return allowed ? gate : denied('original_departure_blocked');
+        }
         if (['pickup', 'home_delivery', 'source_deposit'].includes(action) && task.resourceType && task.resourceType !== RESOURCE_ENERGY) return denied('wrong_resource');
         if (action === 'home_delivery' && (creep.memory.role !== 'remoteHauler' || target?.id !== session.receiverId ||
             target?.my !== true || target.store.getFreeCapacity(RESOURCE_ENERGY) <= 0)) return denied('receiver_invalid');

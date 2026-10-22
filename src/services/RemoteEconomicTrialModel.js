@@ -27,7 +27,8 @@ export function validEconomicTrialState(state) {
             !record(session.slots) || !Array.isArray(session.events) || session.events.length > 20 ||
             !Array.isArray(session.outbox) || session.outbox.length > 16) return false;
         if (!ROLES.every(role => record(session.slots[role]))) return false;
-        if (!integer(session.safeStreak) || session.safeStreak > 100 ||
+        if (session.visionAcquired !== undefined && typeof session.visionAcquired !== 'boolean' ||
+            !integer(session.safeStreak) || session.safeStreak > 100 ||
             session.safeStreak > 0 && (!integer(session.lastSafeTick) || session.lastSafeTick > session.lastTick ||
                 session.lastSafeTick < session.startedAtTick || session.visionAcquired !== true ||
                 !integer(session.safeStartedAtTick) || session.safeStartedAtTick < session.startedAtTick ||
@@ -150,7 +151,7 @@ function makeSession(request, facts, clock) {
         configFingerprint: request.configFingerprint, startedAtTick: request.activateAtTick,
         receiverId: facts.receiverId, sourceId: facts.sourceId, containerPos: facts.containerPos,
         expiresAtTick: request.expiresAtTick, issuedAtMs: request.issuedAtMs, expiresAtMs: request.expiresAtMs,
-        lastTick: clock.tick, lastNowMs: clock.nowMs, safeStreak: 0,
+        lastTick: clock.tick, lastNowMs: clock.nowMs, visionAcquired: false, safeStreak: 0,
         slots: Object.fromEntries(ROLES.map(role => [role, { calls: 0 }])),
         events: [{ tick: clock.tick, status: 'recon', reason: 'started' }], outbox: [],
         evidence: { confirmedSpawnCost: 0, confirmedInfrastructureCost: 0, unknownEnergyUpperBound: 0,
@@ -181,7 +182,7 @@ export function advanceEconomicTrial(input, event, facts, clock) {
             request.sequence <= state.lastSequence ? 'sequence_replayed' :
             clock.tick < request.activateAtTick ? 'activation_pending' :
             clock.tick > request.activateAtTick ? 'activation_missed' :
-            session?.managed && session.status !== 'terminal' ? 'trial_in_progress' :
+            session?.managed ? (session.status === 'terminal' ? 'release_required' : 'trial_in_progress') :
             facts.reconLocked || facts.oldActors || facts.unsettled ? 'existing_scope' : failure(facts);
         if (reason) state.lastRejection = { tick: clock.tick, reason };
         else {
@@ -226,7 +227,8 @@ export function advanceEconomicTrial(input, event, facts, clock) {
             !facts.guardEnabled ? 'guard_disabled' :
             request?.action === 'hold' ? 'manual_hold' :
             session.configFingerprint !== facts.configFingerprint ? 'config_changed' :
-            clock.tick > session.lastTick + 1 ? 'tick_gap' : failure(facts);
+            clock.tick > session.lastTick + 1 ? 'tick_gap' : failure(facts) ||
+            (session.visionAcquired === true && facts.remoteVisible !== true ? 'vision_lost' : null);
         if (reason) effects = stopEconomicTrial(session, reason, clock, reason.endsWith('expired') ? 'expired' : 'aborted');
         else if (!session.outcome) {
             session.lastTick = clock.tick;
@@ -311,7 +313,7 @@ export function advanceEconomicTrial(input, event, facts, clock) {
                         if (!scout && session.safeStreak < 100) session.safeStreak = 0;
                         if (session.safeStreak >= 100 && facts.routeValid === true) session.status = facts.containerReady ? 'hauling' : 'preparing';
                     }
-                } else if (session.visionAcquired) effects = stopEconomicTrial(session, 'vision_lost', clock);
+                }
             }
         }
     }

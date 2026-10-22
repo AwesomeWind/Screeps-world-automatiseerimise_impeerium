@@ -202,7 +202,9 @@ export default class RemoteMiningStrategyService extends BaseService {
 
     returnActor(creep, operation, facts) {
         const leg = creep.memory.remoteLeg || (creep.memory.remoteLeg = {});
-        if (creep.room.name === operation.config.baseRoom || facts.homeDanger || !facts.homeHealthy) {
+        const homeInterior = creep.room.name === operation.config.baseRoom &&
+            creep.pos.x > 0 && creep.pos.x < 49 && creep.pos.y > 0 && creep.pos.y < 49;
+        if (homeInterior || facts.homeDanger || !facts.homeHealthy) {
             leg.state = creep.memory.remoteRetiring ? 'retiring' : 'safe_wait';
             return;
         }

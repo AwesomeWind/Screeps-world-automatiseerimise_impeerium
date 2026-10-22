@@ -53,3 +53,5 @@
 - pickup owner存在时只暂停本trial矿工对同容器deposit，避免主动制造无法分解的净变化；其他并发仍记unknown。母房非remote回执不进入trial。
 - metrics只读，关闭不依赖遥测。outcome冻结；control closure、有限tail及新产出证据分别展示；newProductionConfirmed缺证据为null。
 - 首次role request只在可用Spawn等条件满足时绑定，绑定后不得续期。P0按完整slot/grant证明not_started未调用后再取消；spawn接受与原账本applying/applied分开，半完成receipt不能清除unknown，托管未决grant禁止旧对账自动重放。未知策略类型与接纳前请求不能退回非托管执行；tailStatus自动归约仍未实现，当前unverified不可当尾部结清。
+- Facts只报告当前真实视野；`vision_lost`由Model按实际活动session的`visionAcquired`在P0/动作前判定，不能用旧current标记拒绝新接纳，也不能只等scope_observed才关闭。新会话显式false/计数0，legacy缺少可选视野字段不伪造历史，有正计数而无视野证据仍fail-closed。
+- terminal仍managed=true时，新身份start返回`release_required`；只有原合法release、实体退场和未决claim核对后才能新开。不得因修复视野误拦截而删历史、清unknown或绕过旧锁。

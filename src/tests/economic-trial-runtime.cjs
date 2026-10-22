@@ -537,3 +537,419 @@ test('econ_p5_corrupt_identity_does_not_block_local_worker', async () => {
     assert.equal(scene.calls.filter(call => call.name === worker.name && call.method === 'withdraw' && call.result === OK).length, 1);
     assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
 });
+
+function nativePosition(x, y, roomName) {
+    const pos = new RoomPosition(x, y, roomName);
+    for (const key of ['x', 'y', 'roomName']) Object.defineProperty(pos, key, { enumerable: false });
+    return pos;
+}
+
+test('native_position_actor_facts_preserve_coordinates_and_count_this_scout', async () => {
+    const scene = await createEconomicTrialFixture({ visible: true });
+    scene.prepare(); scene.advance();
+    const scout = Game.creeps[scene.current.slots.scout.name];
+    scout.spawning = false;
+    scout.pos = nativePosition(25, 1, 'W1N2');
+    scout.room = scene.f.remote;
+    const { collectEconomicTrialFacts } = await import('../services/RemoteEconomicTrialFacts.js');
+    const { advanceEconomicTrial } = await import('../services/RemoteEconomicTrialModel.js');
+    const clock = { tick: Game.time, nowMs: scene.current.lastNowMs, codeVersion: global.EmpireServicesVersion };
+    const facts = collectEconomicTrialFacts(global.RemoteMining['W1N1:W1N2'], clock);
+    assert.deepEqual(Object.keys(scout.pos), []);
+    assert.deepEqual(facts.actors.find(actor => actor.name === scout.name).pos, { x: 25, y: 1, roomName: 'W1N2' });
+    const result = advanceEconomicTrial(scene.state, { kind: 'scope_observed' }, facts, clock);
+    assert.equal(result.state.current.safeStreak, 1);
+    assert.equal(result.state.current.slots.remoteMiner.calls, 0);
+});
+
+test('native_position_economic_route_snapshots_preserve_source_and_receiver', async () => {
+    const { createRemoteFixture } = require('./helpers/remote-mining-fixture.cjs');
+    const f = await createRemoteFixture({ minerAtRemote: true, haulerAtHome: true });
+    f.source.pos = nativePosition(20, 19, 'W1N2');
+    f.homeSink.pos = nativePosition(10, 10, 'W1N1');
+    const remote = f.services.find(service => service.name === 'RemoteMining');
+    remote.init(); remote.analyze();
+    const route = f.operation.route;
+    assert.deepEqual(route.sourcePos, { x: 20, y: 19, roomName: 'W1N2' });
+    assert.deepEqual(route.sinkPos, { x: 10, y: 10, roomName: 'W1N1' });
+    const scope = global.RemoteMining['W1N1:W1N2'];
+    const checked = remote.validateEconomicRoutes(f.operation, scope.facts, Memory.empire.control.policy.remoteMining);
+    assert.equal(checked.valid, true);
+    assert.deepEqual(checked.sinkPos, { x: 10, y: 10, roomName: 'W1N1' });
+});
+
+async function recoveryScoutScene(beforeAction = () => {}) {
+    const scene = await createEconomicTrialFixture({ containerBuilt: false });
+    Game.map.describeExits = name => name === 'W1N1' ? { [TOP]: 'W1N2' } : { [BOTTOM]: 'W1N1' };
+    scene.prepare(); scene.advance();
+    const scout = Game.creeps[scene.current.slots.scout.name];
+    await until(scene, () => !scout.spawning);
+    Object.assign(scene.f.operation, { recoveryRequired: true, safeTicks: 0, lastSafeTick: Game.time - 100 });
+    const request = structuredClone(Memory.empire.control.policy.remoteMining.economicTrial.request);
+    const deadline = scout.memory.remoteLeg.expiresAt;
+    scene.advance({ positions: { [scout.name]: { x: 25, y: 49, roomName: 'W1N2' } }, visibility: true,
+        beforeActionParser() {
+            const scope = global.RemoteMining['W1N1:W1N2'];
+            // The legacy fixture routes W1N2 south. Supply the real north-side
+            // arrival's remaining inward step after positioning at its border.
+            scout.memory.task.path = [{ ...scope.facts.entrance }];
+            beforeAction({ scene, scout, scope });
+        } });
+    return { scene, scout, request, deadline };
+}
+
+test('recovery_scout_can_move_inward_without_enabling_economic_departures', async () => {
+    const { scene, scout, request, deadline } = await recoveryScoutScene();
+    const scope = global.RemoteMining['W1N1:W1N2'];
+    assert.equal(scope.operation.status, 'recovering');
+    assert.equal(scope.state.allowRecon, false);
+    assert.equal(scope.state.allowEconomicDeparture, false);
+    assert.equal(scene.calls.filter(call => call.tick === Game.time && call.name === scout.name && call.method === 'moveByPath' && call.result === OK).length, 1);
+    assert.equal(scene.current.safeStreak, 1);
+    assert.equal(scene.current.slots.remoteMiner.calls, 0);
+    assert.equal(scene.current.slots.remoteHauler.calls, 0);
+    assert.equal(scout.memory.remoteLeg.expiresAt, deadline);
+    assert.deepEqual(Memory.empire.control.policy.remoteMining.economicTrial.request, request);
+});
+
+for (const [name, change] of [
+    ['identity', ({ scout }) => { scout.memory.economicTrialId = 'other-trial'; }],
+    ['stale_scope', ({ scope }) => { scope.operation.evaluatedAt--; }],
+    ['remote_danger', ({ scene }) => { scene.f.visibleHostiles.push({ pos: new RoomPosition(30, 30, 'W1N2') }); }],
+    ['foreign_control', ({ scene }) => { scene.f.remote.controller.reservation = { username: 'foreign' }; }],
+    ['vision_lost', () => { delete Game.rooms.W1N2; }],
+    ['wrong_goal', ({ scout }) => { scout.memory.task.pos = { x: 30, y: 30, roomName: 'W1N2' }; }],
+    ['wrong_role', ({ scout }) => { scout.memory.role = 'remoteMiner'; }],
+    ['retiring', ({ scout }) => { scout.memory.remoteRetiring = true; }],
+    ['manual_hold', () => { Memory.empire.remoteRooms.W1N2.hold = true; }],
+    ['unsafe_control', () => { Memory.empire.control.policy.goalPlanning.enabled = true; }]
+]) test('recovery_scout_action_gate_rejects_' + name, async () => {
+    const { scene, scout, request, deadline } = await recoveryScoutScene(change);
+    assert.equal(scene.calls.filter(call => call.tick === Game.time && call.name === scout.name && call.method === 'moveByPath').length, 0);
+    assert.equal(scout.memory.task, null);
+    assert.ok(['economic_trial_action_denied', 'economic_trial_stopped'].includes(scout.memory.lastTaskClear.reason));
+    assert.equal(scene.current.slots.remoteMiner.calls, 0);
+    assert.equal(scene.current.slots.remoteHauler.calls, 0);
+    assert.equal(scene.current.evidence.confirmedSpawnCost, 50);
+    assert.equal(scene.current.evidence.unknownEnergyUpperBound, 0);
+    assert.equal(scout.memory.remoteLeg.expiresAt, deadline);
+    assert.deepEqual(Memory.empire.control.policy.remoteMining.economicTrial.request, request);
+});
+
+async function nativeRecoveryScene(extra = {}) {
+    const scene = await createEconomicTrialFixture({ nativeMovement: true, nativePositions: true, containerBuilt: false, ...extra });
+    scene.advance();
+    scene.f.operation.lastKnownIntel = { observedAt: Game.time - 101, owner: null, reservation: null,
+        sourceIds: ['remoteSourceA'], hostile: false, dangerZones: [] };
+    scene.prepare(); scene.advance();
+    return scene;
+}
+
+test('native_runtime_recovery_observes_100_safe_ticks_across_memory_reset', async () => {
+    const scene = await nativeRecoveryScene();
+    const request = structuredClone(Memory.empire.control.policy.remoteMining.economicTrial.request);
+    let reset = false, firstRemoteTick;
+    for (let i = 0; i < 200 && scene.current.safeStreak < 100 && !scene.current.outcome; i++) {
+        const scout = Game.creeps[scene.current.slots.scout.name];
+        if (scout && !scout.spawning && scout.pos.roomName === 'W1N2') {
+            firstRemoteTick ??= Game.time;
+            if (Game.time > firstRemoteTick) assert.ok(scout.pos.y > 0 && scout.pos.y < 49);
+        }
+        assert.equal(scene.current.slots.remoteMiner.calls, 0);
+        assert.equal(scene.current.slots.remoteHauler.calls, 0);
+        if (scene.current.safeStreak === 50) {
+            const evidence = structuredClone(scene.current.evidence);
+            scene.restoreMemory(); reset = true;
+            assert.deepEqual(scene.current.evidence, evidence);
+        }
+        scene.advance();
+    }
+    assert.equal(reset, true);
+    assert.equal(scene.current.outcome, undefined);
+    assert.equal(scene.current.safeStreak, 100);
+    assert.equal(scene.current.lastSafeTick - scene.current.safeStartedAtTick + 1, 100);
+    assert.equal(scene.current.safeStartedAtTick, firstRemoteTick);
+    assert.equal(scene.current.slots.scout.calls, 1);
+    assert.equal(scene.current.slots.remoteMiner.calls, 1);
+    assert.equal(scene.current.slots.remoteHauler.calls, 0);
+    assert.equal(scene.current.evidence.unknownEnergyUpperBound, 0);
+    assert.equal(scene.current.evidence.confirmedSpawnCost, scene.current.slots.scout.cost + scene.current.slots.remoteMiner.cost);
+    assert.deepEqual(Memory.empire.control.policy.remoteMining.economicTrial.request, request);
+});
+
+test('native_runtime_manual_hold_returns_scout_inside_home_without_renewing_leg', async () => {
+    const scene = await nativeRecoveryScene();
+    await until(scene, () => scene.current.safeStreak === 20);
+    const scout = Game.creeps[scene.current.slots.scout.name];
+    Memory.empire.remoteRooms.W1N2.hold = true;
+    scene.advance();
+    assert.equal(scene.current.outcome.stopReason, 'manual_hold');
+    const outcome = structuredClone(scene.current.outcome);
+    const { startedAt, expiresAt } = scout.memory.remoteLeg;
+    assert.equal(scout.memory.remoteLeg.state, 'returning');
+    await until(scene, () => scout.pos.roomName === 'W1N1' && scout.pos.x > 0 && scout.pos.x < 49 && scout.pos.y > 0 && scout.pos.y < 49, 100);
+    assert.equal(scout.memory.remoteLeg.startedAt, startedAt);
+    assert.equal(scout.memory.remoteLeg.expiresAt, expiresAt);
+    assert.ok(Game.time < expiresAt);
+    assert.equal(scout.memory.remoteLeg.retryCount, 0);
+    assert.deepEqual(scene.current.outcome, outcome);
+    assert.ok(scene.current.closureVerifiedAtTick > scene.current.closeAppliedAtTick);
+    assert.equal(scene.current.slots.remoteMiner.calls, 0);
+    assert.equal(scene.current.slots.remoteHauler.calls, 0);
+    assert.equal(scene.current.evidence.confirmedSpawnCost, 50);
+    assert.equal(scene.current.evidence.returnedEnergy, 0);
+    assert.equal(scene.current.evidence.unknownEnergyUpperBound, 0);
+    assert.equal(Memory.empire.control.policy.goalPlanning.enabled, false);
+    assert.equal(Memory.empire.market.enabled, false);
+});
+
+test('native_runtime_new_session_unknown_does_not_inherit_old_cost_after_reset', async () => {
+    let interrupt = false;
+    const scene = await nativeRecoveryScene({ onSpawn() { if (interrupt) throw new Error('native call interrupted'); } });
+    await until(scene, () => scene.current.safeStreak === 20);
+    Memory.empire.remoteRooms.W1N2.hold = true;
+    scene.advance(); scene.advance();
+    assert.equal(scene.current.evidence.confirmedSpawnCost, 50);
+    removeTrialActors(scene); releaseRequest(scene); scene.advance();
+    assert.equal(scene.current.managed, false);
+    const cooldownEnd = scene.f.operation.lastReconAt + Memory.empire.control.policy.remoteMining.reconCooldownTicks;
+    while (Game.time <= cooldownEnd) scene.advance();
+    const old = JSON.stringify(scene.current);
+    interrupt = true;
+    scene.prepare({ id: 'econ-native-two', sequence: 3 });
+    assert.throws(() => scene.advance(), /native call interrupted/);
+    scene.restoreMemory(); scene.advance();
+    assert.equal(scene.current.identity.trialId, 'econ-native-two');
+    assert.equal(scene.current.outcome.stopReason, 'spawn_unknown');
+    assert.equal(scene.current.evidence.confirmedSpawnCost, 0);
+    assert.equal(scene.current.evidence.unknownEnergyUpperBound, 50);
+    assert.equal(scene.current.evidence.returnedEnergy, 0);
+    assert.equal(scene.current.slots.remoteMiner.calls, 0);
+    assert.equal(scene.current.slots.remoteHauler.calls, 0);
+    assert.equal(JSON.stringify(scene.state.previous), old);
+    assert.ok(Memory.empire.remoteMining.budgets.W1N1.grants[scene.current.slots.scout.requestId]);
+    assert.equal(scene.f.ledger.spawnEnergyConfirmed, 50);
+    assert.equal(scene.f.ledger.spawnEnergyUnknownUpperBound, 50);
+    const unknownRequest = scene.current.slots.scout.requestId;
+    const unknownGrant = JSON.stringify(Memory.empire.remoteMining.budgets.W1N1.grants[unknownRequest]);
+    const settings = Memory.empire.control.policy.remoteMining.economicTrial;
+    settings.request = { ...settings.request, action: 'release', id: 'release-unknown', sequence: 4,
+        targetTrialId: scene.current.identity.trialId, activateAtTick: Game.time + 1, expiresAtTick: Game.time + 1001 };
+    scene.advance();
+    assert.equal(scene.state.lastRejection.reason, 'release_blocked');
+    assert.equal(scene.current.managed, true);
+    settings.request = { ...settings.request, action: 'start', id: 'econ-native-three', sequence: 5,
+        activateAtTick: Game.time + 1, expiresAtTick: Game.time + 1001 };
+    const calls = scene.f.spawnCalls.length;
+    scene.advance();
+    assert.equal(scene.state.lastRejection.reason, 'release_required');
+    assert.equal(scene.current.identity.trialId, 'econ-native-two');
+    assert.equal(scene.current.evidence.confirmedSpawnCost, 0);
+    assert.equal(scene.current.evidence.unknownEnergyUpperBound, 50);
+    assert.equal(JSON.stringify(Memory.empire.remoteMining.budgets.W1N1.grants[unknownRequest]), unknownGrant);
+    assert.equal(scene.f.spawnCalls.length, calls);
+    assert.equal(JSON.stringify(scene.state.previous), old);
+});
+
+test('native_runtime_first_delivery_keeps_next_tick_evidence_and_closes', async () => {
+    const scene = await nativeRecoveryScene({ containerBuilt: true, pendingEnergy: 500 });
+    const request = structuredClone(Memory.empire.control.policy.remoteMining.economicTrial.request);
+    await until(scene, () => !!scene.current.firstDelivery || !!scene.current.outcome, 850);
+    assert.ok(scene.current.firstDelivery, JSON.stringify(scene.current.outcome));
+    const first = structuredClone(scene.current.firstDelivery);
+    assert.ok(first.amount > 0);
+    const journal = scene.current.outbox.find(item => item.key === first.key);
+    assert.equal(journal.stage, 'applied');
+    assert.equal(journal.application.credited, first.amount);
+    assert.equal(first.confirmedAtTick, journal.resolution.actionTick + 1);
+    assert.equal(scene.current.closeAppliedAtTick, first.confirmedAtTick);
+    assert.equal(scene.current.outcome.stopReason, 'first_delivery');
+    assert.equal(scene.current.evidence.openingContainerEnergy, 500);
+    assert.equal(scene.current.evidence.newProductionConfirmed, null);
+    scene.advance();
+    assert.ok(scene.current.closureVerifiedAtTick > scene.current.closeAppliedAtTick);
+    assert.equal(scene.current.evidence.unknownEnergyUpperBound, 0);
+    assert.equal(scene.current.evidence.unknownEvents, 0);
+    assert.equal(scene.current.evidence.returnedEnergy, first.amount);
+    assert.equal(scene.f.ledger.returnedEnergyConfirmed, first.amount);
+    for (const role of ['scout', 'remoteMiner', 'remoteHauler']) assert.equal(scene.current.slots[role].calls, 1);
+    assert.equal(scene.current.evidence.confirmedSpawnCost, Object.values(scene.current.slots).reduce((sum, slot) => sum + slot.cost, 0));
+    assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+    assert.equal(scene.f.operation.allowEconomicDeparture, false);
+    assert.equal(scene.f.operation.allowRecon, false);
+    assert.deepEqual(Memory.empire.control.policy.remoteMining.economicTrial.request, request);
+});
+
+async function closedVisionScene(safeTicks, release = true) {
+    const scene = await nativeRecoveryScene();
+    await until(scene, () => scene.current.safeStreak === safeTicks);
+    Memory.empire.remoteRooms.W1N2.hold = true;
+    scene.advance(); scene.advance();
+    await until(scene, () => Object.values(Game.spawns).every(spawn => !spawn.spawning));
+    removeTrialActors(scene);
+    const terminal = JSON.stringify(scene.current);
+    scene.restoreMemory();
+    assert.equal(JSON.stringify(scene.current), terminal);
+    if (release) {
+        releaseRequest(scene); scene.advance();
+        assert.equal(scene.current.managed, false);
+    }
+    const cooldownEnd = scene.f.operation.lastReconAt + Memory.empire.control.policy.remoteMining.reconCooldownTicks;
+    while (Game.time <= cooldownEnd) scene.advance();
+    return scene;
+}
+
+for (const oldStreak of [20, 99, 100]) test('vision_isolation_released_history_does_not_block_or_seed_new_session_' + oldStreak, async () => {
+    const scene = await closedVisionScene(oldStreak);
+    const previous = JSON.stringify(scene.current);
+    const oldCost = scene.current.evidence.confirmedSpawnCost;
+    assert.equal(scene.current.visionAcquired, true);
+    assert.equal(scene.current.safeStreak, oldStreak);
+    scene.restoreMemory();
+    scene.prepare({ id: 'econ-vision-two', sequence: 3 });
+    const request = structuredClone(Memory.empire.control.policy.remoteMining.economicTrial.request);
+    scene.advance();
+    assert.equal(scene.current.identity.trialId, 'econ-vision-two', JSON.stringify(scene.state.lastRejection));
+    assert.equal(scene.current.visionAcquired, false);
+    assert.equal(scene.current.safeStreak, 0);
+    assert.equal(scene.current.lastSafeTick, undefined);
+    assert.equal(scene.current.safeStartedAtTick, undefined);
+    assert.equal(scene.current.slots.scout.calls, 1);
+    assert.equal(scene.current.slots.remoteMiner.calls, 0);
+    assert.equal(scene.current.slots.remoteHauler.calls, 0);
+    assert.equal(scene.current.evidence.confirmedSpawnCost, 50);
+    assert.equal(scene.current.evidence.unknownEnergyUpperBound, 0);
+    assert.equal(scene.f.ledger.spawnEnergyConfirmed, oldCost + 50);
+    assert.equal(JSON.stringify(scene.state.previous), previous);
+    const admitted = JSON.stringify(scene.current);
+    scene.restoreMemory();
+    assert.equal(JSON.stringify(scene.current), admitted);
+    scene.advance();
+    assert.equal(scene.current.safeStreak, 0);
+    assert.equal(scene.current.slots.scout.calls, 1);
+    assert.equal(JSON.stringify(scene.state.previous), previous);
+    if (oldStreak === 99) {
+        const resetAt = new Set();
+        for (let i = 0; i < 220 && scene.current.safeStreak < 100 && !scene.current.outcome; i++) {
+            assert.equal(scene.current.slots.remoteMiner.calls, 0);
+            assert.equal(scene.current.slots.remoteHauler.calls, 0);
+            if ([49, 99].includes(scene.current.safeStreak) && !resetAt.has(scene.current.safeStreak)) {
+                resetAt.add(scene.current.safeStreak);
+                const current = JSON.stringify(scene.current);
+                scene.restoreMemory();
+                assert.equal(JSON.stringify(scene.current), current);
+            }
+            scene.advance();
+        }
+        assert.deepEqual([...resetAt], [49, 99]);
+        assert.equal(scene.current.outcome, undefined);
+        assert.equal(scene.current.safeStreak, 100);
+        assert.ok(scene.current.safeStartedAtTick >= request.activateAtTick);
+        assert.equal(scene.current.lastSafeTick - scene.current.safeStartedAtTick + 1, 100);
+        assert.equal(scene.current.slots.remoteMiner.calls, 1);
+        assert.equal(JSON.stringify(scene.state.previous), previous);
+    }
+    assert.deepEqual(Memory.empire.control.policy.remoteMining.economicTrial.request, request);
+});
+
+test('vision_isolation_facts_describe_absent_view_without_session_failure', async () => {
+    const scene = await nativeRecoveryScene();
+    await until(scene, () => scene.current.safeStreak === 20);
+    const raw = JSON.stringify(scene.current);
+    delete Game.rooms.W1N2;
+    const { collectEconomicTrialFacts } = await import('../services/RemoteEconomicTrialFacts.js');
+    const facts = collectEconomicTrialFacts(global.RemoteMining['W1N1:W1N2'], {
+        tick: Game.time, nowMs: scene.current.lastNowMs, codeVersion: global.EmpireServicesVersion });
+    assert.equal(facts.remoteVisible, false);
+    assert.equal(facts.fatalReason, null);
+    assert.equal(JSON.stringify(scene.current), raw);
+});
+
+for (const externalView of [false, true]) test('vision_isolation_unreleased_terminal_cannot_be_replaced_' + externalView, async () => {
+    const scene = await closedVisionScene(20, false);
+    const old = JSON.stringify(scene.current);
+    const count = scene.f.spawnCalls.length;
+    scene.prepare({ id: 'econ-unreleased', sequence: 2 });
+    scene.advance({ visibility: externalView });
+    assert.equal(scene.state.lastRejection?.reason, 'release_required');
+    assert.equal(JSON.stringify(scene.current), old);
+    assert.equal(scene.state.previous, null);
+    assert.equal(scene.f.spawnCalls.length, count);
+    assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+});
+
+for (const mode of ['p0_without_scope', 'before_action', 'replacement_before_action']) {
+    test('vision_isolation_live_loss_still_closes_' + mode, async () => {
+        const scene = await nativeRecoveryScene();
+        await until(scene, () => scene.current.safeStreak === 20);
+        const scout = Game.creeps[scene.current.slots.scout.name];
+        const identity = structuredClone(scene.current.identity);
+        const { assignTask } = await import('../core/TaskMetadata.js');
+        scene.advance({ ...(mode === 'p0_without_scope' ? { visibility: false, skipRemote: true } : {}),
+            beforeActionParser() {
+                assignTask(scout, { type: 'MOVE_TO', pos: { x: 25, y: 48, roomName: 'W1N2' }, range: 0 });
+                if (mode !== 'p0_without_scope') delete Game.rooms.W1N2;
+                if (mode === 'replacement_before_action') {
+                    const settings = Memory.empire.control.policy.remoteMining.economicTrial;
+                    settings.request = { ...settings.request, id: 'replacement', sequence: 3,
+                        activateAtTick: Game.time, expiresAtTick: Game.time + 1000 };
+                }
+            } });
+        assert.deepEqual(scene.current.identity, identity);
+        assert.equal(scene.current.outcome.stopReason, 'vision_lost');
+        assert.equal(scene.current.closeAppliedAtTick, Game.time);
+        assert.equal(scene.calls.filter(call => call.tick === Game.time && call.name === scout.name && call.method === 'moveByPath').length, 0);
+        assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+        assert.equal(scene.current.slots.remoteMiner.calls, 0);
+        assert.equal(scene.current.slots.remoteHauler.calls, 0);
+        assert.equal(scene.current.evidence.confirmedSpawnCost, 50);
+        assert.equal(scene.current.evidence.unknownEnergyUpperBound, 0);
+        scene.advance();
+        assert.ok(scene.current.closureVerifiedAtTick > scene.current.closeAppliedAtTick);
+    });
+}
+
+test('vision_isolation_parent_ready_and_external_view_do_not_authorize_economy', async () => {
+    const scene = await closedVisionScene(20);
+    scene.prepare({ id: 'econ-new', sequence: 3 }); scene.advance();
+    assert.equal(scene.current.identity.trialId, 'econ-new');
+    Object.assign(scene.f.operation, { safeTicks: 100, recoveryRequired: false, lastSafeTick: Game.time });
+    scene.advance({ visibility: true });
+    const scout = Game.creeps[scene.current.slots.scout.name];
+    const scope = global.RemoteMining['W1N1:W1N2'];
+    assert.equal(scope.state.allowEconomicDeparture, true);
+    assert.equal(scene.current.visionAcquired, true);
+    assert.equal(scout.pos.roomName, 'W1N1');
+    assert.equal(scene.current.safeStreak, 0);
+    assert.equal(scene.current.lastSafeTick, undefined);
+    assert.equal(scene.current.slots.remoteMiner.calls, 0);
+    assert.equal(scene.current.slots.remoteHauler.calls, 0);
+    const { getEconomicTrialPermit } = await import('../services/RemoteEconomicTrialService.js');
+    assert.equal(getEconomicTrialPermit({ remoteId: 'W1N1:W1N2', epoch: 1, role: 'remoteMiner', action: 'spawn' }).allowed, false);
+    assert.equal(scene.f.createdSites.length, 0);
+});
+
+test('vision_isolation_old_actor_blocks_release_without_changing_history', async () => {
+    const scene = await closedVisionScene(20, false);
+    const old = JSON.stringify(scene.current);
+    scene.f.actor('OldScoutStillAlive', 'scout', [MOVE], 'W1N1', { remoteId: 'W1N1:W1N2', targetRoom: 'W1N2',
+        epoch: 1, economicTrialId: scene.current.identity.trialId, economicTrialSequence: scene.current.identity.sequence });
+    releaseRequest(scene); scene.advance();
+    assert.equal(scene.state.lastRejection.reason, 'release_blocked');
+    assert.equal(scene.current.managed, true);
+    assert.equal(JSON.stringify(scene.current), old);
+    assert.ok(Game.creeps.OldScoutStillAlive);
+    assert.equal(scene.current.evidence.confirmedSpawnCost, 50);
+});
+
+test('vision_isolation_legacy_positive_count_without_vision_keeps_invalid_raw', async () => {
+    const scene = await nativeRecoveryScene();
+    await until(scene, () => scene.current.safeStreak === 20);
+    delete scene.current.visionAcquired;
+    const raw = JSON.stringify(scene.current);
+    scene.restoreMemory(); scene.advance();
+    assert.equal(global.RemoteEconomicTrial.summary.status, 'state_invalid');
+    assert.equal(JSON.stringify(scene.current), raw);
+    assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+    assert.equal(scene.calls.filter(call => call.tick === Game.time && call.method === 'moveByPath').length, 0);
+});

@@ -14,6 +14,88 @@ async function start(extra = {}) {
     return (await load()).advanceEconomicTrial(undefined, { kind: 'evaluate' }, facts(extra), clock()).state;
 }
 
+async function modelWithObservedVision() {
+    const model = await load();
+    return model.advanceEconomicTrial(await start(), { kind: 'scope_observed' }, facts({ remoteVisible: true,
+        remoteSafe: true, sourceValid: true, routeValid: true }), clock()).state;
+}
+
+async function terminalModelWithVision() {
+    const model = await load();
+    let state = await modelWithObservedVision();
+    state = model.advanceEconomicTrial(state, { kind: 'evaluate' }, facts({ guardEnabled: false }), clock(102)).state;
+    return model.advanceEconomicTrial(state, { kind: 'end_tick' }, facts({ guardEnabled: false, closed: true }), clock(103)).state;
+}
+
+test('vision_session_new_session_initializes_explicitly_without_history', async () => {
+    const model = await load();
+    let state = await terminalModelWithVision();
+    const release = request({ action: 'release', id: 'release-one', sequence: 2, targetTrialId: 'econ-one',
+        activateAtTick: 104, expiresAtTick: 1104 });
+    state = model.advanceEconomicTrial(state, { kind: 'evaluate' }, facts({ request: release, closed: true }), clock(104)).state;
+    const previous = JSON.stringify(state.current);
+    const next = request({ id: 'econ-two', sequence: 3, activateAtTick: 105, expiresAtTick: 1105 });
+    state = model.advanceEconomicTrial(state, { kind: 'evaluate' }, facts({ request: next }), clock(105)).state;
+    assert.equal(state.current.identity.trialId, 'econ-two');
+    assert.equal(state.current.visionAcquired, false);
+    assert.equal(state.current.safeStreak, 0);
+    assert.equal(state.current.lastSafeTick, undefined);
+    assert.equal(state.current.safeStartedAtTick, undefined);
+    assert.equal(state.current.evidence.confirmedSpawnCost, 0);
+    assert.equal(state.current.evidence.unknownEnergyUpperBound, 0);
+    assert.equal(JSON.stringify(state.previous), previous);
+});
+
+for (const remoteVisible of [false, true]) test('vision_session_managed_terminal_requires_release_' + remoteVisible, async () => {
+    const model = await load();
+    const state = await terminalModelWithVision();
+    const previous = JSON.stringify(state.current);
+    const next = request({ id: 'econ-two', sequence: 2, activateAtTick: 104, expiresAtTick: 1104 });
+    const result = model.advanceEconomicTrial(state, { kind: 'evaluate' }, facts({ request: next,
+        remoteVisible, remoteSafe: remoteVisible, sourceValid: remoteVisible, routeValid: remoteVisible, closed: true }), clock(104));
+    assert.equal(result.state.lastRejection?.reason, 'release_required');
+    assert.equal(result.state.lastSequence, 1);
+    assert.equal(JSON.stringify(result.state.current), previous);
+    assert.equal(result.state.previous, null);
+});
+
+for (const event of ['evaluate', 'end_tick']) for (const replacement of [false, true]) {
+    test('vision_session_live_loss_closes_without_scope_' + event + '_' + replacement, async () => {
+        const model = await load();
+        const state = await modelWithObservedVision();
+        const next = replacement ? request({ id: 'replacement', sequence: 2, activateAtTick: 102, expiresAtTick: 1102 }) : request();
+        const result = model.advanceEconomicTrial(state, { kind: event }, facts({ request: next,
+            remoteVisible: false, fatalReason: null }), clock(102));
+        assert.equal(result.state.current.identity.trialId, 'econ-one');
+        assert.equal(result.state.current.outcome?.stopReason, 'vision_lost');
+        assert.equal(result.state.current.closeAppliedAtTick, 102);
+        assert.ok(result.effects.some(effect => effect.type === 'close_scope'));
+        if (replacement && event === 'evaluate') assert.equal(result.state.lastRejection.reason, 'trial_in_progress');
+    });
+}
+
+test('vision_session_legacy_missing_flag_is_not_fabricated_vision', async () => {
+    const model = await load();
+    const state = await start();
+    delete state.current.visionAcquired;
+    const before = JSON.stringify(state);
+    assert.equal(model.validEconomicTrialState(state), true);
+    const result = model.advanceEconomicTrial(state, { kind: 'evaluate' }, facts(), clock(102));
+    assert.equal(result.state.current.outcome, undefined);
+    assert.equal(result.state.current.safeStreak, 0);
+    assert.equal(JSON.stringify(state), before);
+});
+
+for (const flag of [null, 'true', 1, {}]) test('vision_session_invalid_flag_keeps_raw_and_fails_closed_' + JSON.stringify(flag), async () => {
+    const model = await load();
+    const state = await start(); state.current.visionAcquired = flag;
+    const before = JSON.stringify(state);
+    const result = model.advanceEconomicTrial(state, { kind: 'evaluate' }, facts(), clock(102));
+    assert.equal(result.permit.reason, 'state_invalid');
+    assert.ok(result.effects.some(effect => effect.type === 'emergency_close'));
+    assert.equal(JSON.stringify(result.state), before);
+});
+
 test('econ_p1_default_off', async () => {
     const model = await load();
     const result = model.advanceEconomicTrial(undefined, { kind: 'evaluate' }, { guardEnabled: false }, clock());

@@ -2,7 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 
-function installGlobals() {
+function installGlobals(options = {}) {
     Object.assign(global, {
         WORK: 'work', CARRY: 'carry', MOVE: 'move', CLAIM: 'claim', ATTACK: 'attack',
         RANGED_ATTACK: 'ranged_attack', HEAL: 'heal', TOUGH: 'tough', RESOURCE_ENERGY: 'energy',
@@ -21,7 +21,11 @@ function installGlobals() {
     for (const type of ['SOURCES','STRUCTURES','MY_STRUCTURES','MY_SPAWNS','CREEPS','MY_CREEPS','HOSTILE_CREEPS','HOSTILE_STRUCTURES','CONSTRUCTION_SITES','MY_CONSTRUCTION_SITES','DROPPED_RESOURCES','TOMBSTONES','RUINS','MINERALS']) global[`FIND_${type}`] = type;
     global.LOOK_STRUCTURES = 'structure'; global.LOOK_CREEPS = 'creep'; global.LOOK_TERRAIN = 'terrain';
     global.RoomPosition = class RoomPosition {
-        constructor(x, y, roomName) { Object.assign(this, { x, y, roomName }); }
+        constructor(x, y, roomName) {
+            Object.assign(this, { x, y, roomName });
+            if (options.nativePositions) for (const key of ['x', 'y', 'roomName']) Object.defineProperty(this, key, { enumerable: false });
+        }
+        toJSON() { return { x: this.x, y: this.y, roomName: this.roomName }; }
         getRangeTo(target) { const pos = target.pos || target; return pos.roomName !== this.roomName ? Infinity : Math.max(Math.abs(pos.x-this.x), Math.abs(pos.y-this.y)); }
         inRangeTo(target, range) { return this.getRangeTo(target) <= range; }
         isEqualTo(target) { return this.getRangeTo(target) === 0; }
@@ -35,7 +39,7 @@ function store(energy = 0, capacity = 1000) {
 }
 
 async function createRemoteFixture(options = {}) {
-    installGlobals();
+    installGlobals(options);
     const f = { objects: {}, spawns: {}, spawnCalls: [], createdSites: [], visibleHostiles: [], newEconomicDepartures: [], droppedResources: [], moves: [], results: {} };
     const add = object => { f.objects[object.id] = object; return object; };
     const pos = (x,y,roomName) => new RoomPosition(x,y,roomName);
@@ -86,6 +90,15 @@ async function createRemoteFixture(options = {}) {
         },
         search(origin,goal,searchOptions){
             f.pathOptions=searchOptions;
+            if (options.nativeMovement) {
+                const { straightNativePath } = require('./native-room-movement.cjs');
+                const path = straightNativePath(origin, goal);
+                for (const point of path) {
+                    const matrix = searchOptions.roomCallback(point.roomName);
+                    if (matrix === false || matrix.get(point.x, point.y) === 255) return { incomplete: true, path: [] };
+                }
+                return { incomplete: false, path };
+            }
             const target=goal.pos;
             const path=[];
             let x=origin.x,y=origin.y,roomName=origin.roomName;
@@ -103,6 +116,7 @@ async function createRemoteFixture(options = {}) {
             return {incomplete:false,path};
         }
     };
+    if (options.nativeMovement) Game.map.describeExits = require('./native-room-movement.cjs').describeNativeExits;
     f.memory = Memory;
     f.actor = (name,role,body,roomName='W1N1',extra={}) => {
         const memory = {role,homeRoom:'W1N1',...extra}; Memory.creeps[name]=memory;
