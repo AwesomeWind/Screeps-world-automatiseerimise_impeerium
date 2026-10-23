@@ -7,7 +7,7 @@ import { normalizeRemoteConfig, collectRemoteActors, evaluateRemoteState, remote
 import { reserveSpawnGrant, cancelSpawnGrant, remoteBudgetStatus, reconcileSpawnExecution } from './RemoteMiningLedger.js';
 import { planRemoteRoute } from './RemoteMiningRoute.js';
 import { getReconTrialPermit, observeReconTrialScope, bindReconTrialSpawnRequest, isReconTrialSpawnContinuation } from './RemoteReconTrialService.js';
-import { getEconomicTrialPermit, observeEconomicTrialScope, bindEconomicTrialSpawnRequest, isEconomicTrialSpawnContinuation, applyEconomicTrialInfrastructure, canBindEconomicTrialRole, canReconcileEconomicSpawn } from './RemoteEconomicTrialService.js';
+import { getEconomicTrialPermit, observeEconomicTrialScope, bindEconomicTrialSpawnRequest, buildEconomicTrialSpawnCandidate, isEconomicTrialSpawnContinuation, applyEconomicTrialInfrastructure, canBindEconomicTrialRole, canReconcileEconomicSpawn } from './RemoteEconomicTrialService.js';
 
 class RemoteMiningService extends BaseService {
     init() {
@@ -157,9 +157,25 @@ class RemoteMiningService extends BaseService {
             for (const [role, count] of Object.entries(desired)) {
                 if (trial.managed && (role !== 'scout' || !getReconTrialPermit({ remoteId: config.remoteId, epoch: operation.epoch }).allowSpawn)) continue;
                 if (economic.managed && !getEconomicTrialPermit({ remoteId: config.remoteId, epoch: operation.epoch, role, action: 'spawn' }).allowed) continue;
-                if (economic.managed && !canBindEconomicTrialRole(config.remoteId, role)) continue;
                 if (population.covered[role] >= count || !population.canAdd(role)) continue;
                 const quotaKey = remoteQuotaKey(config, role);
+                const session = Memory.empire.remoteMining.economicTrials?.current;
+                if (economic.managed && !session.slots[role].requestId) {
+                    const candidate = buildEconomicTrialSpawnCandidate(global.RemoteMining[config.remoteId], role);
+                    if (candidate) {
+                        const demand = {owner: 'remoteMining', roomName: config.baseRoom, role, quotaKey, minCount: count, maxCount: count,
+                            priority: policy.priorities[role], bodyProfile: role === 'remoteMiner' ? 'remote_balanced_miner' :
+                                role === 'remoteHauler' ? 'remote_balanced_hauler' : role,
+                            maxEnergy: candidate.maxEnergy, requiresRemoteGrant: true, economicTrialCandidate: candidate,
+                            memory: {role, homeRoom: config.baseRoom, targetRoom, sourceId: config.sourceId, remoteId: config.remoteId,
+                                epoch: operation.epoch, quotaKey, economicTrialId: candidate.identity.trialId,
+                                economicTrialSequence: candidate.identity.sequence}};
+                        if (!global.SpawnDemands[config.baseRoom]) global.SpawnDemands[config.baseRoom] = [];
+                        global.SpawnDemands[config.baseRoom].push(demand);
+                    }
+                    continue;
+                }
+                if (economic.managed && !canBindEconomicTrialRole(config.remoteId, role)) continue;
                 let request = operation.requests[quotaKey];
                 if (!request || request.deadline < Game.time) {
                     request = { requestId: `remote:${config.remoteId}:${operation.epoch}:${++operation.requestSequence}`, deadline: Game.time + 5 };

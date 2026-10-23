@@ -9,11 +9,12 @@ import { arbitrateUpgradeWork, advanceUpgradeWorkControl } from '../governance/S
 import { evaluateCapabilityReadiness } from '../governance/CapabilityRolloutReadiness.js';
 import { getSourceOutputPolicy } from '../planning/CityAssetPolicy.js';
 import { getControllerContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
+import { inspectEconomicTrialSpawnCandidate } from './RemoteEconomicTrialService.js';
 import { shouldUseStrictSourceRuntime } from '../planning/RuntimeReadiness.js';
 
 function remoteRequestFields(intent) {
     const fields = {};
-    for (const key of ['requestId', 'grantId', 'deadline']) {
+    for (const key of ['requestId', 'grantId', 'deadline', 'economicTrialCandidate']) {
         if (intent[key] !== undefined) fields[key] = intent[key];
     }
     return fields;
@@ -56,7 +57,8 @@ class SpawnBureauService extends BaseService {
                     body: intent.body,
                     memory: intent.memory,
                     ...remoteRequestFields(intent)
-                }, intent.deadline !== undefined ? Math.max(0, intent.deadline - Game.time) : (intent.expireIn || 1));
+                }, intent.economicTrialCandidate !== undefined ? 0 :
+                    intent.deadline !== undefined ? Math.max(0, intent.deadline - Game.time) : (intent.expireIn || 1));
             }
         }
     }
@@ -209,7 +211,7 @@ class SpawnBureauService extends BaseService {
     addDemandIntents(room, state) {
         const demands = global.SpawnDemands && global.SpawnDemands[room.name] ? global.SpawnDemands[room.name] : [];
         for (const demand of demands) {
-            if (demand.requiresRemoteGrant && !demand.grantId) {
+            if (demand.requiresRemoteGrant && !demand.grantId && demand.economicTrialCandidate === undefined) {
                 state.blockedDemands.push({ quotaKey: demand.quotaKey, reason: 'budget_authorization_missing' });
                 continue;
             }
@@ -228,6 +230,7 @@ class SpawnBureauService extends BaseService {
                 requestId: demand.requestId,
                 grantId: demand.grantId,
                 deadline: demand.deadline,
+                economicTrialCandidate: demand.economicTrialCandidate,
                 memory: demand.memory || { role: demand.role, homeRoom: room.name },
                 reason: demand.reason || 'demand'
             });
@@ -238,6 +241,11 @@ class SpawnBureauService extends BaseService {
         if (state.intents.some((planned) => planned.quotaKey === intent.quotaKey)) return;
 
         const builtIntent = this.buildIntent(room, state, intent);
+        if (builtIntent?.economicTrialCandidate !== undefined &&
+            !inspectEconomicTrialSpawnCandidate(builtIntent.economicTrialCandidate, builtIntent).allowed) {
+            state.blockedDemands.push({quotaKey: intent.quotaKey, reason: 'invalid_economic_candidate'});
+            return;
+        }
         if (builtIntent) state.intents.push(builtIntent);
     }
 

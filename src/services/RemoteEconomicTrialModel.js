@@ -7,6 +7,17 @@ const record = value => value !== null && typeof value === 'object' && !Array.is
 const integer = value => Number.isSafeInteger(value) && value >= 0;
 const text = value => typeof value === 'string' && value.length > 0 && value.length <= 4096;
 
+function admissionValid(slot, session) {
+    const fields = ['admissionStage', 'admissionTick', 'admissionSpawnName'];
+    if (fields.every(key => slot[key] === undefined)) return true;
+    return ['binding', 'admitted'].includes(slot.admissionStage) && integer(slot.admissionTick) &&
+        slot.admissionTick >= session.startedAtTick && slot.admissionTick <= session.lastTick &&
+        text(slot.admissionSpawnName) && slot.admissionSpawnName.length <= 100 && text(slot.requestId) &&
+        slot.deadline === Math.min(slot.admissionTick + 5, session.expiresAtTick - 1) &&
+        (slot.admissionStage !== 'binding' || slot.calls === 0 && slot.acceptedAt === undefined &&
+            !['call_started', 'result_known'].includes(slot.callState));
+}
+
 export function economicIdentityMatches(a, b) {
     return !!a && !!b && ['trialId', 'sequence', 'remoteId', 'epoch', 'codeVersion'].every(key => a[key] === b[key]);
 }
@@ -37,6 +48,7 @@ export function validEconomicTrialState(state) {
             session.scopeCheckedAt !== undefined && (!integer(session.scopeCheckedAt) || session.scopeCheckedAt > session.lastTick)) return false;
         for (const role of ROLES) {
             const slot = session.slots[role];
+            if (!admissionValid(slot, session)) return false;
             if (!integer(slot.calls) || slot.calls > 2 || slot.cost !== undefined &&
                 (!integer(slot.cost) || slot.cost <= 0 || slot.cost > ECONOMIC_ROLE_LIMITS[role])) return false;
             if (slot.requestId !== undefined && (!text(slot.requestId) || !integer(slot.deadline) || slot.deadline >= session.expiresAtTick)) return false;
@@ -44,6 +56,8 @@ export function validEconomicTrialState(state) {
             if (slot.bodyCost !== undefined && (!integer(slot.bodyCost) || slot.bodyCost <= 0 || slot.bodyCost > ECONOMIC_ROLE_LIMITS[role])) return false;
             if (slot.unknownUpperBound !== undefined && (!integer(slot.unknownUpperBound) || slot.unknownUpperBound > ECONOMIC_ROLE_LIMITS[role])) return false;
             if (slot.ledgerStage !== undefined && !['applying', 'applied'].includes(slot.ledgerStage)) return false;
+            // Applying accounting is never evidence that an engine call was unstarted.
+            if (slot.ledgerStage === 'applying' && slot.callState !== 'call_started') return false;
             if (slot.acceptedAt !== undefined && (!integer(slot.acceptedAt) || slot.acceptedAt < session.startedAtTick ||
                 slot.acceptedAt >= session.expiresAtTick || !text(slot.name) || slot.cost !== slot.bodyCost ||
                 !economicIdentityMatches(slot.receiptBinding?.identity, session.identity) || slot.receiptBinding.requestId !== slot.requestId ||
@@ -97,6 +111,8 @@ export function economicTrialPermission(state, query = {}, clock) {
         role === 'remoteHauler' && session.status === 'hauling';
     if (!stageAllows) return permit(true, clock, false, 'stage_blocked');
     if (query.action === 'container_site') return permit(true, clock, true);
+    if (query.action === 'spawn' && slot.admissionStage === 'binding' &&
+        (query.spawnCheckpoint !== 'intake' || slot.admissionTick !== clock.tick)) return permit(true, clock, false, 'admission_incomplete');
     if (query.action === 'spawn') return permit(true, clock, slot.acceptedAt === undefined &&
         slot.callState !== 'call_started' && (slot.calls || 0) < 2 &&
         (slot.deadline === undefined || clock.tick <= slot.deadline), 'spawn_gate');
@@ -211,6 +227,8 @@ export function advanceEconomicTrial(input, event, facts, clock) {
             session.closureVerifiedAtTick ??= clock.tick;
         }
     } else {
+        if (ROLES.some(role => session.slots[role].admissionStage === 'binding' &&
+            session.slots[role].admissionTick < clock.tick)) effects = stopEconomicTrial(session, 'spawn_admission_interrupted', clock);
         const unknownRole = ROLES.find(role => session.slots[role].callState === 'call_started' &&
             session.slots[role].callTick < clock.tick);
         if (unknownRole) {
@@ -250,6 +268,26 @@ export function advanceEconomicTrial(input, event, facts, clock) {
             const expiredSlot = ROLES.find(role => session.slots[role].acceptedAt === undefined &&
                 session.slots[role].deadline !== undefined && clock.tick > session.slots[role].deadline);
             if (expiredSlot) effects = stopEconomicTrial(session, 'spawn_request_expired', clock);
+            if (['spawn_admission_begin', 'spawn_admission_complete'].includes(event.kind)) {
+                const context = event.context;
+                const slot = session.slots[event.role];
+                const matching = slot && context?.role === event.role && economicIdentityMatches(session.identity, context) &&
+                    text(context.requestId) && context.grantId === context.requestId && text(context.spawnName) &&
+                    context.baseRoom === session.baseRoom && text(context.name);
+                if (event.kind === 'spawn_admission_begin') {
+                    if (!session.outcome && matching && !slot.requestId &&
+                        context.deadline === Math.min(clock.tick + 5, session.expiresAtTick - 1)) {
+                        Object.assign(slot, {requestId: context.requestId, deadline: context.deadline,
+                            admissionStage: 'binding', admissionTick: clock.tick, admissionSpawnName: context.spawnName});
+                    } else effects = stopEconomicTrial(session, 'spawn_admission_conflict', clock);
+                } else if (!session.outcome && matching && slot.admissionStage === 'binding' &&
+                    slot.admissionTick === clock.tick && slot.admissionSpawnName === context.spawnName &&
+                    slot.requestId === context.requestId && slot.deadline === context.deadline &&
+                    slot.callState === 'not_started' && slot.intakeTick === clock.tick && slot.name === context.name &&
+                    slot.bodyCost === context.bodyCost && JSON.stringify(slot.body) === JSON.stringify(context.body)) {
+                    slot.admissionStage = 'admitted';
+                } else effects = stopEconomicTrial(session, 'spawn_admission_incomplete', clock);
+            }
             if (event.kind === 'spawn_bound' && ROLES.includes(event.role)) {
                 const slot = session.slots[event.role];
                 if (!slot.requestId && text(event.requestId) && integer(event.deadline)) {
@@ -271,6 +309,8 @@ export function advanceEconomicTrial(input, event, facts, clock) {
                     delete slot.ledgerStage;
                     delete slot.ledgerApplication;
                     delete slot.nativeResult;
+                } else if (event.type === 'call_started' && slot.admissionStage === 'binding') {
+                    effects = stopEconomicTrial(session, 'spawn_admission_incomplete', clock);
                 } else if (event.type === 'call_started' && slot.name === context.name && slot.callState === 'not_started') {
                     slot.calls++;
                     slot.callState = 'call_started';

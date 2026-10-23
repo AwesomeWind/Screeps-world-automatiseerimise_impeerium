@@ -3,7 +3,8 @@ import EventBus from '../core/EventBus.js';
 import { ensureEmpireControl } from '../config/EmpirePolicy.js';
 import { validateSpawnGrant, recordSpawnResult } from './RemoteMiningLedger.js';
 import { getReconTrialPermit, recordReconTrialSpawn } from './RemoteReconTrialService.js';
-import { getEconomicTrialPermit, recordEconomicTrialSpawn, settleEconomicTrialSpawn } from './RemoteEconomicTrialService.js';
+import { getEconomicTrialPermit, recordEconomicTrialSpawn, settleEconomicTrialSpawn, inspectEconomicTrialSpawnCandidate,
+    beginEconomicTrialSpawnAdmission, completeEconomicTrialSpawnAdmission, abortEconomicTrialSpawnAdmission } from './RemoteEconomicTrialService.js';
 
 function economicTrialContext(data, name, spawnName) {
     const memory = data.memory || {};
@@ -72,7 +73,11 @@ class SpawnService extends BaseService {
             return true;
         }
         const roomName = data.roomName;
-        const remoteContext = this.remoteSpawnContext(data);
+        const isEconomicCandidate = Object.hasOwn(data, 'economicTrialCandidate');
+        if (isEconomicCandidate && !inspectEconomicTrialSpawnCandidate(data.economicTrialCandidate, data).allowed) {
+            this.recordIntake(data.roomName, 'stale_economic_candidate'); return true;
+        }
+        const remoteContext = isEconomicCandidate ? {required: false} : this.remoteSpawnContext(data);
         if (remoteContext.required && !remoteContext.allowed) {
             this.recordIntake(roomName, 'stale_remote_grant');
             return true;
@@ -117,6 +122,9 @@ class SpawnService extends BaseService {
         const spawnName = spawn.name || Object.keys(Game.spawns).find((key) => Game.spawns[key] === spawn);
         const roleName = String(data.role || (data.memory && data.memory.role) || 'creep').slice(0, 20);
         const name = data.name || `${roleName}_${Game.time}_${String(spawnName).slice(0, 30)}_${this.nameSequence++}`;
+        if (isEconomicCandidate) {
+            return this.handleEconomicCandidate(event, data, spawn, spawns, name, cost, scopedQuota);
+        }
         const trialContext = remoteContext.trialManaged ? reconTrialContext(data, name, spawnName) : null;
         const economicContext = remoteContext.economicManaged ? economicTrialContext(data, name, spawnName) : null;
         if (economicContext && !recordEconomicTrialSpawn(economicContext, { type: 'intake' }).allowed) {
@@ -142,8 +150,54 @@ class SpawnService extends BaseService {
         return true;
     }
 
+    handleEconomicCandidate(event, offered, spawn, spawns, name, cost, scopedQuota) {
+        const roomName = offered.roomName;
+        const context = {...offered.economicTrialCandidate.identity, role: offered.role, baseRoom: roomName,
+            name, spawnName: spawn.name, body: [...offered.body], data: offered};
+        let task = null, admittedContext = context, requestId = null, released = false;
+        this.energyBalance[roomName] -= cost;
+        const release = () => {
+            if (released) return;
+            released = true;
+            if (task) {
+                task.allocationReleased = true;
+                const index = this.pendingTasks.indexOf(task);
+                if (index >= 0) this.pendingTasks.splice(index, 1);
+            }
+            this.energyBalance[roomName] += cost;
+            spawns.push(spawn);
+            if (requestId) this.pendingRequestKeys.delete(requestId);
+            if (scopedQuota) this.pendingQuotas.delete(scopedQuota);
+            this.pendingNames.delete(name);
+        };
+        try {
+            const admission = beginEconomicTrialSpawnAdmission(offered.economicTrialCandidate, context);
+            if (!admission.allowed) {release(); this.recordIntake(roomName, admission.reason); return true;}
+            const data = admission.data;
+            admittedContext = admission.context; requestId = data.requestId;
+            const remote = this.remoteSpawnContext(data);
+            if (!remote.allowed) throw new Error('Admission context invalid');
+            task = {spawn, data, name, cost, requestId, event: {...event, data, expireAt: data.deadline},
+                economicContext: admittedContext, trialContext: null};
+            this.pendingRequestKeys.add(requestId);
+            if (scopedQuota) this.pendingQuotas.add(scopedQuota);
+            this.pendingNames.add(name);
+            this.pendingTasks.push(task);
+            remote.grant.executing = true; remote.grant.executingAt = Game.time;
+            if (!completeEconomicTrialSpawnAdmission(admittedContext).allowed) throw new Error('Admission not committed');
+            this.recordIntake(roomName, 'accepted');
+            return true;
+        } catch {
+            release();
+            abortEconomicTrialSpawnAdmission(admittedContext, 'spawn_admission_failed');
+            this.recordIntake(roomName, 'spawn_admission_failed');
+            return true;
+        }
+    }
+
     run() {
         for (const task of this.pendingTasks) {
+            if (task.allocationReleased) continue;
             const memory = task.data.memory || { role: task.data.role };
             const remoteContext = this.remoteSpawnContext(task.data, 'run');
             if (remoteContext.required && !remoteContext.allowed) {
@@ -221,7 +275,8 @@ class SpawnService extends BaseService {
             memory.targetRoom !== scope.config.targetRoom || memory.sourceId !== scope.config.sourceId) return { required, allowed: false };
         const role = data.role || memory.role;
         const economic = getEconomicTrialPermit({ remoteId: memory.remoteId, epoch: memory.epoch, role,
-            trialId: memory.economicTrialId, sequence: memory.economicTrialSequence, requestId: data.requestId, action: 'spawn' });
+            trialId: memory.economicTrialId, sequence: memory.economicTrialSequence, requestId: data.requestId, action: 'spawn',
+            spawnCheckpoint: stage === 'run' ? 'run' : 'intake' });
         if (economic.managed && (!economic.allowed || !memory.economicTrialId || !Number.isSafeInteger(memory.economicTrialSequence))) {
             return { required, allowed: false, economicManaged: true };
         }

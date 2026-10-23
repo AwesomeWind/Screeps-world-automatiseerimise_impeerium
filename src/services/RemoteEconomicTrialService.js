@@ -1,12 +1,136 @@
 import BaseService from '../core/BaseService.js';
 import EventBus from '../core/EventBus.js';
 import { clearTaskState } from '../core/TaskMetadata.js';
-import { cancelSpawnGrant, recordRemoteResolution, recordInfrastructureResult, recordSpawnResult } from './RemoteMiningLedger.js';
+import { cancelSpawnGrant, reserveSpawnGrant, recordRemoteResolution, recordInfrastructureResult, recordSpawnResult } from './RemoteMiningLedger.js';
+import { remoteQuotaKey } from './RemoteMiningState.js';
 import { advanceEconomicTrial, economicTrialPermission, summarizeEconomicTrial, economicIdentityMatches, validEconomicTrialState } from './RemoteEconomicTrialModel.js';
 import { ECONOMIC_ROLE_LIMITS, economicResolutionKey, economicResolutionIdentity } from './RemoteEconomicTrialEvidence.js';
 import { collectEconomicTrialFacts } from './RemoteEconomicTrialFacts.js';
 
 let runtime = null;
+const CANDIDATE_FIELDS = ['schemaVersion', 'identity', 'role', 'quotaKey', 'offeredAtTick', 'baseRoom', 'targetRoom', 'sourceId', 'maxEnergy'];
+const candidateDenied = reason => ({allowed: false, reason});
+
+function economicSpawnGrantMatches(grant, context, slot, scope) {
+    const cap = Memory.empire.control.policy.remoteMining.bodyEnergyLimits[context.role];
+    return !!grant && !!slot && !!scope && grant.requestId === context.requestId &&
+        grant.economicTrialId === context.trialId && grant.economicTrialSequence === context.sequence &&
+        grant.remoteId === context.remoteId && grant.epoch === context.epoch && grant.role === context.role &&
+        grant.quotaKey === remoteQuotaKey(scope.config, context.role) && grant.deadline === slot.deadline &&
+        Number.isSafeInteger(grant.maxEnergy) && grant.maxEnergy > 0 && grant.maxEnergy <= cap && context.bodyCost <= grant.maxEnergy;
+}
+
+export function buildEconomicTrialSpawnCandidate(scope, role, clock = runtime?.clock()) {
+    const state = Memory.empire.remoteMining?.economicTrials;
+    if (!runtime || !clock || clock.tick !== Game.time || !validEconomicTrialState(state)) return null;
+    const current = state.current, slot = current?.slots[role];
+    if (!current?.managed || !slot || slot.requestId || slot.calls || slot.admissionStage !== undefined ||
+        !scope || global.RemoteMining?.[current.identity.remoteId] !== scope ||
+        scope.operation !== Memory.empire.remoteMining.operations[current.identity.remoteId] || scope.operation.evaluatedAt !== clock.tick) return null;
+    const facts = collectEconomicTrialFacts(scope, clock);
+    const gate = getEconomicTrialPermit({...current.identity, role, action: 'spawn'}, clock);
+    if (!gate.allowed || facts.fatalReason || !facts.controlSafe || !facts.isolated || !facts.homeHealthy ||
+        !facts.budgetSafe || !facts.scopeFresh || facts.receiverFree < 20000 ||
+        (role === 'scout' ? !(scope.state.allowRecon || scope.state.allowEconomicDeparture) :
+            !scope.state.allowEconomicDeparture || !facts.remoteSafe || !facts.sourceValid || !facts.routeValid) ||
+        role === 'remoteHauler' && (!facts.containerReady || current.slots.remoteMiner.acceptedAt === undefined)) return null;
+    return {schemaVersion: 1, identity: {...current.identity}, role, quotaKey: remoteQuotaKey(scope.config, role),
+        offeredAtTick: clock.tick, baseRoom: current.baseRoom, targetRoom: current.targetRoom, sourceId: current.sourceId,
+        maxEnergy: Memory.empire.control.policy.remoteMining.bodyEnergyLimits[role]};
+}
+
+export function inspectEconomicTrialSpawnCandidate(candidate, data, clock = runtime?.clock()) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate) ||
+        Object.keys(candidate).length !== CANDIDATE_FIELDS.length || CANDIDATE_FIELDS.some(key => !Object.hasOwn(candidate, key)) ||
+        !candidate.identity || Object.keys(candidate.identity).length !== 5) return candidateDenied('candidate_invalid');
+    const scope = global.RemoteMining?.[candidate.identity.remoteId];
+    const expected = buildEconomicTrialSpawnCandidate(scope, candidate.role, clock);
+    if (!expected || !economicIdentityMatches(expected.identity, candidate.identity) ||
+        CANDIDATE_FIELDS.some(key => key !== 'identity' && expected[key] !== candidate[key])) return candidateDenied('candidate_stale_or_conflicting');
+    const memory = data?.memory, body = data?.body;
+    const parts = {scout: [MOVE], remoteMiner: [WORK, CARRY, MOVE], remoteHauler: [CARRY, MOVE]}[candidate.role];
+    if (!memory || data.role !== candidate.role || data.roomName !== candidate.baseRoom || memory.role !== candidate.role ||
+        memory.homeRoom !== candidate.baseRoom || memory.targetRoom !== candidate.targetRoom || memory.sourceId !== candidate.sourceId ||
+        memory.remoteId !== candidate.identity.remoteId || memory.epoch !== candidate.identity.epoch || memory.quotaKey !== candidate.quotaKey ||
+        memory.economicTrialId !== undefined && memory.economicTrialId !== candidate.identity.trialId ||
+        memory.economicTrialSequence !== undefined && memory.economicTrialSequence !== candidate.identity.sequence ||
+        data.requestId !== undefined || data.grantId !== undefined || data.deadline !== undefined ||
+        !Array.isArray(body) || !body.length || body.length > 50 || !body.every(part => Number.isFinite(BODYPART_COST[part])) ||
+        !parts?.every(part => body.includes(part)) || body.reduce((sum, part) => sum + BODYPART_COST[part], 0) > candidate.maxEnergy ||
+        candidate.role === 'scout' && (body.length !== 1 || body[0] !== MOVE)) return candidateDenied('candidate_body_or_target_invalid');
+    return {allowed: true, reason: null};
+}
+
+export function abortEconomicTrialSpawnAdmission(context, reason, clock = runtime?.clock()) {
+    const empire = Memory.empire, current = empire.remoteMining?.economicTrials?.current;
+    if (!runtime || !clock || !current?.managed || !economicIdentityMatches(context, current.identity) ||
+        !current.slots[context.role] || current.slots[context.role].requestId &&
+        current.slots[context.role].requestId !== context.requestId) return;
+    // Withdraw before attempting detailed protocol/evidence writes.
+    empire.control.policy.remoteMining.enabled = false;
+    const raw = empire.remoteRooms[current.targetRoom], scope = global.RemoteMining?.[current.identity.remoteId];
+    if (raw) {raw.enabled = false; raw.hold = true;}
+    const operation = empire.remoteMining.operations?.[current.identity.remoteId];
+    if (operation) Object.assign(operation, {allowRecon: false, allowEconomicDeparture: false});
+    if (scope) Object.assign(scope.state, {allowRecon: false, allowEconomicDeparture: false});
+    try {runtime.stop(reason);} catch {runtime.lastError = 'admission_stop_evidence_failed';}
+}
+
+export function beginEconomicTrialSpawnAdmission(candidate, allocation, clock = runtime?.clock()) {
+    const validation = inspectEconomicTrialSpawnCandidate(candidate, allocation?.data, clock);
+    if (!validation.allowed) return validation;
+    const spawn = Game.spawns[allocation.spawnName], scope = global.RemoteMining[candidate.identity.remoteId];
+    if (!economicIdentityMatches(allocation, candidate.identity) || allocation.role !== candidate.role ||
+        allocation.baseRoom !== candidate.baseRoom || !spawn || spawn.spawning || spawn.room.name !== candidate.baseRoom ||
+        spawn.isActive && !spawn.isActive() || typeof allocation.name !== 'string' || !allocation.name.length || allocation.name.length > 100 ||
+        allocation.data.name !== undefined && allocation.data.name !== allocation.name ||
+        JSON.stringify(allocation.body) !== JSON.stringify(allocation.data.body)) return candidateDenied('allocation_invalid');
+    let context = {...allocation}; delete context.data;
+    try {
+        const operation = scope.operation, current = Memory.empire.remoteMining.economicTrials.current;
+        const policy = Memory.empire.control.policy.remoteMining;
+        const requestId = `remote:${candidate.identity.remoteId}:${candidate.identity.epoch}:${operation.requestSequence + 1}`;
+        context = {...context, requestId, grantId: requestId, bodyCost: allocation.body.reduce((sum, part) => sum + BODYPART_COST[part], 0),
+            deadline: Math.min(clock.tick + 5, current.expiresAtTick - 1)};
+        operation.requestSequence++;
+        runtime.advance({kind: 'spawn_admission_begin', role: candidate.role, context}, scope, clock);
+        const bound = Memory.empire.remoteMining.economicTrials.current;
+        if (bound.outcome || bound.slots[candidate.role].requestId !== requestId) throw new Error('Admission binding refused');
+        const request = {requestId, deadline: context.deadline};
+        operation.requests[candidate.quotaKey] = request;
+        const grant = reserveSpawnGrant(Memory.empire.remoteMining.budgets[candidate.baseRoom], {...request,
+            role: candidate.role, quotaKey: candidate.quotaKey, remoteId: candidate.identity.remoteId, epoch: candidate.identity.epoch,
+            maxEnergy: candidate.maxEnergy, economicTrialId: candidate.identity.trialId, economicTrialSequence: candidate.identity.sequence}, clock.tick, policy);
+        if (!grant.granted) throw new Error('Admission budget refused');
+        if (!recordEconomicTrialSpawn(context, {type: 'intake'}, clock).allowed) throw new Error('Admission intake refused');
+        const data = {...allocation.data, ...request, grantId: requestId, memory: {...allocation.data.memory,
+            economicTrialId: candidate.identity.trialId, economicTrialSequence: candidate.identity.sequence}};
+        delete data.economicTrialCandidate;
+        return {allowed: true, reason: null, data, context};
+    } catch {
+        abortEconomicTrialSpawnAdmission(context, 'spawn_admission_failed', clock);
+        return candidateDenied('spawn_admission_failed');
+    }
+}
+
+export function completeEconomicTrialSpawnAdmission(context, clock = runtime?.clock()) {
+    const current = Memory.empire.remoteMining?.economicTrials?.current;
+    if (!runtime || !clock || !current || !economicIdentityMatches(context, current.identity)) return candidateDenied('admission_identity_invalid');
+    const slot = current.slots[context.role], grant = Memory.empire.remoteMining.budgets?.[current.baseRoom]?.grants?.[context.requestId];
+    if (!slot || slot.requestId !== context.requestId || slot.admissionStage !== 'binding' || slot.admissionTick !== clock.tick ||
+        !economicSpawnGrantMatches(grant, context, slot, global.RemoteMining?.[context.remoteId]) ||
+        !grant.executing || grant.executingAt !== clock.tick || grant.callState !== 'not_started' || slot.callState !== 'not_started') {
+        abortEconomicTrialSpawnAdmission(context, 'spawn_admission_incomplete', clock);
+        return candidateDenied('spawn_admission_incomplete');
+    }
+    try {
+        const result = runtime.advance({kind: 'spawn_admission_complete', role: context.role, context},
+            global.RemoteMining[current.identity.remoteId], clock);
+        if (!result.state.current.outcome && result.state.current.slots[context.role].admissionStage === 'admitted') return {allowed: true, reason: null};
+    } catch { /* Withdrawal does not depend on the failed detail write. */ }
+    abortEconomicTrialSpawnAdmission(context, 'spawn_admission_incomplete', clock);
+    return candidateDenied('spawn_admission_incomplete');
+}
 function recoveryScoutMoveAllowed(creep, task, session, scope, facts) {
     const entrance = scope.facts.entrance;
     return creep.memory.role === 'scout' && !creep.memory.remoteRetiring &&
@@ -130,12 +254,10 @@ export function recordEconomicTrialSpawn(context, event, clock) {
     const scope = global.RemoteMining?.[context.remoteId];
     if (['intake', 'call_started'].includes(event.type)) {
         runtime.advance({ kind: 'evaluate' }, scope, clock);
-        const gate = getEconomicTrialPermit({ ...context, action: 'spawn' }, clock);
+        const gate = getEconomicTrialPermit({ ...context, action: 'spawn', spawnCheckpoint: event.type === 'intake' ? 'intake' : 'run' }, clock);
         if (!gate.allowed) return gate;
         const grant = Memory.empire.remoteMining.budgets?.[context.baseRoom]?.grants?.[context.requestId];
-        if (!grant || grant.economicTrialId !== context.trialId || grant.economicTrialSequence !== context.sequence ||
-            grant.remoteId !== context.remoteId || grant.epoch !== context.epoch || grant.role !== context.role ||
-            grant.deadline !== slot.deadline || cost > grant.maxEnergy) {
+        if (!economicSpawnGrantMatches(grant, context, slot, scope)) {
             runtime.stop('spawn_grant_identity_changed');
             return deny('spawn_grant_identity_changed');
         }
