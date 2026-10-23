@@ -46,6 +46,9 @@
 
 ## 首批入库经济守卫
 
+- `NativeEconomicTrialOpsLegacyModel`保留v1原协议；公共Model按schema分派到v2 `SuccessorProtocol/SuccessorModel`。v2仅接受完整terminal父证明及显式新轮，先保存平面档案、后合法release/start；4父档案/65536字符、16拒绝记录满额拒绝新增，不删旧费用/原窗口。native窗口由`NativeEconomicTrialOpsOwnership`按活动或拟接纳完整身份选择；旧已release会话不能误拦新轮，旧回调也不能按相同remoteId撤权到新身份。
+- v2默认关闭不迁移；旧schema合法缺省字段保留absent，缺必需证据不推为0。费用unknown、planned中断或结果不明不重放；接纳后不再要求父仍为current或quiet。归档/摘要写入失败先精确撤权，旧记录仅作证据，不是活动许可；尚未接纳的中断不自动用另一id恢复。
+
 - `NativeEconomicTrialOpsProfile/Facts/Model/Service/Evidence`负责一次性游戏内运维协议。已知旧准备数据独立冻结在`NativeEconomicTrialOpsKnownPreparation`；默认关闭发布不归档或取代旧准备。运行状态和拒绝原因保存在Memory，global仅只读查询；当tick人口/账本不能从空global推断，`remoteBudgetStatus`会prune所以只读Facts不调用它。
 - 旧current除合法release的managed外不得改写，旧50不能计入新轮。新请求指纹与原Facts共用`RemoteEconomicTrialConfig`。archive/intent先落Memory；结果不明即停止，不重新生成activate/expire。安全撤权不受普通写入期限拦截，激活提交后记录故障也须在原守卫接纳前撤回精确本轮请求；不能持错误版本或epoch进入非托管采运。
 - planned/unknown的停止intent不是继续经营许可：独立P0仅对当前完整身份匹配的会话幂等撤权，不重放原经营intent或清未知claim。原经济Facts在spawn/action检查点同时收窄本native会话的stopAtMs与控制请求，避免同tick后半段越过较早截止；缺失整个ledger或不完整archive/固定请求均拒绝推进。

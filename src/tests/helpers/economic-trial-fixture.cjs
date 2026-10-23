@@ -34,7 +34,8 @@ async function createEconomicTrialFixture(options = {}) {
     const resetRuntime = () => {
         baseReset();
         f.services.unshift(new Recon('RemoteReconTrial', { now: () => nowMs }),
-            ...(NativeOps ? [new NativeOps('NativeEconomicTrialOps', {now: () => nowMs, profile: options.nativeOpsProfile})] : []),
+            ...(NativeOps ? [new NativeOps('NativeEconomicTrialOps', {now: () => nowMs, profile: options.nativeOpsProfile,
+                successorProfile:options.nativeOpsSuccessorProfile})] : []),
             new Guard('RemoteEconomicTrial', { ...options.guardOptions, now: () => nowMs }));
         global.EmpireServices = f.services;
         delete global.RemoteEconomicTrial;
