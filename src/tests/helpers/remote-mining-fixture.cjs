@@ -39,6 +39,9 @@ function store(energy = 0, capacity = 1000) {
 }
 
 async function createRemoteFixture(options = {}) {
+    const baseRoom = options.roomNames?.base || 'W1N1';
+    const targetRoom = options.roomNames?.target || 'W1N2';
+    const remoteId = baseRoom + ':' + targetRoom;
     installGlobals(options);
     const f = { objects: {}, spawns: {}, spawnCalls: [], createdSites: [], visibleHostiles: [], newEconomicDepartures: [], droppedResources: [], moves: [], results: {} };
     const add = object => { f.objects[object.id] = object; return object; };
@@ -66,22 +69,22 @@ async function createRemoteFixture(options = {}) {
         };
         return room;
     };
-    f.home = makeRoom('W1N1', true); f.remote = makeRoom('W1N2', false);
-    f.homeSink = add({ id:'HomeSink', my:true, structureType:'storage', store:store(20000,1000000), pos:pos(10,10,'W1N1') });
+    f.home = makeRoom(baseRoom, true); f.remote = makeRoom(targetRoom, false);
+    f.homeSink = add({ id:'HomeSink', my:true, structureType:'storage', store:store(20000,1000000), pos:pos(10,10,baseRoom) });
     f.home.storage = f.homeSink;
-    f.source = add({ id:'remoteSourceA', kind:'source', energy:1500, energyCapacity:1500, pos:pos(20,19,'W1N2') });
-    add({ id:'remoteSourceB', kind:'source', energy:1500, energyCapacity:1500, pos:pos(40,40,'W1N2') });
-    f.container = add({ id:'RemoteContainer', structureType:'container', hits:250000, hitsMax:250000, store:store(options.pendingEnergy ?? 500,2000), pos:pos(20,20,'W1N2') });
+    f.source = add({ id:'remoteSourceA', kind:'source', energy:1500, energyCapacity:1500, pos:pos(20,19,targetRoom) });
+    add({ id:'remoteSourceB', kind:'source', energy:1500, energyCapacity:1500, pos:pos(40,40,targetRoom) });
+    f.container = add({ id:'RemoteContainer', structureType:'container', hits:250000, hitsMax:250000, store:store(options.pendingEnergy ?? 500,2000), pos:pos(20,20,targetRoom) });
     if (options.containerBuilt === false) delete f.objects.RemoteContainer;
-    global.Memory = { empire: { remoteRooms: { W1N2: { enabled:true, baseRoom:'W1N1', sourceId:options.selectedSource ?? 'remoteSourceA',
-        containerId:'RemoteContainer', containerPos:{x:20,y:20,roomName:'W1N2'}, allowContainerBuild:options.allowContainerBuild ?? false,
+    global.Memory = { empire: { remoteRooms: { [targetRoom]: { enabled:true, baseRoom:baseRoom, sourceId:options.selectedSource ?? 'remoteSourceA',
+        containerId:'RemoteContainer', containerPos:{x:20,y:20,roomName:targetRoom}, allowContainerBuild:options.allowContainerBuild ?? false,
         homeDeliveryTargetIds:['HomeSink'], reserveController:false } },
         control:{ policy:{remoteMining:{enabled:options.policyEnabled ?? true, ...(options.spawnBudget === undefined ? {} : {spawnEnergyLimit:options.spawnBudget})}} } },
-        rooms:{W1N1:{},W1N2:{}}, creeps:{} };
-    global.Game = { time:100, rooms:{W1N1:f.home,W1N2:f.remote}, creeps:{}, spawns:f.spawns,
+        rooms:{[baseRoom]:{},[targetRoom]:{}}, creeps:{} };
+    global.Game = { time:100, rooms:{[baseRoom]:f.home,[targetRoom]:f.remote}, creeps:{}, spawns:f.spawns,
         getObjectById(id) { const object=f.objects[id] || Game.creeps[id]; return object && object.pos && !Game.rooms[object.pos.roomName] ? null : object || null; },
         cpu:{bucket:10000,limit:20,getUsed:()=>0},
-        map:{describeExits:name=>name==='W1N1'?{5:'W1N2'}:{1:'W1N1'}, getRoomTerrain:()=>({get:()=>0}),getRoomStatus:()=>({status:'normal'})} };
+        map:{describeExits:name=>name===baseRoom?{5:targetRoom}:{1:baseRoom}, getRoomTerrain:()=>({get:()=>0}),getRoomStatus:()=>({status:'normal'})} };
     global.PathFinder = {
         CostMatrix: class CostMatrix {
             constructor(){this.cells={};}
@@ -104,7 +107,7 @@ async function createRemoteFixture(options = {}) {
             let x=origin.x,y=origin.y,roomName=origin.roomName;
             const walk=(tx,ty)=>{while(x!==tx||y!==ty){x+=Math.sign(tx-x);y+=Math.sign(ty-y);path.push(new RoomPosition(x,y,roomName));}};
             if(roomName!==target.roomName){
-                const down=roomName==='W1N1';
+                const down=roomName===baseRoom;
                 walk(target.x,down?49:0);roomName=target.roomName;y=down?0:49;
                 path.push(new RoomPosition(x,y,roomName));
             }
@@ -118,8 +121,8 @@ async function createRemoteFixture(options = {}) {
     };
     if (options.nativeMovement) Game.map.describeExits = require('./native-room-movement.cjs').describeNativeExits;
     f.memory = Memory;
-    f.actor = (name,role,body,roomName='W1N1',extra={}) => {
-        const memory = {role,homeRoom:'W1N1',...extra}; Memory.creeps[name]=memory;
+    f.actor = (name,role,body,roomName=baseRoom,extra={}) => {
+        const memory = {role,homeRoom:baseRoom,...extra}; Memory.creeps[name]=memory;
         const actor = {name,id:name,my:true,memory,room:Game.rooms[roomName],pos:pos(20,20,roomName),
             body:body.map(type=>({type,hits:100})),ticksToLive:1500,fatigue:0,store:store(0,body.filter(part=>part===CARRY).length*50),
             getActiveBodyparts(type){return this.body.filter(part=>part.type===type&&part.hits>0).length;},
@@ -131,27 +134,27 @@ async function createRemoteFixture(options = {}) {
         Game.creeps[name]=actor; return actor;
     };
     if(options.minerAtRemote){
-        f.miner=f.actor('RemoteMinerA','remoteMiner',[WORK,WORK,CARRY,MOVE,MOVE],'W1N2',{
-            remoteId:'W1N1:W1N2',epoch:1,targetRoom:'W1N2',sourceId:'remoteSourceA',quotaKey:'remoteMiner:W1N1:W1N2:remoteSourceA'});
+        f.miner=f.actor('RemoteMinerA','remoteMiner',[WORK,WORK,CARRY,MOVE,MOVE],targetRoom,{
+            remoteId:remoteId,epoch:1,targetRoom:targetRoom,sourceId:'remoteSourceA',quotaKey:`remoteMiner:${remoteId}:remoteSourceA`});
         f.miner.store.energy=options.minerEnergy??0;
     }
     if(options.haulerAtHome||options.haulerAtRemote||options.carriedEnergy!==undefined){
-        const roomName=options.haulerAtRemote?'W1N2':'W1N1';
+        const roomName=options.haulerAtRemote?targetRoom:baseRoom;
         f.hauler=f.actor('HaulerA','remoteHauler',[CARRY,CARRY,MOVE,MOVE],roomName,{
-            remoteId:'W1N1:W1N2',epoch:1,targetRoom:'W1N2',sourceId:'remoteSourceA',quotaKey:'remoteHauler:W1N1:W1N2:remoteSourceA'});
-        f.hauler.pos=roomName==='W1N1'?pos(10,11,roomName):pos(20,21,roomName);
+            remoteId:remoteId,epoch:1,targetRoom:targetRoom,sourceId:'remoteSourceA',quotaKey:`remoteHauler:${remoteId}:remoteSourceA`});
+        f.hauler.pos=roomName===baseRoom?pos(10,11,roomName):pos(20,21,roomName);
         f.hauler.store.energy=options.carriedEnergy??0;
     }
     for(const [name,role,body] of [['CoreMiner','miner',[WORK,WORK,WORK,WORK,WORK,CARRY,MOVE]],['CoreHauler','hauler',Array(20).fill(CARRY).concat([MOVE])],['CoreUpgrade','upgrader',[WORK,WORK,WORK,WORK,WORK,CARRY,MOVE]],['CoreRepair','repairer',[WORK,CARRY,MOVE]]]) f.actor(name,role,body);
     for (const name of ['CoreHaulerB','CoreHaulerC']) f.actor(name,'hauler',[CARRY,CARRY,CARRY,CARRY,CARRY,MOVE]);
     f.actor('CoreUpgradeB','upgrader',[WORK,WORK,WORK,WORK,WORK,CARRY,MOVE]);
     for(const name of ['Spawn1','Spawn2']) {
-        f.spawns[name] = {name,id:name,my:true,structureType:'spawn',room:f.home,pos:pos(10,11,'W1N1'),isActive:()=>true,
+        f.spawns[name] = {name,id:name,my:true,structureType:'spawn',room:f.home,pos:pos(10,11,baseRoom),isActive:()=>true,
             spawnCreep(body,actorName,{memory}) { const result=f.results.spawn ?? OK; f.spawnCalls.push({body:[...body],name:actorName,memory:{...memory},cost:body.reduce((sum,part)=>sum+BODYPART_COST[part],0),result});return result; } };
     }
-    f.memory.rooms.W1N1.serviceFlags={planning:false,roads:false,defensePlanning:false,maintenancePlanning:false,lab:false,market:false,remoteMining:true};
-    global.RoomCache={W1N1:{sources:[],structures:{},constructionSites:[],updatedAt:100},W1N2:{sources:['remoteSourceA','remoteSourceB'],structures:{container:['RemoteContainer']},updatedAt:100}};
-    global.RoomPhase={W1N1:{phase:'storage',hasStorage:true,energyPosture:'normal',spawnEnergyRatio:1,recovery:{mode:'normal',coreUsable:{miner:1,hauler:1}}}};
+    f.memory.rooms[baseRoom].serviceFlags={planning:false,roads:false,defensePlanning:false,maintenancePlanning:false,lab:false,market:false,remoteMining:true};
+    global.RoomCache={[baseRoom]:{sources:[],structures:{},constructionSites:[],updatedAt:100},[targetRoom]:{sources:['remoteSourceA','remoteSourceB'],structures:{container:['RemoteContainer']},updatedAt:100}};
+    global.RoomPhase={[baseRoom]:{phase:'storage',hasStorage:true,energyPosture:'normal',spawnEnergyRatio:1,recovery:{mode:'normal',coreUsable:{miner:1,hauler:1}}}};
     global.RoomGovernor={};
     const root = path.resolve(__dirname,'../..');
     const load = relative => import(pathToFileURL(path.join(root,relative)).href);
@@ -173,15 +176,15 @@ async function createRemoteFixture(options = {}) {
         for (const [name, point] of Object.entries(patch.positions || {})) {
             const actor = Game.creeps[name];
             actor.pos = pos(point.x, point.y, point.roomName);
-            actor.room = point.roomName === 'W1N1' ? f.home : f.remote;
+            actor.room = point.roomName === baseRoom ? f.home : f.remote;
         }
-        if(patch.visibility===false)delete Game.rooms.W1N2; if(patch.visibility===true)Game.rooms.W1N2=f.remote;
-        if(patch.siteVisible){f.site=add({id:'RemoteSite',kind:'site',my:true,structureType:STRUCTURE_CONTAINER,pos:pos(20,20,'W1N2'),progress:0,progressTotal:5000});}
+        if(patch.visibility===false)delete Game.rooms[targetRoom]; if(patch.visibility===true)Game.rooms[targetRoom]=f.remote;
+        if(patch.siteVisible){f.site=add({id:'RemoteSite',kind:'site',my:true,structureType:STRUCTURE_CONTAINER,pos:pos(20,20,targetRoom),progress:0,progressTotal:5000});}
         if(patch.siteProgress!==undefined)f.site.progress=patch.siteProgress;
         if(patch.containerHits!==undefined)f.container.hits=patch.containerHits;
     };
     f.actionResult=(name,method,result)=>{f.results[`${name}:${method}`]=result;};
-    Object.defineProperties(f,{operation:{get:()=>Memory.empire.remoteMining?.operations?.['W1N1:W1N2']},ledger:{get:()=>f.operation?.ledger}});
+    Object.defineProperties(f,{operation:{get:()=>Memory.empire.remoteMining?.operations?.[remoteId]},ledger:{get:()=>f.operation?.ledger}});
     return f;
 }
 module.exports={createRemoteFixture,installGlobals,store};

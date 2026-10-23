@@ -18,7 +18,7 @@
 
 新增服务时要确认它依赖的全局状态是否已经由前序服务写入。当前关键顺序是：
 
-`RoomCache -> WarIntel/WarStrategy/Combat/Security -> RoomPhase -> RoomGovernor -> GoalPlan -> RemoteReconTrial -> RemoteMining -> SpawnBureau/Spawn -> TaskGuard -> ResourceMarket -> role strategies -> Tower/Planning/Lab/Market -> EmpireMetrics`
+`RoomCache -> WarIntel/WarStrategy/Combat/Security -> RoomPhase -> RoomGovernor -> GoalPlan -> RemoteReconTrial -> NativeEconomicTrialOps -> RemoteEconomicTrial -> RemoteMining -> SpawnBureau/Spawn -> TaskGuard -> ResourceMarket -> role strategies -> Tower/Planning/Lab/Market -> EmpireMetrics`
 
 `RemoteReconTrial` 是默认关闭的 P0 侦察会话守卫，在需求和动作之前撤权；仅在人工启动的托管会话中收窄既有许可。总期限、唯一孵化额度、关闭回读及结果保存在 Memory，遥测关闭不关闭守卫。没有新鲜 scope/许可时拒绝出发，已有安全返程沿用原门槛。
 
@@ -78,5 +78,7 @@
 - 长期状态写入 `Memory`，单 tick 派生状态写入 `global`。
 
 ## 有限经济试点
+
+`NativeEconomicTrialOps` 是默认false/null的P0一次性运维入口，位于原经济守卫之前；仅显式请求后按编译profile核对当tickGame/账本，跨tick归档已知旧准备、合法release与start。它不直接执行游戏动作或记账。新版本取代旧未激活准备属于新生产授权，不能复用旧外部许可。旧请求/身份/成本和固定期限保留；intent先持久化，未知不重放。`global.RemoteTrialOps.status(id)`只读，报告不能授权动作；外部断线不阻断原守卫自停。不得用此入口绕过新scout独立100安全ticks、角色/预算限制或旧托管锁。
 
 `RemoteEconomicTrial` 默认关闭，作为P0放在RemoteReconTrial后、RemoteMining前。托管会话独立保留Identity、三role唯一额度、绝对期限及关闭结果；仅收窄原执行许可。Game重建后从Memory恢复，不能靠global摘要授权。首个本轮正数次tick入库同步撤权；原安全返程/已有货物确认按有限tail执行，不授权第二趟。

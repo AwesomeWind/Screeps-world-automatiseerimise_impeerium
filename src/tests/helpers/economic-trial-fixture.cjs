@@ -2,10 +2,14 @@ const { createRemoteFixture, store } = require('./remote-mining-fixture.cjs');
 const { edgeDestination, nativeMoveDecision, positionSnapshot } = require('./native-room-movement.cjs');
 
 async function createEconomicTrialFixture(options = {}) {
-    const f = await createRemoteFixture({ containerBuilt: options.containerBuilt ?? true, pendingEnergy: options.pendingEnergy ?? 500,
+    const baseRoom = options.roomNames?.base || 'W1N1';
+    const targetRoom = options.roomNames?.target || 'W1N2';
+    const remoteId = baseRoom + ':' + targetRoom;
+    const f = await createRemoteFixture({ roomNames: options.roomNames, containerBuilt: options.containerBuilt ?? true, pendingEnergy: options.pendingEnergy ?? 500,
         nativeMovement: options.nativeMovement, nativePositions: options.nativePositions });
     const { default: Guard } = await import('../../services/RemoteEconomicTrialService.js');
     const { default: Recon } = await import('../../services/RemoteReconTrialService.js');
+    const NativeOps = options.nativeOps ? (await import('../../services/NativeEconomicTrialOpsService.js')).default : null;
     const { collectEconomicTrialFacts } = await import('../../services/RemoteEconomicTrialFacts.js');
     let nowMs = 1000000;
     const pendingMoves = new Map();
@@ -17,7 +21,7 @@ async function createEconomicTrialFixture(options = {}) {
     f.home.terminal = f.homeSink;
     delete f.home.storage;
     f.remote.controller.reservation = undefined;
-    const raw = Memory.empire.remoteRooms.W1N2;
+    const raw = Memory.empire.remoteRooms[targetRoom];
     Object.assign(raw, { enabled: false, hold: true, allowContainerBuild: true });
     const policy = Memory.empire.control.policy;
     policy.remoteMining.enabled = false;
@@ -25,11 +29,12 @@ async function createEconomicTrialFixture(options = {}) {
     Memory.empire.market = { enabled: false };
     global.EmpireServicesVersion = 'econ-v1';
     Game.cpu.tickLimit = 20;
-    if (!options.visible) delete Game.rooms.W1N2;
+    if (!options.visible) delete Game.rooms[targetRoom];
     const baseReset = f.resetRuntime;
     const resetRuntime = () => {
         baseReset();
         f.services.unshift(new Recon('RemoteReconTrial', { now: () => nowMs }),
+            ...(NativeOps ? [new NativeOps('NativeEconomicTrialOps', {now: () => nowMs, profile: options.nativeOpsProfile})] : []),
             new Guard('RemoteEconomicTrial', { ...options.guardOptions, now: () => nowMs }));
         global.EmpireServices = f.services;
         delete global.RemoteEconomicTrial;
@@ -119,30 +124,30 @@ async function createEconomicTrialFixture(options = {}) {
         for (const [name, point] of pendingMoves) {
             if (!Game.creeps[name]) continue;
             Game.creeps[name].pos = point;
-            Game.creeps[name].room = point.roomName === 'W1N1' ? f.home : f.remote;
+            Game.creeps[name].room = point.roomName === baseRoom ? f.home : f.remote;
         }
         pendingMoves.clear();
         if (options.nativeMovement) for (const actor of Object.values(Game.creeps)) {
             if (actor.spawning) continue;
             actor.pos = edgeDestination(actor.pos);
-            actor.room = actor.pos.roomName === 'W1N1' ? f.home : f.remote;
+            actor.room = actor.pos.roomName === baseRoom ? f.home : f.remote;
         }
         for (const spawn of Object.values(Game.spawns)) if (spawn.spawning && --spawn.spawning.remainingTime <= 0) {
             const actor = Game.creeps[spawn.spawning.name];
-            if (actor) { actor.spawning = false; actor.pos = new RoomPosition(9, 10, 'W1N1'); }
+            if (actor) { actor.spawning = false; actor.pos = new RoomPosition(9, 10, baseRoom); }
             spawn.spawning = null;
         }
-        if (options.visible || Object.values(Game.creeps).some(actor => actor.pos.roomName === 'W1N2')) Game.rooms.W1N2 = f.remote;
-        else delete Game.rooms.W1N2;
+        if (options.visible || Object.values(Game.creeps).some(actor => actor.pos.roomName === targetRoom)) Game.rooms[targetRoom] = f.remote;
+        else delete Game.rooms[targetRoom];
         f.nextTick(patch);
         runTick(patch);
     };
     const prepare = (extra = {}) => {
-        Object.assign(Memory.empire.remoteRooms.W1N2, { enabled: true, hold: false });
+        Object.assign(Memory.empire.remoteRooms[targetRoom], { enabled: true, hold: false });
         const policy = Memory.empire.control.policy.remoteMining;
         policy.enabled = true;
         policy.economicTrial = { enabled: true, request: { schemaVersion: 1, action: 'start', id: 'econ-one', sequence: 1,
-            remoteId: 'W1N1:W1N2', epoch: 1, codeVersion: global.EmpireServicesVersion, activateAtTick: Game.time + 1,
+            remoteId: remoteId, epoch: 1, codeVersion: global.EmpireServicesVersion, activateAtTick: Game.time + 1,
             expiresAtTick: Game.time + 1001, issuedAtMs: nowMs, expiresAtMs: nowMs + 5400000, ...extra } };
         policy.economicTrial.request.configFingerprint = collectEconomicTrialFacts(null, {
             tick: Game.time, nowMs, codeVersion: global.EmpireServicesVersion }).configFingerprint;

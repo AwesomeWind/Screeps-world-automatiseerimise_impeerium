@@ -46,6 +46,10 @@
 
 ## 首批入库经济守卫
 
+- `NativeEconomicTrialOpsProfile/Facts/Model/Service/Evidence`负责一次性游戏内运维协议。已知旧准备数据独立冻结在`NativeEconomicTrialOpsKnownPreparation`；默认关闭发布不归档或取代旧准备。运行状态和拒绝原因保存在Memory，global仅只读查询；当tick人口/账本不能从空global推断，`remoteBudgetStatus`会prune所以只读Facts不调用它。
+- 旧current除合法release的managed外不得改写，旧50不能计入新轮。新请求指纹与原Facts共用`RemoteEconomicTrialConfig`。archive/intent先落Memory；结果不明即停止，不重新生成activate/expire。安全撤权不受普通写入期限拦截，激活提交后记录故障也须在原守卫接纳前撤回精确本轮请求；不能持错误版本或epoch进入非托管采运。
+- planned/unknown的停止intent不是继续经营许可：独立P0仅对当前完整身份匹配的会话幂等撤权，不重放原经营intent或清未知claim。原经济Facts在spawn/action检查点同时收窄本native会话的stopAtMs与控制请求，避免同tick后半段越过较早截止；缺失整个ledger或不完整archive/固定请求均拒绝推进。
+
 - `RemoteEconomicTrialFacts/Model/Evidence/Service` 分别只读事实、纯协议、带来源归约和控制效果；policy.remoteMining.economicTrial默认false/null，不自动创建线上目标或release旧侦察锁。
 - 每轮最多scout/miner/hauler各1，1000ticks/90分钟，100连续安全ticks；Body上限50/800/800，本轮1650孵化/6000基建与原滚动预算取交集。不同role按实际receipt结算，未知调用保留claim并停止。
 - 托管物流在删除owner前同步持久化outbox，prepared/applying/applied分开；应用不明不能重放原账本。原ledger金额和严格次tick归因不变，首批必须同trial/trip pickup→指定terminal确认，旧库存不冒充新产出。

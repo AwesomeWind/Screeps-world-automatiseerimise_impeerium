@@ -10,6 +10,7 @@ import RoomGovernorService from './services/RoomGovernorService.js';
 import GoalPlanService from './services/GoalPlanService.js';
 import RemoteReconTrialService from './services/RemoteReconTrialService.js';
 import RemoteEconomicTrialService from './services/RemoteEconomicTrialService.js';
+import NativeEconomicTrialOpsService from './services/NativeEconomicTrialOpsService.js';
 import SpawnBureauService from './services/SpawnBureauService.js';
 import SpawnService from './services/SpawnService.js';
 import CreepRetirementService from './services/CreepRetirementService.js';
@@ -55,6 +56,7 @@ function createServices() {
         new RoomGovernorService('RoomGovernor'),
         new GoalPlanService('GoalPlan'),
         new RemoteReconTrialService('RemoteReconTrial'),
+        new NativeEconomicTrialOpsService('NativeEconomicTrialOps'),
         new RemoteEconomicTrialService('RemoteEconomicTrial'),
         new RemoteMiningService('RemoteMining'),
         new SpawnBureauService('SpawnBureau'),

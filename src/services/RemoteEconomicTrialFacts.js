@@ -1,5 +1,8 @@
 import { currentCreepPopulation } from '../core/CreepPopulation.js';
 import { normalizeRemoteConfig } from './RemoteMiningState.js';
+import { economicTrialConfigFingerprint } from './RemoteEconomicTrialConfig.js';
+import { economicIdentityMatches } from './RemoteEconomicTrialModel.js';
+import { nativeOpsEqual } from './NativeEconomicTrialOpsProfile.js';
 
 export function collectEconomicTrialFacts(scope, clock) {
     const empire = Memory.empire;
@@ -43,16 +46,17 @@ export function collectEconomicTrialFacts(scope, clock) {
     const recovery = global.RoomPhase?.[baseRoom]?.recovery;
     const recon = empire.remoteMining?.reconTrials;
     const reconLocked = !!recon && (!recon.current || recon.current.managed !== false);
-    const fingerprint = raw && JSON.stringify({
-        baseRoom, targetRoom, sourceId: raw.sourceId, containerId: raw.containerId,
-        containerPos: point, receiverIds: raw.homeDeliveryTargetIds, allowContainerBuild: raw.allowContainerBuild,
-        reserveController: raw.reserveController, roleLimits: limits, bodyEnergyLimits: remotePolicy.bodyEnergyLimits,
-        spawnEnergyLimit: remotePolicy.spawnEnergyLimit, infrastructureEnergyLimit: remotePolicy.infrastructureEnergyLimit,
-        windowTicks: remotePolicy.windowTicks, safeStreakTicks: remotePolicy.safeStreakTicks,
-        maxLegTicks: remotePolicy.maxLegTicks, reconCooldownTicks: remotePolicy.reconCooldownTicks
-    });
-    const fatalReason = !normalized?.valid ? 'config_invalid' : !raw.enabled || raw.hold || !remotePolicy.enabled ? 'manual_hold' :
-        homeDanger ? 'home_danger' : remoteDanger ? 'danger' : foreign ? 'foreign_control' : null;
+    const fingerprint = economicTrialConfigFingerprint(raw, remotePolicy, targetRoom);
+    const native = empire.remoteMining?.nativeEconomicOps?.current;
+    const nativeRequests = [native?.request, remotePolicy.nativeTrialOps?.request].filter(request => request &&
+        economicIdentityMatches(current?.identity, {trialId: request.trialId, sequence: request.startSequence,
+            remoteId: request.oldIdentity?.remoteId, epoch: request.oldIdentity?.epoch, codeVersion: request.codeVersion}));
+    // Evaluated again at spawn/action checkpoints, not merely once at analyze().
+    const nativeFailure = nativeRequests.some(request => !Number.isSafeInteger(request.stopAtMs) || clock.nowMs >= request.stopAtMs)
+        ? 'native_ops_window_expired' : nativeRequests.length > 0 && (remotePolicy.nativeTrialOps?.enabled !== true ||
+            !nativeOpsEqual(remotePolicy.nativeTrialOps.request, native?.request)) ? 'native_ops_control_changed' : null;
+    const fatalReason = nativeFailure || (!normalized?.valid ? 'config_invalid' : !raw.enabled || raw.hold || !remotePolicy.enabled ? 'manual_hold' :
+        homeDanger ? 'home_danger' : remoteDanger ? 'danger' : foreign ? 'foreign_control' : null);
     return {
         guardEnabled: settings?.enabled === true, request: settings?.request || null, remoteId, baseRoom, targetRoom,
         epoch: operation?.epoch ?? settings?.request?.epoch, configFingerprint: fingerprint,
