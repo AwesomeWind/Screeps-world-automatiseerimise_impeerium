@@ -29,6 +29,8 @@ smoke 测试覆盖：
 
 ## 经济试点守卫回归
 
+`trial-evidence-window-{model,facts,runtime,report}.cjs`覆盖默认关闭、完整身份绑定、30秒/10tick接纳、容量/CPU、事件T→T-1、写前写后故障/unknown不重放、分页与跨JSON重载。fixture只在下一tick已应用动作后生成simulated日志，不能把意图OK或本地shape当作生产语义核实；真实native→guard→策略→ActionParser→cleanup对照观察开启/关闭/故障的业务结果。尾部最后合法tick接受卸载、次tick确认、+2只观察；不手填安全计数、不清claim、不延长期限。
+
 `native-economic-ops-successor.cjs`覆盖v1/v2 schema交接、完整父证明/平面档案、原期限所属、CAS、拒绝身份复用、重置/unknown不重放，以及真实两轮首批和新轮独立100安全ticks/单Spawn补员竞争。历史v1样本在fixtures中只证明旧记录兼容，不能作为新鲜生产预检。测试引擎退休只移除已结清Game实体，不删除Memory账/receipt/unknown以取得新额度；预算等待真实推进1051ticks，不清旧桶。
 
 `economic-spawn-admission.cjs`覆盖单Spawn同级母房补员竞争、等待30ticks后真实接纳、TTL0候选转固定正式期限、双Spawn/能量/预算/receipt去重、接纳中断和unknown不重放。纯Model/adapter受控输入只证明局部契约；真实链使用native fixture自然达到99/100安全ticks，再以核心hauler TTL进入原Bureau补员。不能手填safeStreak或用适配器直接调用代替端到端接纳。首次接纳标记不因重试换Spawn而改写，EventBus捕获异常后继续run也不得调用未提交任务。

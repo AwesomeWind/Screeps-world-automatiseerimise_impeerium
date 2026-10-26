@@ -2,6 +2,7 @@ import { ECONOMIC_ROLE_LIMITS, economicSpawnReceipt, reduceEconomicTrialEvidence
 
 const ROLES = ['scout', 'remoteMiner', 'remoteHauler'];
 const ACTIVE = new Set(['recon', 'observing', 'preparing', 'hauling']);
+const TAIL_TICKS = 300;
 const copy = value => JSON.parse(JSON.stringify(value));
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const integer = value => Number.isSafeInteger(value) && value >= 0;
@@ -65,12 +66,21 @@ export function validEconomicTrialState(state) {
                 slot.ledgerStage !== 'applied' || slot.nativeResult !== 0 || slot.ledgerApplication?.applied !== true ||
                 slot.ledgerApplication.cost !== slot.cost)) return false;
         }
-        if (!record(session.evidence) || !['confirmedSpawnCost', 'confirmedInfrastructureCost', 'unknownEnergyUpperBound', 'unknownEvents', 'returnedEnergy']
-            .every(key => integer(session.evidence[key])) || !record(session.evidence.pickups) || !record(session.evidence.delivered)) return false;
+        const evidence = session.evidence;
+        if (!record(evidence) || !['confirmedSpawnCost', 'confirmedInfrastructureCost', 'unknownEnergyUpperBound', 'unknownEvents', 'returnedEnergy']
+            .every(key => integer(evidence[key])) ||
+            !['infrastructureUnknownUpperBound', 'logisticsUnknownEnergyUpperBound', 'tailReturnedEnergy']
+                .every(key => evidence[key] === undefined || integer(evidence[key])) ||
+            !['pickups', 'delivered'].every(key => record(evidence[key]) && Object.values(evidence[key]).every(integer))) return false;
         if (!session.outbox.every(item => record(item) && text(item.key) && record(item.resolution) &&
             ['prepared', 'applying', 'applied'].includes(item.stage))) return false;
         if (session.outcome && (!record(session.outcome) || !text(session.outcome.stopReason) ||
             !integer(session.outcome.decidedAtTick))) return false;
+        if (session.closeAppliedAtTick !== undefined && (!integer(session.closeAppliedAtTick) ||
+            !session.outcome || session.closeAppliedAtTick !== session.outcome.decidedAtTick)) return false;
+        if (session.tailExpiresAtTick !== undefined && (!integer(session.tailExpiresAtTick) ||
+            !integer(session.closeAppliedAtTick) ||
+            session.tailExpiresAtTick !== session.closeAppliedAtTick + TAIL_TICKS)) return false;
     }
     return true;
 }
@@ -88,7 +98,9 @@ export function economicTrialPermission(state, query = {}, clock) {
         if (query[key] !== undefined && query[key] !== session.identity[key]) return permit(true, clock, false, 'identity_conflict');
     }
     if (['return', 'home_delivery'].includes(query.action) && session.outcome) {
-        return permit(true, clock, clock.tick <= session.tailExpiresAtTick && query.epoch === session.identity.epoch &&
+        return permit(true, clock, integer(clock.tick) && integer(session.tailExpiresAtTick) &&
+            integer(session.closeAppliedAtTick) && clock.tick >= session.closeAppliedAtTick &&
+            clock.tick <= session.tailExpiresAtTick && query.epoch === session.identity.epoch &&
             query.trialId === session.identity.trialId && query.sequence === session.identity.sequence &&
             query.role !== undefined && !!session.slots[query.role]?.name && query.name === session.slots[query.role].name, 'tail_only');
     }
@@ -130,7 +142,7 @@ export function stopEconomicTrial(session, reason, clock, verdict = 'aborted') {
     if (!session.outcome) {
         session.outcome = { verdict, stopReason: reason, decidedAtTick: clock.tick };
         session.closeAppliedAtTick = clock.tick;
-        session.tailExpiresAtTick = clock.tick + 300;
+        session.tailExpiresAtTick = clock.tick + TAIL_TICKS;
         session.status = 'stopping';
         session.events.push({ tick: clock.tick, status: 'stopping', reason });
         if (session.events.length > 20) session.events.shift();
@@ -399,8 +411,17 @@ export function summarizeEconomicTrial(state, clock) {
         if (!session) return null;
         const evidence = session.evidence;
         const knownNetEnergy = evidence.returnedEnergy - evidence.confirmedSpawnCost - evidence.confirmedInfrastructureCost;
-        const unresolved = evidence.unknownEnergyUpperBound > 0 || evidence.logisticsUnknownEnergyUpperBound > 0 ||
-            session.outbox.some(item => item.stage !== 'applied');
+        const spawnPending = Object.values(session.slots).some(slot => slot.callState === 'call_started' ||
+            slot.ledgerStage === 'applying' || slot.nativeResult === 0 && slot.acceptedAt === undefined);
+        const infrastructure = session.infrastructureAttempt;
+        const infrastructurePending = infrastructure && (infrastructure.stage !== 'applied' ||
+            infrastructure.application?.applied !== true || infrastructure.evidenceApplied !== true);
+        // A zero amount bound does not prove an unknown event had zero cost.
+        // Ledger application and evidence reduction can finish at different checkpoints.
+        const unresolved = evidence.unknownEvents > 0 || evidence.unknownEnergyUpperBound > 0 ||
+            evidence.logisticsUnknownEnergyUpperBound > 0 || spawnPending || infrastructurePending ||
+            session.outbox.some(item => item.stage !== 'applied' || item.application?.applied !== true ||
+                item.evidenceApplied !== true);
         return { ...copy(session.identity), managed: session.managed, status: session.status,
             startedAtTick: session.startedAtTick, expiresAtTick: session.expiresAtTick, expiresAtMs: session.expiresAtMs,
             safeStreak: session.safeStreak, outcome: session.outcome ? copy(session.outcome) : null,

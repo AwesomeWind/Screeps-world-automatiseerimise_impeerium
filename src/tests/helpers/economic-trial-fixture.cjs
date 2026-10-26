@@ -104,6 +104,7 @@ async function createEconomicTrialFixture(options = {}) {
     const advance = (patch = {}) => {
         for (const { actor, target, method, amount } of pendingActions.splice(0)) {
             if (!Game.creeps[actor.name]) continue;
+            const beforeEnergy = actor.store.energy;
             const work = actor.getActiveBodyparts(WORK);
             if (method === 'withdraw') {
                 const delta = Math.min(amount ?? Infinity, actor.store.getFreeCapacity(), target.store.energy);
@@ -121,6 +122,8 @@ async function createEconomicTrialFixture(options = {}) {
                 const delta = Math.min(work, actor.store.energy);
                 actor.store.energy -= delta; target.hits += delta * 100;
             }
+            options.onAppliedAction?.({tick: Game.time, actor, target, method,
+                energyDelta: actor.store.energy - beforeEnergy});
         }
         for (const [name, point] of pendingMoves) {
             if (!Game.creeps[name]) continue;

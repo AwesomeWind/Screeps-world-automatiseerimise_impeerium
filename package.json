@@ -13,7 +13,7 @@
     "push:watch": "rollup -cw --environment DEST:main",
     "local": "rollup -c --environment DEST:local",
     "local:watch": "rollup -cw --environment DEST:local",
-    "test": "node src/tests/smoke.cjs && node src/tests/room-governor.cjs && node --test src/tests/remote-mining.cjs src/tests/work-position.cjs src/tests/storage-reservation.cjs src/tests/goal-plan.cjs src/tests/scout-movement.cjs src/tests/route-occupancy.cjs src/tests/recon-trial-model.cjs src/tests/recon-trial-runtime.cjs src/tests/remote-danger-evidence.cjs src/tests/economic-trial-model.cjs src/tests/economic-trial-runtime.cjs src/tests/economic-spawn-admission.cjs src/tests/native-economic-ops-model.cjs src/tests/native-economic-ops-facts.cjs src/tests/native-economic-ops-runtime.cjs src/tests/native-economic-ops-evidence.cjs src/tests/native-economic-ops-successor.cjs"
+    "test": "node src/tests/smoke.cjs && node src/tests/room-governor.cjs && node --test src/tests/remote-mining.cjs src/tests/work-position.cjs src/tests/storage-reservation.cjs src/tests/goal-plan.cjs src/tests/scout-movement.cjs src/tests/route-occupancy.cjs src/tests/recon-trial-model.cjs src/tests/recon-trial-runtime.cjs src/tests/remote-danger-evidence.cjs src/tests/economic-trial-model.cjs src/tests/economic-trial-runtime.cjs src/tests/economic-spawn-admission.cjs src/tests/native-economic-ops-model.cjs src/tests/native-economic-ops-facts.cjs src/tests/native-economic-ops-runtime.cjs src/tests/native-economic-ops-evidence.cjs src/tests/native-economic-ops-successor.cjs src/tests/trial-evidence-window-model.cjs src/tests/trial-evidence-window-facts.cjs src/tests/trial-evidence-window-runtime.cjs src/tests/trial-evidence-window-report.cjs"
   },
   "repository": {
     "type": "git",

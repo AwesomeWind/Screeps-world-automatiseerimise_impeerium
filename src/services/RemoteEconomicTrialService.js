@@ -340,8 +340,12 @@ export default class RemoteEconomicTrialService extends BaseService {
         }
         if (event.failure) facts.fatalReason = event.failure;
         const result = advanceEconomicTrial(raw, event, facts, clock);
-        if (result.state !== undefined) Memory.empire.remoteMining.economicTrials = result.state;
-        for (const effect of result.effects) this.applyEffect(effect);
+        try {
+            if (result.state !== undefined) Memory.empire.remoteMining.economicTrials = result.state;
+        } finally {
+            // A failed journal commit must not skip an already-decided withdrawal.
+            for (const effect of result.effects) this.applyEffect(effect);
+        }
         global.RemoteEconomicTrial = { evaluatedAt: clock.tick, service: this,
             summary: summarizeEconomicTrial(result.state, clock) };
         return result;

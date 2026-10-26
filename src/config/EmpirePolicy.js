@@ -49,6 +49,7 @@ export const DEFAULT_EMPIRE_POLICY = {
         reconTrial: { enabled: false, request: null },
         economicTrial: { enabled: false, request: null },
         nativeTrialOps: { enabled: false, request: null },
+        evidenceWindow: { enabled: false, request: null },
         maxOperations: 1,
         intelTtl: 100,
         safeStreakTicks: 100,

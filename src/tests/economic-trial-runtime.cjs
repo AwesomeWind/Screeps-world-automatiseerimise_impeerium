@@ -205,6 +205,55 @@ test('econ_p5_bounded_tail_and_reset', async () => {
     assert.equal(scene.calls.length, count);
 });
 
+for (const kind of ['extended', 'string']) {
+    test('tail_deadline_runtime_corruption_denies_return_after_reset_' + kind, async () => {
+        const scene = await createEconomicTrialFixture();
+        scene.prepare(); scene.advance();
+        await until(scene, () => !!scene.current.firstDelivery);
+        const guard = scene.f.services.find(service => service.name === 'RemoteEconomicTrial');
+        const scout = Game.creeps[scene.current.slots.scout.name];
+        const task = { type: 'MOVE_TO', pos: { x: 10, y: 10, roomName: 'W1N1' }, range: 1 };
+        assert.equal(guard.taskPermission(scout, task).allowed, true);
+        const outcome = structuredClone(scene.current.outcome);
+        const deadline = scene.current.tailExpiresAtTick;
+        scene.current.tailExpiresAtTick = kind === 'extended' ? deadline + 1000 : String(deadline);
+        assert.equal(guard.taskPermission(scout, task).allowed, false);
+        const before = JSON.stringify(scene.state);
+        const calls = scene.calls.length;
+        scene.restoreMemory(); scene.advance();
+        assert.equal(JSON.stringify(scene.state), before);
+        assert.equal(scene.calls.length, calls);
+        assert.deepEqual(scene.current.outcome, outcome);
+        assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+        const service = scene.f.services.find(value => value.name === 'RemoteEconomicTrial');
+        assert.equal(service.taskPermission(Game.creeps[scene.current.slots.scout.name], task).allowed, false);
+    });
+}
+
+for (const kind of ['unknown_amount', 'pickup_amount']) {
+    test('settlement_amount_runtime_corruption_closes_before_action_' + kind, async () => {
+        const scene = await createEconomicTrialFixture();
+        scene.prepare(); scene.advance();
+        await until(scene, () => scene.current.safeStreak >= 2);
+        const guard = scene.f.services.find(service => service.name === 'RemoteEconomicTrial');
+        const scout = Game.creeps[scene.current.slots.scout.name];
+        const entrance = global.RemoteMining['W1N1:W1N2'].facts.entrance;
+        const task = { type: 'MOVE_TO', pos: { x: entrance.x, y: entrance.y, roomName: entrance.roomName }, range: 0 };
+        assert.equal(guard.taskPermission(scout, task).allowed, true);
+        if (kind === 'unknown_amount') scene.current.evidence.logisticsUnknownEnergyUpperBound = '0';
+        else scene.current.evidence.pickups['trip:corrupt'] = '100';
+        const before = JSON.stringify(scene.state);
+        const calls = scene.calls.length;
+        assert.equal(guard.beforeAction(scout, task).allowed, false);
+        assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+        assert.equal(JSON.stringify(scene.state), before);
+        scene.restoreMemory(); scene.advance();
+        assert.equal(JSON.stringify(scene.state), before);
+        assert.equal(scene.calls.length, calls);
+        assert.equal(global.RemoteEconomicTrial.summary.status, 'state_invalid');
+    });
+}
+
 for (const [label, change] of [
     ['guard_off', () => { Memory.empire.control.policy.remoteMining.economicTrial.enabled = false; }],
     ['goal_on', () => { Memory.empire.control.policy.goalPlanning.enabled = true; }],
@@ -254,6 +303,78 @@ test('econ_p5_record_fault_does_not_block_close', async () => {
     assert.equal(scene.current.outcome.verdict, 'completed');
     scene.advance();
     assert.ok(scene.current.closureVerifiedAtTick);
+});
+
+test('stop_commit_failure_still_withdraws_and_survives_reset_without_replay', async () => {
+    const scene = await createEconomicTrialFixture();
+    scene.prepare(); scene.advance();
+    await until(scene, () => scene.current.safeStreak >= 2);
+    const guard = scene.f.services.find(service => service.name === 'RemoteEconomicTrial');
+    const actor = Game.creeps[scene.current.slots.scout.name];
+    const { assignTask } = await import('../core/TaskMetadata.js');
+    assignTask(actor, { type: 'MOVE_TO', pos: { x: 10, y: 10, roomName: 'W1N2' }, range: 0 });
+    const deadline = scene.current.expiresAtTick;
+    const oldState = JSON.stringify(scene.state);
+    const spawns = scene.f.spawnCalls.length;
+    const root = Memory.empire.remoteMining;
+    const retained = root.economicTrials;
+    Object.defineProperty(root, 'economicTrials', { configurable: true, enumerable: true,
+        get() { return retained; }, set() { throw new Error('economic state commit failed'); } });
+    try {
+        assert.throws(() => guard.stop('record_commit_fault'), /economic state commit failed/);
+        assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+        assert.equal(Memory.empire.remoteRooms.W1N2.enabled, false);
+        assert.equal(Memory.empire.remoteRooms.W1N2.hold, true);
+        assert.equal(scene.f.operation.allowRecon, false);
+        assert.equal(scene.f.operation.allowEconomicDeparture, false);
+        assert.equal(global.RemoteMining['W1N1:W1N2'].state.allowEconomicDeparture, false);
+        assert.equal(actor.memory.task, null);
+        assert.equal(JSON.stringify(root.economicTrials), oldState);
+        assert.throws(() => guard.stop('record_commit_fault'), /economic state commit failed/);
+    } finally {
+        Object.defineProperty(root, 'economicTrials', { configurable: true, enumerable: true,
+            writable: true, value: retained });
+    }
+    scene.restoreMemory(); scene.advance(); scene.advance();
+    assert.ok(scene.current.outcome);
+    assert.ok(scene.current.closureVerifiedAtTick > scene.current.closeAppliedAtTick);
+    assert.equal(scene.current.expiresAtTick, deadline);
+    assert.equal(scene.f.spawnCalls.length, spawns);
+    assert.equal(scene.current.evidence.unknownEvents, 0);
+});
+
+test('first_delivery_commit_failure_closes_before_error_and_never_replays_credit', async () => {
+    const scene = await createEconomicTrialFixture();
+    scene.prepare(); scene.advance();
+    await until(scene, () => scene.calls.some(call => call.method === 'transfer' &&
+        call.targetId === 'HomeSink' && call.result === OK));
+    const root = Memory.empire.remoteMining;
+    let retained = root.economicTrials;
+    Object.defineProperty(root, 'economicTrials', { configurable: true, enumerable: true,
+        get() { return retained; }, set(value) {
+            if (value.current.firstDelivery) throw new Error('first delivery commit failed');
+            retained = value;
+        } });
+    let credited;
+    try {
+        assert.throws(() => scene.advance(), /first delivery commit failed/);
+        credited = scene.f.ledger.returnedEnergyConfirmed;
+        assert.ok(credited > 0);
+        assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+        assert.equal(Memory.empire.remoteRooms.W1N2.hold, true);
+        assert.equal(scene.f.operation.allowEconomicDeparture, false);
+        assert.equal(scene.current.firstDelivery, undefined);
+        assert.ok(scene.current.outbox.some(item => item.stage === 'applied' && !item.evidenceApplied));
+    } finally {
+        Object.defineProperty(root, 'economicTrials', { configurable: true, enumerable: true,
+            writable: true, value: retained });
+    }
+    scene.restoreMemory(); scene.advance(); scene.advance();
+    assert.equal(scene.f.ledger.returnedEnergyConfirmed, credited);
+    assert.equal(scene.current.evidence.returnedEnergy, credited);
+    assert.equal(scene.current.outcome.verdict, 'aborted');
+    assert.equal(scene.current.firstDelivery, undefined);
+    assert.ok(scene.current.closureVerifiedAtTick > scene.current.closeAppliedAtTick);
 });
 
 test('econ_p5_corrupt_slot_does_not_authorize', async () => {
@@ -319,6 +440,46 @@ test('econ_p2_infrastructure_actual_cost_and_unknown_stop', async () => {
     scene.advance();
     assert.ok(scene.current.outcome);
     assert.ok(scene.current.evidence.unknownEnergyUpperBound > 0);
+});
+
+test('settlement_summary_runtime_spawn_call_is_pending_until_receipt_binding', async () => {
+    const { summarizeEconomicTrial } = await import('../services/RemoteEconomicTrialModel.js');
+    const snapshots = [];
+    const scene = await createEconomicTrialFixture({ onSpawn({ memory }) {
+        if (!memory.economicTrialId) return;
+        const state = Memory.empire.remoteMining.economicTrials;
+        snapshots.push({ callState: state.current.slots[memory.role].callState,
+            settlement: summarizeEconomicTrial(state, { tick: Game.time }).current.settlement });
+    } });
+    scene.prepare(); scene.advance();
+    await until(scene, () => snapshots.length > 0);
+    assert.equal(snapshots[0].callState, 'call_started');
+    assert.equal(snapshots[0].settlement.knownNetEnergy, 0);
+    assert.equal(snapshots[0].settlement.netEnergy, null);
+    await until(scene, () => scene.current.slots.scout.acceptedAt !== undefined);
+    assert.equal(scene.current.evidence.confirmedSpawnCost, 50);
+    assert.equal(global.RemoteEconomicTrial.summary.current.settlement.netEnergy, -50);
+});
+
+test('settlement_summary_runtime_infrastructure_ledger_waits_for_evidence', async () => {
+    const { summarizeEconomicTrial } = await import('../services/RemoteEconomicTrialModel.js');
+    const snapshots = [];
+    const scene = await createEconomicTrialFixture({ guardOptions: { afterInfrastructureLedger() {
+        const state = Memory.empire.remoteMining.economicTrials;
+        snapshots.push({ stage: state.current.infrastructureAttempt.stage,
+            settlement: summarizeEconomicTrial(state, { tick: Game.time }).current.settlement });
+    } } });
+    scene.prepare(); scene.advance();
+    await until(scene, () => scene.current.slots.remoteMiner.name &&
+        Game.creeps[scene.current.slots.remoteMiner.name]?.pos.inRangeTo(scene.f.container.pos, 0));
+    scene.f.container.hits = 50000;
+    await until(scene, () => snapshots.length > 0);
+    assert.equal(snapshots[0].stage, 'applying');
+    assert.equal(snapshots[0].settlement.netEnergy, null);
+    assert.equal(scene.current.infrastructureAttempt.evidenceApplied, true);
+    assert.equal(scene.current.evidence.confirmedInfrastructureCost, scene.f.ledger.infrastructureEnergyConfirmed);
+    const settlement = summarizeEconomicTrial(scene.state, { tick: Game.time }).current.settlement;
+    assert.equal(settlement.netEnergy, settlement.knownNetEnergy);
 });
 
 test('econ_p4_local_worker_confirmation_is_not_trial_evidence', async () => {

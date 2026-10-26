@@ -4,6 +4,10 @@
 
 ## 核心服务
 
+- `TrialEvidenceWindowService`是默认关闭的P3只读观察服务，位于既有服务末尾cleanup。只写`remoteMining.evidenceWindows`，不决定许可、停止、release或资金确认；故障不能阻断原守卫关停。CPU reserve5/capture2是软阶段预算，非硬实时保证；每窗131072字符、两窗270336字符、1303行/80快照/64里程碑，不自动淘汰。
+- 窗口按完整prospective/native/经济身份和规范start绑定；先pending再提交，unknown不重放，原期限不延长。只读facade只有status/readPage/report，封存报告不从当前业务补历史。原生getEventLog生产语义尚未核实，simulated事件不作为生产验收；期初库存/同trip/本轮出生空载/来源并发不明时，新产出入库下界为null。
+- pending位于store envelope，不给已封存current加字段；unknown arm持久阻止换轮重放，复制/验证/写入/读回阶段均检查CPU软预算。绑定同时比较canonical start的窗口、配置指纹和固定容器坐标；外来能量进入绑定actor或未分类store变化均令来源证据失效。controlClosure须本轮原outcome/close/closureVerified及实际operation/scope关闭，两次quiet观察本身不构成关闭完成。
+
 - `RoomCacheService`: 每 50 tick 或 dirty 时刷新 `global.RoomCache[roomName]`，缓存 sources、controller、constructionSites、structures、centerPos 等事实数据。
 - `RoomPhaseService`: 写 `global.RoomPhase[roomName]`，提供 `phase/hasStorage/logisticsMode/constructionPressure/maintenancePressure`。
 - `TaskGuardService`: 在 `ResourceMarket` 和 role strategy 前清理非法旧任务。
@@ -57,8 +61,12 @@
 - 每轮最多scout/miner/hauler各1，1000ticks/90分钟，100连续安全ticks；Body上限50/800/800，本轮1650孵化/6000基建与原滚动预算取交集。不同role按实际receipt结算，未知调用保留claim并停止。
 - 托管物流在删除owner前同步持久化outbox，prepared/applying/applied分开；应用不明不能重放原账本。原ledger金额和严格次tick归因不变，首批必须同trial/trip pickup→指定terminal确认，旧库存不冒充新产出。
 - 记录失败不能阻断关闭。失败移交保留最小unknown证据，原owner仍由既有TTL/maxTaskTicks清理。基建仅保留一个在途应用凭证，应用不明同样停止，不推测消失工地的费用。
+- 会话状态提交抛错时，仍须执行该次纯模型已经决定的关闭effects；提交异常继续向上传递，不假报持久化成功。已有applied outbox可在可写并重置后归约证据，不重放原账本；失去首次终局提交不能补造firstDelivery成功。
 - pickup owner存在时只暂停本trial矿工对同容器deposit，避免主动制造无法分解的净变化；其他并发仍记unknown。母房非remote回执不进入trial。
 - metrics只读，关闭不依赖遥测。outcome冻结；control closure、有限tail及新产出证据分别展示；newProductionConfirmed缺证据为null。
+- 结算摘要保留`knownNetEnergy`已确认差额；存在unknown事件（即使金额上界为0）、孵化调用/费用绑定未完、基建应用/证据未完、物流应用/证据未完时，`netEnergy`必须为null。每轮独立计算，不把旧轮unknown带入新轮，也不将摘要数值作为执行许可或尾部已结清证明。
+- 已有尾部期限必须是安全整数，严格等于原`closeAppliedAtTick + 300`，停止时刻与原outcome一致；返程/卸载仅在该原始窗口内允许。缺少可选尾部字段的旧记录保留absent且不授权尾部动作；损坏值fail-closed，不重置起点、续期或自动修复历史。
+- 结算中可选的基建/物流unknown上界、tailReturnedEnergy，以及pickups/delivered表的每笔金额，若存在都必须是非负安全整数。缺省字段保持absent；数字字符串、null、非有限数及负/小数金额不能参与归约或许可，保留原值走state_invalid，不转换、截断或归零。
 - 托管经济role首次只发布当tick候选，未实际获Spawn/能量席位不创建request/deadline/grant；Bureau保持母房优先，Spawn真实接纳后才固定原5tick期限。candidate不是免grant普通remote入口，严格绑定完整身份/role/目标/当前tick；其TTL0在接纳后转换为canonical正式事件的原deadline，receipt/backup不能使用候选event.id。
 - 新slot的binding/admitted及首次admissionTick/admissionSpawnName成组持久校验；binding可完成intake，不能进入run。EventBus捕获异常仍继续run，pendingTask入列后的提交失败也须撤权并拒绝同tick原生调用；本tick资源只有一个释放owner。合法已绑定重试沿用同id/期限，不改首次接纳信息，未决/未知不得退回候选。
 - P0按完整slot/grant证明not_started未调用后再取消；spawn接受与原账本applying/applied分开，半完成receipt不能清除unknown，托管未决grant禁止旧对账自动重放。未知策略类型与接纳前请求不能退回非托管执行；tailStatus自动归约仍未实现，当前unverified不可当尾部结清。旧无接纳标记slot保留原协议，已release的旧会话不能被迟到接纳回调撤权。

@@ -159,19 +159,89 @@ test('econ_p1_old_recon_lock', async () => {
 
 module.exports = { clock, request, facts, start };
 
-test('econ_p5_return_permission_has_absolute_tail_bound', async () => {
+async function stoppedTailScene() {
     const model = await load();
     const state = await start();
     state.current.slots.scout = { calls: 1, name: 'ScoutA', bodyCost: 50, cost: 50, callState: 'result_known', result: 0,
         requestId: 'request-A', deadline: 106, acceptedAt: 101,
         ledgerStage: 'applied', nativeResult: 0, ledgerApplication: { applied: true, cost: 50 },
         receiptBinding: { identity: { ...state.current.identity }, requestId: 'request-A', name: 'ScoutA', tick: 101 } };
-    const closed = model.advanceEconomicTrial(state, { kind: 'evaluate' }, facts({ guardEnabled: false }), clock(102)).state;
+    return model.advanceEconomicTrial(state, { kind: 'evaluate' }, facts({ guardEnabled: false }), clock(102)).state;
+}
+const tailQuery = () => ({ remoteId: 'W1N1:W1N2', epoch: 1, trialId: 'econ-one', sequence: 1,
+    role: 'scout', name: 'ScoutA', action: 'return' });
+
+test('econ_p5_return_permission_has_absolute_tail_bound', async () => {
+    const model = await load();
+    const closed = await stoppedTailScene();
     assert.equal(closed.current.outcome.stopReason, 'guard_disabled');
-    const gate = model.economicTrialPermission(closed, { remoteId: 'W1N1:W1N2', epoch: 1, trialId: 'econ-one', sequence: 1,
-        role: 'scout', name: 'ScoutA', action: 'return' }, clock(403));
+    const gate = model.economicTrialPermission(closed, tailQuery(), clock(403));
     assert.equal(gate.allowed, false);
 });
+
+for (const [label, change] of [
+    ['infinite_expiry', session => { session.tailExpiresAtTick = Infinity; }],
+    ['nan_expiry', session => { session.tailExpiresAtTick = NaN; }],
+    ['string_expiry', session => { session.tailExpiresAtTick = '999999999999'; }],
+    ['extended_expiry', session => { session.tailExpiresAtTick++; }],
+    ['shortened_expiry', session => { session.tailExpiresAtTick--; }],
+    ['null_expiry', session => { session.tailExpiresAtTick = null; }],
+    ['negative_expiry', session => { session.tailExpiresAtTick = -1; }],
+    ['string_close_tick', session => { session.closeAppliedAtTick = String(session.closeAppliedAtTick); }],
+    ['shifted_close_and_expiry', session => { session.closeAppliedAtTick++; session.tailExpiresAtTick++; }],
+    ['missing_close_tick', session => { delete session.closeAppliedAtTick; }],
+]) {
+    test('tail_deadline_corrupt_' + label, async () => {
+        const model = await load();
+        const state = await stoppedTailScene();
+        change(state.current);
+        const before = structuredClone(state);
+        assert.equal(model.validEconomicTrialState(state), false);
+        assert.equal(model.economicTrialPermission(state, tailQuery(), clock(103)).allowed, false);
+        const result = model.advanceEconomicTrial(state, { kind: 'evaluate' }, facts({ closed: true }), clock(103));
+        assert.equal(result.permit.reason, 'state_invalid');
+        assert.ok(result.effects.some(effect => effect.type === 'emergency_close'));
+        assert.deepEqual(result.state, before);
+        const restored = JSON.parse(JSON.stringify(state));
+        assert.equal(model.validEconomicTrialState(restored), false);
+        assert.equal(model.economicTrialPermission(restored, tailQuery(), clock(103)).allowed, false);
+    });
+}
+
+test('tail_deadline_active_session_cannot_carry_stop_window', async () => {
+    const model = await load();
+    const state = await start();
+    state.current.closeAppliedAtTick = 101;
+    state.current.tailExpiresAtTick = 401;
+    assert.equal(model.validEconomicTrialState(state), false);
+});
+
+test('tail_deadline_legacy_absent_fields_stay_absent_and_do_not_authorize_return', async () => {
+    const model = await load();
+    const state = await stoppedTailScene();
+    delete state.current.closeAppliedAtTick;
+    delete state.current.tailExpiresAtTick;
+    const before = structuredClone(state);
+    assert.equal(model.validEconomicTrialState(state), true);
+    assert.equal(model.economicTrialPermission(state, tailQuery(), clock(103)).allowed, false);
+    assert.deepEqual(state, before);
+});
+
+test('tail_deadline_exact_boundary_remains_fixed_after_json_reload', async () => {
+    const model = await load();
+    const state = JSON.parse(JSON.stringify(await stoppedTailScene()));
+    assert.equal(state.current.tailExpiresAtTick, 402);
+    assert.equal(model.economicTrialPermission(state, tailQuery(), clock(402)).allowed, true);
+    assert.equal(model.economicTrialPermission(state, tailQuery(), clock(403)).allowed, false);
+});
+
+for (const tick of ['103', Infinity, NaN, -1, 101]) {
+    test('tail_deadline_invalid_or_before_stop_clock_' + String(tick), async () => {
+        const model = await load();
+        const state = await stoppedTailScene();
+        assert.equal(model.economicTrialPermission(state, tailQuery(), clock(tick)).allowed, false);
+    });
+}
 
 function deliveryScene() {
     return {
@@ -247,6 +317,119 @@ test('econ_p5_new_session_cost_unknown_and_streak_are_zero', async () => {
     assert.equal(state.current.evidence.confirmedSpawnCost, 0);
     assert.equal(state.current.safeStreak, 0);
     assert.equal(state.previous.evidence.unknownEvents, 2);
+});
+
+for (const [name, change] of [
+    ['unknown_event_without_amount', session => { session.evidence.unknownEvents = 1; }],
+    ['spawn_call_in_progress', session => { Object.assign(session.slots.scout,
+        { calls: 1, callState: 'call_started', callTick: 101, bodyCost: 50 }); }],
+    ['spawn_ledger_applying', session => { Object.assign(session.slots.scout,
+        { calls: 1, callState: 'call_started', callTick: 101, bodyCost: 50, ledgerStage: 'applying' }); }],
+    ['spawn_receipt_not_bound', session => { Object.assign(session.slots.scout,
+        { calls: 1, callState: 'result_known', bodyCost: 50, nativeResult: 0,
+            ledgerStage: 'applied', ledgerApplication: { applied: true, cost: 50 } }); }],
+    ['infrastructure_applying', session => { session.infrastructureAttempt =
+        { stage: 'applying', upperBound: 5, tick: 101 }; }],
+    ['infrastructure_evidence_pending', session => { session.infrastructureAttempt =
+        { stage: 'applied', application: { applied: true, known: true, cost: 5 }, tick: 101 }; }],
+    ['infrastructure_application_failed', session => { session.infrastructureAttempt =
+        { stage: 'applied', evidenceApplied: true, application: { applied: false }, tick: 101 }; }],
+    ['logistics_evidence_pending', session => { session.outbox =
+        [{ key: 'pending-evidence', stage: 'applied', resolution: {}, application: { applied: true, credited: 100 } }]; }],
+    ['logistics_application_failed', session => { session.outbox =
+        [{ key: 'failed-application', stage: 'applied', evidenceApplied: true, resolution: {}, application: { applied: false } }]; }],
+]) {
+    test('settlement_summary_pending_' + name, async () => {
+        const model = await load();
+        const state = await start();
+        change(state.current);
+        assert.equal(model.validEconomicTrialState(state), true);
+        const before = JSON.stringify(state);
+        const summary = model.summarizeEconomicTrial(state, clock());
+        assert.equal(summary.current.settlement.knownNetEnergy, 0);
+        assert.equal(summary.current.settlement.netEnergy, null);
+        assert.equal(JSON.stringify(state), before);
+        const restored = JSON.parse(JSON.stringify(state));
+        assert.equal(model.summarizeEconomicTrial(restored, clock(102)).current.settlement.netEnergy, null);
+    });
+}
+
+test('settlement_summary_known_negative_net_remains_numeric', async () => {
+    const model = await load();
+    const state = await start();
+    state.current.evidence.confirmedSpawnCost = 50;
+    state.current.evidence.confirmedInfrastructureCost = 5;
+    state.current.evidence.returnedEnergy = 20;
+    state.current.infrastructureAttempt = { stage: 'applied', evidenceApplied: true,
+        application: { applied: true, known: true, cost: 5 } };
+    state.current.outbox = [{ key: 'finished', stage: 'applied', evidenceApplied: true,
+        resolution: {}, application: { applied: true, credited: 20 } }];
+    const summary = model.summarizeEconomicTrial(state, clock());
+    assert.equal(summary.current.settlement.knownNetEnergy, -35);
+    assert.equal(summary.current.settlement.netEnergy, -35);
+    assert.equal(summary.current.tailStatus, 'unverified');
+});
+
+test('settlement_summary_previous_unknown_does_not_poison_current', async () => {
+    const model = await load();
+    const state = await start();
+    state.previous = structuredClone(state.current);
+    state.previous.identity.trialId = 'old-trial';
+    state.previous.evidence.unknownEvents = 1;
+    const summary = model.summarizeEconomicTrial(state, clock());
+    assert.equal(summary.current.settlement.netEnergy, 0);
+    assert.equal(summary.previous.settlement.netEnergy, null);
+});
+
+const corruptAmounts = [
+    ['string', '0'], ['negative', -1], ['fraction', 0.5], ['infinite', Infinity],
+    ['nan', NaN], ['null', null], ['boolean', true], ['object', {}]
+];
+for (const field of ['infrastructureUnknownUpperBound', 'logisticsUnknownEnergyUpperBound', 'tailReturnedEnergy', 'pickups', 'delivered']) {
+    for (const [label, value] of corruptAmounts) {
+        test('settlement_amount_corrupt_' + field + '_' + label, async () => {
+            const model = await load();
+            const state = await start();
+            state.current.scopeCheckedAt = 101;
+            if (['pickups', 'delivered'].includes(field)) state.current.evidence[field]['trip:corrupt'] = value;
+            else state.current.evidence[field] = value;
+            const before = structuredClone(state);
+            assert.equal(model.validEconomicTrialState(state), false);
+            const gate = model.economicTrialPermission(state, { remoteId: 'W1N1:W1N2', role: 'scout', action: 'spawn' }, clock());
+            assert.equal(gate.allowed, false);
+            assert.equal(gate.reason, 'state_invalid');
+            const result = model.advanceEconomicTrial(state, { kind: 'evaluate' }, facts(), clock());
+            assert.ok(result.effects.some(effect => effect.type === 'emergency_close'));
+            assert.deepEqual(result.state, before);
+            assert.equal(model.summarizeEconomicTrial(state, clock()).status, 'state_invalid');
+            assert.equal(model.validEconomicTrialState(JSON.parse(JSON.stringify(state))), false);
+        });
+    }
+}
+
+test('settlement_amount_legacy_absence_is_retained', async () => {
+    const model = await load();
+    const state = await start();
+    const before = structuredClone(state);
+    assert.equal(model.validEconomicTrialState(state), true);
+    const summary = model.summarizeEconomicTrial(state, clock());
+    assert.equal(summary.current.settlement.netEnergy, 0);
+    assert.equal(state.current.evidence.infrastructureUnknownUpperBound, undefined);
+    assert.equal(state.current.evidence.logisticsUnknownEnergyUpperBound, undefined);
+    assert.equal(state.current.evidence.tailReturnedEnergy, undefined);
+    assert.deepEqual(state, before);
+});
+
+test('settlement_amount_integer_zeroes_and_provenance_remain_valid', async () => {
+    const model = await load();
+    const state = await start();
+    Object.assign(state.current.evidence, { infrastructureUnknownUpperBound: 0,
+        logisticsUnknownEnergyUpperBound: 0, tailReturnedEnergy: 0,
+        pickups: { 'trip:known': 100 }, delivered: { 'trip:known': 0 } });
+    const before = structuredClone(state);
+    assert.equal(model.validEconomicTrialState(state), true);
+    assert.equal(model.summarizeEconomicTrial(state, clock()).current.settlement.netEnergy, 0);
+    assert.deepEqual(state, before);
 });
 
 test('econ_p5_outbox_capacity_preserves_invalid_raw', async () => {
