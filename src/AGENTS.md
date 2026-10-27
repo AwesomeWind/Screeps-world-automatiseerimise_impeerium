@@ -1,5 +1,9 @@
 # src 模块说明
 
+`HomeEvidenceWindow` 是默认关闭的母房自然行为录制器，位于旧 `TrialEvidenceWindow` 之后的最后 cleanup、P3。仅写 `Memory.empire.observations.homeEvidence`，不发布需求、改变任务或启动/release业务。单窗100个观察tick或原issuedAtMs+10分钟先到即止；第一行无前态，最多99对过渡，不续期。
+
+首次admission只在原acceptNotBeforeTick尝试一次，错过或当时资源不足则未开始，不能晚到补开；这是避免首次写入没有留下标记后跨tick重放的保守限制。pending、已有窗或未知不允许换ID重开。CPU由policy.homeEvidence.cpu控制，只能收紧minBucket5000/reserve5/capture2的软预算。真实API语义、硬CPU中断和global reset尚未验收。
+
 这是 Screeps AI 的运行入口与分层目录。`main.js` 负责组织服务生命周期，不直接写具体业务策略。
 
 ## 生命周期顺序

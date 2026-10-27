@@ -1,5 +1,12 @@
 # services 模块说明
 
+- `HomeEvidenceWindowModel/Facts/Service/Report` 独立于远程经济窗口，只记录shard3/W49N41既有单位自然行为。默认关闭；100观察tick/10分钟、4名固定cohort/16对象/128原生事件读取/32相关事件存储/131072 UTF-16字符，容量可先到，记录partial不删历史。只读facade仅status/report/readPage，不ensure/prune/更新lastAccess。
+- 先判断撤回/期限/版本再做可选采集，unknown与pending不重放；admission固定在原acceptNotBeforeTick，错过不补开。最后cleanup不影响原P0关停/ActionParser；低CPU可能不能保存seal，但不能因此继续采集。Memory完全不可写及硬引擎终止不保证错误标记留存。
+- Home原生日志T读T-1，与相邻固定对象快照配对；TRANSFER正向和withdraw反向分开，并发/丢帧/损坏字段/数量不匹配不可作一致证明。simulated永不成为production_verified；无经济账或执行许可，不写回旧经济采集器验证标记。
+- 停止判定立即锁住原窗口，独立于seal是否保存；低CPU导致首写未尝试时只可用原停止clock延后封存，未知seal不重放、不再capture。单个有界global.HomeEvidenceWindowRuntime保留停止锁，支持服务重建/JSON重载；若停止尚未持久化便真正global reset或Memory全不可写，不宣称保留保证。
+- Home报告分别统计原生observedEvents、已配对数量和unprovedReasons，有事件但未证明为unproved，无事件为missing；observedAmount仅已配对金额，溢出保持null。
+- 历史recon/economic的enabled=true包络只有在双期限已过、请求与已释放recon/已关闭terminal经济原身份和规范窗口完全匹配、closure已确认且tail已过时才视为保留旧记录；仍须总remote开关、native入口、operation及当tickscope关闭。新鲜、异身份、未决关闭、开放scope均拒绝，不改写包络或放宽原经济许可。
+
 `services` 负责跨角色、跨系统的房间级能力。它们通常读写 `global.*` 或 `Memory.*`，供 role strategy 消费。
 
 ## 核心服务

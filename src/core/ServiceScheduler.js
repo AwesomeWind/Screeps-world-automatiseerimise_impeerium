@@ -9,7 +9,7 @@ const P0 = new Set([
 ]);
 const P1 = new Set(['EmpireMetrics', 'RoomGovernor']);
 const P2 = new Set(['CityPlanner', 'DefensePlanner', 'MaintenancePlanner', 'RoadPlanner', 'Lab', 'Market', 'RemoteMining']);
-const P3 = new Set(['CityPlanDebug', 'TrialEvidenceWindow']);
+const P3 = new Set(['CityPlanDebug', 'TrialEvidenceWindow', 'HomeEvidenceWindow']);
 
 function tierFor(name) {
     if (P0.has(name)) return 'P0';

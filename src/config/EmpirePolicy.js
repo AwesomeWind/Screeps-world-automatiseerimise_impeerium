@@ -37,6 +37,11 @@ export const DEFAULT_EMPIRE_POLICY = {
         maxPlans: 20,
         eventLimit: 50
     },
+    homeEvidence: {
+        enabled: false,
+        request: null,
+        cpu: { minBucket: 5000, reserve: 5, capture: 2 }
+    },
     economyRecovery: {
         enabled: true,
         reserveCritical: 5000

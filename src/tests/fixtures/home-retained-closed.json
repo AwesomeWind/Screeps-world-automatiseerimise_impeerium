@@ -1,0 +1,941 @@
+{
+  "historicalOnly": true,
+  "observedTick": 83877871,
+  "remotePolicy": {
+    "enabled": false,
+    "maxOperations": 1,
+    "intelTtl": 100,
+    "safeStreakTicks": 100,
+    "reconCooldownTicks": 200,
+    "windowTicks": 1000,
+    "budgetBucketTicks": 50,
+    "spawnEnergyLimit": 2000,
+    "infrastructureEnergyLimit": 6000,
+    "maxGrants": 16,
+    "maxReceipts": 16,
+    "maxLegTicks": 300,
+    "loadingWaitTicks": 10,
+    "roleLimits": {
+      "scout": 1,
+      "remoteMiner": 1,
+      "remoteHauler": 1,
+      "reserver": 0
+    },
+    "bodyEnergyLimits": {
+      "scout": 50,
+      "remoteMiner": 800,
+      "remoteHauler": 800,
+      "reserver": 650
+    },
+    "priorities": {
+      "scout": 35,
+      "remoteMiner": 45,
+      "remoteHauler": 45,
+      "reserver": 30
+    },
+    "reconTrial": {
+      "enabled": true,
+      "request": {
+        "schemaVersion": 1,
+        "action": "release",
+        "id": "econ-release-6",
+        "targetTrialId": "w48-20261021-01",
+        "sequence": 6,
+        "remoteId": "W49N41:W48N41",
+        "epoch": 1,
+        "codeVersion": "1792555927985",
+        "activateAtTick": 83781309,
+        "expiresAtTick": 83781609,
+        "issuedAtMs": 1792571575599,
+        "expiresAtMs": 1792572775599
+      }
+    },
+    "economicTrial": {
+      "enabled": true,
+      "request": {
+        "schemaVersion": 1,
+        "action": "start",
+        "id": "econ-w48-20261023-01",
+        "sequence": 3,
+        "remoteId": "W49N41:W48N41",
+        "epoch": 2,
+        "codeVersion": "1792719819692",
+        "configFingerprint": "{\"baseRoom\":\"W49N41\",\"targetRoom\":\"W48N41\",\"sourceId\":\"5bbcaa6d9099fc012e63155b\",\"containerId\":null,\"containerPos\":{\"x\":19,\"y\":6,\"roomName\":\"W48N41\"},\"receiverIds\":[\"6ad0b55bceeb3db0d3b4dda0\"],\"allowContainerBuild\":true,\"reserveController\":false,\"roleLimits\":{\"scout\":1,\"remoteMiner\":1,\"remoteHauler\":1,\"reserver\":0},\"bodyEnergyLimits\":{\"scout\":50,\"remoteMiner\":800,\"remoteHauler\":800,\"reserver\":650},\"spawnEnergyLimit\":2000,\"infrastructureEnergyLimit\":6000,\"windowTicks\":1000,\"safeStreakTicks\":100,\"maxLegTicks\":300,\"reconCooldownTicks\":200}",
+        "activateAtTick": 83815613,
+        "expiresAtTick": 83816613,
+        "issuedAtMs": 1792723420959,
+        "expiresAtMs": 1792728820959
+      }
+    },
+    "nativeTrialOps": {
+      "enabled": false,
+      "request": {
+        "schemaVersion": 1,
+        "id": "nops-w48-20261023-01",
+        "profileId": "w49n41-w48n41-first-delivery-v1",
+        "codeVersion": "1792719819692",
+        "oldIdentity": {
+          "trialId": "econ-w48-20261021-01",
+          "sequence": 1,
+          "remoteId": "W49N41:W48N41",
+          "epoch": 2,
+          "codeVersion": "1792555927985"
+        },
+        "expectedLastSequence": 1,
+        "trialId": "econ-w48-20261023-01",
+        "releaseSequence": 2,
+        "startSequence": 3,
+        "issuedAtMs": 1792723394292,
+        "stopAtMs": 1792728556756,
+        "notAfterMs": 1792728676756,
+        "acceptNotBeforeTick": 83815605,
+        "acceptNotAfterTick": 83815615,
+        "allowSupersedeKnownClosedPreparation": true,
+        "allowEconomicRelease": true,
+        "allowStart": true,
+        "allowHold": true
+      }
+    },
+    "evidenceWindow": {
+      "enabled": false,
+      "request": null
+    }
+  },
+  "config": {
+    "enabled": false,
+    "hold": true,
+    "baseRoom": "W49N41",
+    "sourceId": "5bbcaa6d9099fc012e63155b",
+    "containerId": null,
+    "containerPos": {
+      "x": 19,
+      "y": 6,
+      "roomName": "W48N41"
+    },
+    "allowContainerBuild": true,
+    "homeDeliveryTargetIds": [
+      "6ad0b55bceeb3db0d3b4dda0"
+    ],
+    "reserveController": false
+  },
+  "economic": {
+    "schemaVersion": 1,
+    "lastSequence": 3,
+    "current": {
+      "identity": {
+        "trialId": "econ-w48-20261023-01",
+        "sequence": 3,
+        "remoteId": "W49N41:W48N41",
+        "epoch": 2,
+        "codeVersion": "1792719819692"
+      },
+      "managed": true,
+      "status": "terminal",
+      "baseRoom": "W49N41",
+      "targetRoom": "W48N41",
+      "configFingerprint": "{\"baseRoom\":\"W49N41\",\"targetRoom\":\"W48N41\",\"sourceId\":\"5bbcaa6d9099fc012e63155b\",\"containerId\":null,\"containerPos\":{\"x\":19,\"y\":6,\"roomName\":\"W48N41\"},\"receiverIds\":[\"6ad0b55bceeb3db0d3b4dda0\"],\"allowContainerBuild\":true,\"reserveController\":false,\"roleLimits\":{\"scout\":1,\"remoteMiner\":1,\"remoteHauler\":1,\"reserver\":0},\"bodyEnergyLimits\":{\"scout\":50,\"remoteMiner\":800,\"remoteHauler\":800,\"reserver\":650},\"spawnEnergyLimit\":2000,\"infrastructureEnergyLimit\":6000,\"windowTicks\":1000,\"safeStreakTicks\":100,\"maxLegTicks\":300,\"reconCooldownTicks\":200}",
+      "startedAtTick": 83815613,
+      "receiverId": "6ad0b55bceeb3db0d3b4dda0",
+      "sourceId": "5bbcaa6d9099fc012e63155b",
+      "containerPos": {
+        "x": 19,
+        "y": 6,
+        "roomName": "W48N41"
+      },
+      "expiresAtTick": 83816613,
+      "issuedAtMs": 1792723420959,
+      "expiresAtMs": 1792728820959,
+      "lastTick": 83815768,
+      "lastNowMs": 1792724077313,
+      "visionAcquired": true,
+      "safeStreak": 100,
+      "slots": {
+        "scout": {
+          "calls": 1,
+          "requestId": "remote:W49N41:W48N41:2:8",
+          "deadline": 83815618,
+          "name": "scout_83815613_Spawn1_0",
+          "body": [
+            "move"
+          ],
+          "bodyCost": 50,
+          "callState": "result_known",
+          "intakeTick": 83815613,
+          "callTick": 83815613,
+          "ledgerStage": "applied",
+          "nativeResult": 0,
+          "engineAcceptedAt": 83815613,
+          "ledgerApplication": {
+            "applied": true,
+            "cost": 50
+          },
+          "acceptedAt": 83815613,
+          "cost": 50,
+          "receiptBinding": {
+            "identity": {
+              "trialId": "econ-w48-20261023-01",
+              "sequence": 3,
+              "remoteId": "W49N41:W48N41",
+              "epoch": 2,
+              "codeVersion": "1792719819692"
+            },
+            "requestId": "remote:W49N41:W48N41:2:8",
+            "name": "scout_83815613_Spawn1_0",
+            "tick": 83815613
+          },
+          "result": 0
+        },
+        "remoteMiner": {
+          "calls": 0,
+          "requestId": "remote:W49N41:W48N41:2:9",
+          "deadline": 83815767
+        },
+        "remoteHauler": {
+          "calls": 0
+        }
+      },
+      "events": [
+        {
+          "tick": 83815613,
+          "status": "recon",
+          "reason": "started"
+        },
+        {
+          "tick": 83815768,
+          "status": "stopping",
+          "reason": "spawn_request_expired"
+        }
+      ],
+      "outbox": [],
+      "evidence": {
+        "confirmedSpawnCost": 50,
+        "confirmedInfrastructureCost": 0,
+        "unknownEnergyUpperBound": 0,
+        "unknownEvents": 0,
+        "pickups": {},
+        "delivered": {},
+        "returnedEnergy": 0
+      },
+      "scopeCheckedAt": 83815767,
+      "safeStartedAtTick": 83815650,
+      "lastSafeTick": 83815767,
+      "outcome": {
+        "verdict": "aborted",
+        "stopReason": "spawn_request_expired",
+        "decidedAtTick": 83815768
+      },
+      "closeAppliedAtTick": 83815768,
+      "tailExpiresAtTick": 83816068,
+      "closureVerifiedAtTick": 83815769
+    },
+    "previous": {
+      "identity": {
+        "trialId": "econ-w48-20261021-01",
+        "sequence": 1,
+        "remoteId": "W49N41:W48N41",
+        "epoch": 2,
+        "codeVersion": "1792555927985"
+      },
+      "managed": false,
+      "status": "terminal",
+      "baseRoom": "W49N41",
+      "targetRoom": "W48N41",
+      "configFingerprint": "{\"baseRoom\":\"W49N41\",\"targetRoom\":\"W48N41\",\"sourceId\":\"5bbcaa6d9099fc012e63155b\",\"containerId\":null,\"containerPos\":{\"x\":19,\"y\":6,\"roomName\":\"W48N41\"},\"receiverIds\":[\"6ad0b55bceeb3db0d3b4dda0\"],\"allowContainerBuild\":true,\"reserveController\":false,\"roleLimits\":{\"scout\":1,\"remoteMiner\":1,\"remoteHauler\":1,\"reserver\":0},\"bodyEnergyLimits\":{\"scout\":50,\"remoteMiner\":800,\"remoteHauler\":800,\"reserver\":650},\"spawnEnergyLimit\":2000,\"infrastructureEnergyLimit\":6000,\"windowTicks\":1000,\"safeStreakTicks\":100,\"maxLegTicks\":300,\"reconCooldownTicks\":200}",
+      "startedAtTick": 83794429,
+      "receiverId": "6ad0b55bceeb3db0d3b4dda0",
+      "sourceId": "5bbcaa6d9099fc012e63155b",
+      "containerPos": {
+        "x": 19,
+        "y": 6,
+        "roomName": "W48N41"
+      },
+      "expiresAtTick": 83795429,
+      "issuedAtMs": 1792630306177,
+      "expiresAtMs": 1792635706177,
+      "lastTick": 83794451,
+      "lastNowMs": 1792630408331,
+      "safeStreak": 0,
+      "slots": {
+        "scout": {
+          "calls": 1,
+          "requestId": "remote:W49N41:W48N41:2:7",
+          "deadline": 83794434,
+          "name": "scout_83794429_Spawn1_0",
+          "body": [
+            "move"
+          ],
+          "bodyCost": 50,
+          "callState": "result_known",
+          "intakeTick": 83794429,
+          "callTick": 83794429,
+          "ledgerStage": "applied",
+          "nativeResult": 0,
+          "engineAcceptedAt": 83794429,
+          "ledgerApplication": {
+            "applied": true,
+            "cost": 50
+          },
+          "acceptedAt": 83794429,
+          "cost": 50,
+          "receiptBinding": {
+            "identity": {
+              "trialId": "econ-w48-20261021-01",
+              "sequence": 1,
+              "remoteId": "W49N41:W48N41",
+              "epoch": 2,
+              "codeVersion": "1792555927985"
+            },
+            "requestId": "remote:W49N41:W48N41:2:7",
+            "name": "scout_83794429_Spawn1_0",
+            "tick": 83794429
+          },
+          "result": 0
+        },
+        "remoteMiner": {
+          "calls": 0
+        },
+        "remoteHauler": {
+          "calls": 0
+        }
+      },
+      "events": [
+        {
+          "tick": 83794429,
+          "status": "recon",
+          "reason": "started"
+        },
+        {
+          "tick": 83794452,
+          "status": "stopping",
+          "reason": "vision_lost"
+        }
+      ],
+      "outbox": [],
+      "evidence": {
+        "confirmedSpawnCost": 50,
+        "confirmedInfrastructureCost": 0,
+        "unknownEnergyUpperBound": 0,
+        "unknownEvents": 0,
+        "pickups": {},
+        "delivered": {},
+        "returnedEnergy": 0
+      },
+      "scopeCheckedAt": 83794451,
+      "visionAcquired": true,
+      "outcome": {
+        "verdict": "aborted",
+        "stopReason": "vision_lost",
+        "decidedAtTick": 83794452
+      },
+      "closeAppliedAtTick": 83794452,
+      "tailExpiresAtTick": 83794752,
+      "closureVerifiedAtTick": 83794453
+    },
+    "lastRejection": {
+      "tick": 83815610,
+      "reason": "release_blocked"
+    }
+  },
+  "recon": {
+    "schemaVersion": 1,
+    "lastSequence": 6,
+    "current": {
+      "identity": {
+        "trialId": "w48-20261021-01",
+        "sequence": 5,
+        "remoteId": "W49N41:W48N41",
+        "epoch": 1,
+        "codeVersion": "1792555927985"
+      },
+      "candidateSourceId": "5bbcaa6d9099fc012e63155b",
+      "startedAtTick": 83778588,
+      "expiresAtTick": 83778888,
+      "issuedAtMs": 1792559662829,
+      "expiresAtMs": 1792560862829,
+      "configFingerprint": "{\"baseRoom\":\"W49N41\",\"targetRoom\":\"W48N41\",\"sourceId\":null,\"containerId\":null,\"containerPos\":{\"x\":19,\"y\":6,\"roomName\":\"W48N41\"},\"receivers\":[\"6ad0b55bceeb3db0d3b4dda0\"],\"allowContainerBuild\":false,\"reserveController\":false,\"candidateSourceId\":\"5bbcaa6d9099fc012e63155b\",\"limits\":{\"scout\":1,\"remoteMiner\":0,\"remoteHauler\":0,\"reserver\":0},\"spawnEnergyLimit\":2000,\"infrastructureEnergyLimit\":6000,\"windowTicks\":1000,\"maxLegTicks\":300,\"safeStreakTicks\":100,\"reconCooldownTicks\":200,\"bodyEnergyLimits\":{\"scout\":50,\"remoteMiner\":800,\"remoteHauler\":800,\"reserver\":650}}",
+      "baseRoom": "W49N41",
+      "targetRoom": "W48N41",
+      "status": "completed",
+      "managed": false,
+      "lastTick": 83778708,
+      "lastNowMs": 1792560193624,
+      "spawn": {
+        "requestId": "remote:W49N41:W48N41:1:6",
+        "deadline": 83778593,
+        "name": "scout_83778588_Spawn1_0",
+        "spawnName": "Spawn1",
+        "callState": "result_known",
+        "callTick": 83778588,
+        "acceptedAt": 83778588,
+        "result": 0
+      },
+      "evidence": {
+        "safeStreak": 100,
+        "onlineRecoveryCovered": false,
+        "spawnEnergyBaseline": 250,
+        "spawnAcceptedTick": 83778588,
+        "spawningObservedTick": 83778589,
+        "bornAt": 83778591,
+        "birthPosition": {
+          "x": 31,
+          "y": 23,
+          "roomName": "W49N41"
+        },
+        "lastPosition": {
+          "x": 1,
+          "y": 25,
+          "roomName": "W48N41"
+        },
+        "lastPositionTick": 83778708,
+        "firstMovementAt": 83778592,
+        "legStartedAt": 83778591,
+        "legExpiresAt": 83778651,
+        "maxRetryCount": 0,
+        "enteredRemoteAt": 83778609,
+        "lastSafeTick": 83778708,
+        "routeCheckedAt": 83778708,
+        "route": {
+          "valid": true,
+          "reasons": [],
+          "outboundTicks": 36,
+          "inboundTicks": 36,
+          "roles": {
+            "remoteMiner": {
+              "outboundTicks": 37,
+              "inboundTicks": 36
+            },
+            "remoteHauler": {
+              "outboundTicks": 36,
+              "inboundTicks": 36
+            }
+          },
+          "receiverId": "6ad0b55bceeb3db0d3b4dda0",
+          "checkedAt": 83778708
+        }
+      },
+      "events": [
+        {
+          "tick": 83778588,
+          "status": "waiting_spawn",
+          "reason": "started"
+        },
+        {
+          "tick": 83778708,
+          "status": "stopping",
+          "reason": "recon_complete"
+        }
+      ],
+      "settlement": {
+        "confirmedCost": 50,
+        "unknownUpperBound": 0,
+        "updatedAtTick": 83778588
+      },
+      "settlementBinding": {
+        "schemaVersion": 1,
+        "identity": {
+          "trialId": "w48-20261021-01",
+          "sequence": 5,
+          "remoteId": "W49N41:W48N41",
+          "epoch": 1,
+          "codeVersion": "1792555927985"
+        },
+        "requestId": "remote:W49N41:W48N41:1:6",
+        "name": "scout_83778588_Spawn1_0",
+        "confirmedReceiptTick": 83778588
+      },
+      "settlementSourceStatus": "scoped",
+      "scopeCheckedAt": 83778708,
+      "scopeAllowsOutbound": false,
+      "outcome": {
+        "verdict": "completed",
+        "stopReason": "recon_complete",
+        "decidedAtTick": 83778708,
+        "evidence": {
+          "safeStreak": 100,
+          "onlineRecoveryCovered": false,
+          "spawnEnergyBaseline": 250,
+          "spawnAcceptedTick": 83778588,
+          "spawningObservedTick": 83778589,
+          "bornAt": 83778591,
+          "birthPosition": {
+            "x": 31,
+            "y": 23,
+            "roomName": "W49N41"
+          },
+          "lastPosition": {
+            "x": 1,
+            "y": 25,
+            "roomName": "W48N41"
+          },
+          "lastPositionTick": 83778708,
+          "firstMovementAt": 83778592,
+          "legStartedAt": 83778591,
+          "legExpiresAt": 83778651,
+          "maxRetryCount": 0,
+          "enteredRemoteAt": 83778609,
+          "lastSafeTick": 83778708,
+          "routeCheckedAt": 83778708,
+          "route": {
+            "valid": true,
+            "reasons": [],
+            "outboundTicks": 36,
+            "inboundTicks": 36,
+            "roles": {
+              "remoteMiner": {
+                "outboundTicks": 37,
+                "inboundTicks": 36
+              },
+              "remoteHauler": {
+                "outboundTicks": 36,
+                "inboundTicks": 36
+              }
+            },
+            "receiverId": "6ad0b55bceeb3db0d3b4dda0",
+            "checkedAt": 83778708
+          }
+        }
+      },
+      "closeAppliedAtTick": 83778708,
+      "closureVerifiedAtTick": 83778709
+    },
+    "previous": {
+      "identity": {
+        "trialId": "w48-20261020-02",
+        "sequence": 3,
+        "remoteId": "W49N41:W48N41",
+        "epoch": 1,
+        "codeVersion": "1792484139799"
+      },
+      "candidateSourceId": "5bbcaa6d9099fc012e63155b",
+      "startedAtTick": 83761654,
+      "expiresAtTick": 83761954,
+      "issuedAtMs": 1792485472173,
+      "expiresAtMs": 1792486672173,
+      "configFingerprint": "{\"baseRoom\":\"W49N41\",\"targetRoom\":\"W48N41\",\"sourceId\":null,\"containerId\":null,\"containerPos\":{\"x\":19,\"y\":6,\"roomName\":\"W48N41\"},\"receivers\":[\"6ad0b55bceeb3db0d3b4dda0\"],\"allowContainerBuild\":false,\"reserveController\":false,\"candidateSourceId\":\"5bbcaa6d9099fc012e63155b\",\"limits\":{\"scout\":1,\"remoteMiner\":0,\"remoteHauler\":0,\"reserver\":0},\"spawnEnergyLimit\":2000,\"infrastructureEnergyLimit\":6000,\"windowTicks\":1000,\"maxLegTicks\":300,\"safeStreakTicks\":100,\"reconCooldownTicks\":200,\"bodyEnergyLimits\":{\"scout\":50,\"remoteMiner\":800,\"remoteHauler\":800,\"reserver\":650}}",
+      "baseRoom": "W49N41",
+      "targetRoom": "W48N41",
+      "status": "aborted",
+      "managed": false,
+      "lastTick": 83761725,
+      "lastNowMs": 1792485774304,
+      "spawn": {
+        "requestId": "remote:W49N41:W48N41:1:5",
+        "deadline": 83761659,
+        "name": "scout_83761654_Spawn1_0",
+        "spawnName": "Spawn1",
+        "callState": "result_known",
+        "callTick": 83761654,
+        "acceptedAt": 83761654,
+        "result": 0
+      },
+      "evidence": {
+        "safeStreak": 49,
+        "onlineRecoveryCovered": false,
+        "spawnEnergyBaseline": 200,
+        "spawnAcceptedTick": 83761654,
+        "spawningObservedTick": 83761655,
+        "bornAt": 83761657,
+        "birthPosition": {
+          "x": 30,
+          "y": 23,
+          "roomName": "W49N41"
+        },
+        "lastPosition": {
+          "x": 1,
+          "y": 25,
+          "roomName": "W48N41"
+        },
+        "lastPositionTick": 83761725,
+        "firstMovementAt": 83761658,
+        "legStartedAt": 83761657,
+        "legExpiresAt": 83761719,
+        "maxRetryCount": 0,
+        "enteredRemoteAt": 83761677,
+        "lastSafeTick": 83761725,
+        "routeCheckedAt": 83761677,
+        "route": {
+          "valid": true,
+          "reasons": [],
+          "outboundTicks": 36,
+          "inboundTicks": 36,
+          "roles": {
+            "remoteMiner": {
+              "outboundTicks": 37,
+              "inboundTicks": 36
+            },
+            "remoteHauler": {
+              "outboundTicks": 36,
+              "inboundTicks": 36
+            }
+          },
+          "receiverId": "6ad0b55bceeb3db0d3b4dda0",
+          "checkedAt": 83761677
+        }
+      },
+      "events": [
+        {
+          "tick": 83761654,
+          "status": "waiting_spawn",
+          "reason": "started"
+        },
+        {
+          "tick": 83761726,
+          "status": "stopping",
+          "reason": "manual_hold"
+        }
+      ],
+      "settlement": {
+        "confirmedCost": 50,
+        "unknownUpperBound": 0,
+        "updatedAtTick": 83761654
+      },
+      "settlementBinding": {
+        "schemaVersion": 1,
+        "identity": {
+          "trialId": "w48-20261020-02",
+          "sequence": 3,
+          "remoteId": "W49N41:W48N41",
+          "epoch": 1,
+          "codeVersion": "1792484139799"
+        },
+        "requestId": "remote:W49N41:W48N41:1:5",
+        "name": "scout_83761654_Spawn1_0",
+        "confirmedReceiptTick": 83761654
+      },
+      "settlementSourceStatus": "scoped",
+      "scopeCheckedAt": 83761725,
+      "scopeAllowsOutbound": false,
+      "outcome": {
+        "verdict": "aborted",
+        "stopReason": "manual_hold",
+        "decidedAtTick": 83761726,
+        "evidence": {
+          "safeStreak": 49,
+          "onlineRecoveryCovered": false,
+          "spawnEnergyBaseline": 200,
+          "spawnAcceptedTick": 83761654,
+          "spawningObservedTick": 83761655,
+          "bornAt": 83761657,
+          "birthPosition": {
+            "x": 30,
+            "y": 23,
+            "roomName": "W49N41"
+          },
+          "lastPosition": {
+            "x": 1,
+            "y": 25,
+            "roomName": "W48N41"
+          },
+          "lastPositionTick": 83761725,
+          "firstMovementAt": 83761658,
+          "legStartedAt": 83761657,
+          "legExpiresAt": 83761719,
+          "maxRetryCount": 0,
+          "enteredRemoteAt": 83761677,
+          "lastSafeTick": 83761725,
+          "routeCheckedAt": 83761677,
+          "route": {
+            "valid": true,
+            "reasons": [],
+            "outboundTicks": 36,
+            "inboundTicks": 36,
+            "roles": {
+              "remoteMiner": {
+                "outboundTicks": 37,
+                "inboundTicks": 36
+              },
+              "remoteHauler": {
+                "outboundTicks": 36,
+                "inboundTicks": 36
+              }
+            },
+            "receiverId": "6ad0b55bceeb3db0d3b4dda0",
+            "checkedAt": 83761677
+          }
+        }
+      },
+      "closeAppliedAtTick": 83761726,
+      "closureVerifiedAtTick": 83761727
+    },
+    "lastRejection": {
+      "sequence": 6,
+      "id": "econ-release-6",
+      "tick": 83877871,
+      "reason": "request_invalid"
+    }
+  },
+  "native": {
+    "schemaVersion": 1,
+    "lastAcceptedStartSequence": 3,
+    "current": {
+      "request": {
+        "schemaVersion": 1,
+        "id": "nops-w48-20261023-01",
+        "profileId": "w49n41-w48n41-first-delivery-v1",
+        "codeVersion": "1792719819692",
+        "oldIdentity": {
+          "trialId": "econ-w48-20261021-01",
+          "sequence": 1,
+          "remoteId": "W49N41:W48N41",
+          "epoch": 2,
+          "codeVersion": "1792555927985"
+        },
+        "expectedLastSequence": 1,
+        "trialId": "econ-w48-20261023-01",
+        "releaseSequence": 2,
+        "startSequence": 3,
+        "issuedAtMs": 1792723394292,
+        "stopAtMs": 1792728556756,
+        "notAfterMs": 1792728676756,
+        "acceptNotBeforeTick": 83815605,
+        "acceptNotAfterTick": 83815615,
+        "allowSupersedeKnownClosedPreparation": true,
+        "allowEconomicRelease": true,
+        "allowStart": true,
+        "allowHold": true
+      },
+      "stage": "terminal",
+      "lastTick": 83815769,
+      "lastNowMs": 1792724081367,
+      "preflightAt": 83815608,
+      "intents": {
+        "archive_preparation": {
+          "status": "applied",
+          "tick": 83815609
+        },
+        "replace_release_request": {
+          "status": "applied",
+          "tick": 83815610
+        },
+        "prepare_start": {
+          "status": "applied",
+          "tick": 83815612
+        },
+        "activate_start": {
+          "status": "applied",
+          "tick": 83815613
+        }
+      },
+      "events": [
+        {
+          "tick": 83815609,
+          "stage": "archiving",
+          "reason": "archive_preparation"
+        },
+        {
+          "tick": 83815610,
+          "stage": "release_writing",
+          "reason": "replace_release_request"
+        },
+        {
+          "tick": 83815612,
+          "stage": "start_writing",
+          "reason": "prepare_start"
+        },
+        {
+          "tick": 83815613,
+          "stage": "start_activating",
+          "reason": "activate_start"
+        }
+      ],
+      "archive": {
+        "atTick": 83815609,
+        "request": {
+          "schemaVersion": 1,
+          "action": "release",
+          "id": "release-econ-w48-20261022-01",
+          "targetTrialId": "econ-w48-20261021-01",
+          "sequence": 2,
+          "remoteId": "W49N41:W48N41",
+          "epoch": 2,
+          "codeVersion": "1792636618804",
+          "configFingerprint": ""
+        },
+        "current": {
+          "identity": {
+            "trialId": "econ-w48-20261021-01",
+            "sequence": 1,
+            "remoteId": "W49N41:W48N41",
+            "epoch": 2,
+            "codeVersion": "1792555927985"
+          },
+          "managed": true,
+          "status": "terminal",
+          "baseRoom": "W49N41",
+          "targetRoom": "W48N41",
+          "configFingerprint": "{\"baseRoom\":\"W49N41\",\"targetRoom\":\"W48N41\",\"sourceId\":\"5bbcaa6d9099fc012e63155b\",\"containerId\":null,\"containerPos\":{\"x\":19,\"y\":6,\"roomName\":\"W48N41\"},\"receiverIds\":[\"6ad0b55bceeb3db0d3b4dda0\"],\"allowContainerBuild\":true,\"reserveController\":false,\"roleLimits\":{\"scout\":1,\"remoteMiner\":1,\"remoteHauler\":1,\"reserver\":0},\"bodyEnergyLimits\":{\"scout\":50,\"remoteMiner\":800,\"remoteHauler\":800,\"reserver\":650},\"spawnEnergyLimit\":2000,\"infrastructureEnergyLimit\":6000,\"windowTicks\":1000,\"safeStreakTicks\":100,\"maxLegTicks\":300,\"reconCooldownTicks\":200}",
+          "startedAtTick": 83794429,
+          "receiverId": "6ad0b55bceeb3db0d3b4dda0",
+          "sourceId": "5bbcaa6d9099fc012e63155b",
+          "containerPos": {
+            "x": 19,
+            "y": 6,
+            "roomName": "W48N41"
+          },
+          "expiresAtTick": 83795429,
+          "issuedAtMs": 1792630306177,
+          "expiresAtMs": 1792635706177,
+          "lastTick": 83794451,
+          "lastNowMs": 1792630408331,
+          "safeStreak": 0,
+          "slots": {
+            "scout": {
+              "calls": 1,
+              "requestId": "remote:W49N41:W48N41:2:7",
+              "deadline": 83794434,
+              "name": "scout_83794429_Spawn1_0",
+              "body": [
+                "move"
+              ],
+              "bodyCost": 50,
+              "callState": "result_known",
+              "intakeTick": 83794429,
+              "callTick": 83794429,
+              "ledgerStage": "applied",
+              "nativeResult": 0,
+              "engineAcceptedAt": 83794429,
+              "ledgerApplication": {
+                "applied": true,
+                "cost": 50
+              },
+              "acceptedAt": 83794429,
+              "cost": 50,
+              "receiptBinding": {
+                "identity": {
+                  "trialId": "econ-w48-20261021-01",
+                  "sequence": 1,
+                  "remoteId": "W49N41:W48N41",
+                  "epoch": 2,
+                  "codeVersion": "1792555927985"
+                },
+                "requestId": "remote:W49N41:W48N41:2:7",
+                "name": "scout_83794429_Spawn1_0",
+                "tick": 83794429
+              },
+              "result": 0
+            },
+            "remoteMiner": {
+              "calls": 0
+            },
+            "remoteHauler": {
+              "calls": 0
+            }
+          },
+          "events": [
+            {
+              "tick": 83794429,
+              "status": "recon",
+              "reason": "started"
+            },
+            {
+              "tick": 83794452,
+              "status": "stopping",
+              "reason": "vision_lost"
+            }
+          ],
+          "outbox": [],
+          "evidence": {
+            "confirmedSpawnCost": 50,
+            "confirmedInfrastructureCost": 0,
+            "unknownEnergyUpperBound": 0,
+            "unknownEvents": 0,
+            "pickups": {},
+            "delivered": {},
+            "returnedEnergy": 0
+          },
+          "scopeCheckedAt": 83794451,
+          "visionAcquired": true,
+          "outcome": {
+            "verdict": "aborted",
+            "stopReason": "vision_lost",
+            "decidedAtTick": 83794452
+          },
+          "closeAppliedAtTick": 83794452,
+          "tailExpiresAtTick": 83794752,
+          "closureVerifiedAtTick": 83794453
+        },
+        "originalWindow": {
+          "stopAtMs": 1792665000841,
+          "notAfterMs": 1792665120841
+        },
+        "source": "acknowledged-stageRelease-83800898"
+      },
+      "releaseRequest": {
+        "schemaVersion": 1,
+        "action": "release",
+        "id": "release-econ-w48-20261023-01",
+        "targetTrialId": "econ-w48-20261021-01",
+        "sequence": 2,
+        "remoteId": "W49N41:W48N41",
+        "epoch": 2,
+        "codeVersion": "1792719819692",
+        "configFingerprint": "{\"baseRoom\":\"W49N41\",\"targetRoom\":\"W48N41\",\"sourceId\":\"5bbcaa6d9099fc012e63155b\",\"containerId\":null,\"containerPos\":{\"x\":19,\"y\":6,\"roomName\":\"W48N41\"},\"receiverIds\":[\"6ad0b55bceeb3db0d3b4dda0\"],\"allowContainerBuild\":true,\"reserveController\":false,\"roleLimits\":{\"scout\":1,\"remoteMiner\":1,\"remoteHauler\":1,\"reserver\":0},\"bodyEnergyLimits\":{\"scout\":50,\"remoteMiner\":800,\"remoteHauler\":800,\"reserver\":650},\"spawnEnergyLimit\":2000,\"infrastructureEnergyLimit\":6000,\"windowTicks\":1000,\"safeStreakTicks\":100,\"maxLegTicks\":300,\"reconCooldownTicks\":200}",
+        "activateAtTick": 83815611,
+        "expiresAtTick": 83816611,
+        "issuedAtMs": 1792723412271,
+        "expiresAtMs": 1792728812271
+      },
+      "startRequest": {
+        "schemaVersion": 1,
+        "action": "start",
+        "id": "econ-w48-20261023-01",
+        "sequence": 3,
+        "remoteId": "W49N41:W48N41",
+        "epoch": 2,
+        "codeVersion": "1792719819692",
+        "configFingerprint": "{\"baseRoom\":\"W49N41\",\"targetRoom\":\"W48N41\",\"sourceId\":\"5bbcaa6d9099fc012e63155b\",\"containerId\":null,\"containerPos\":{\"x\":19,\"y\":6,\"roomName\":\"W48N41\"},\"receiverIds\":[\"6ad0b55bceeb3db0d3b4dda0\"],\"allowContainerBuild\":true,\"reserveController\":false,\"roleLimits\":{\"scout\":1,\"remoteMiner\":1,\"remoteHauler\":1,\"reserver\":0},\"bodyEnergyLimits\":{\"scout\":50,\"remoteMiner\":800,\"remoteHauler\":800,\"reserver\":650},\"spawnEnergyLimit\":2000,\"infrastructureEnergyLimit\":6000,\"windowTicks\":1000,\"safeStreakTicks\":100,\"maxLegTicks\":300,\"reconCooldownTicks\":200}",
+        "activateAtTick": 83815613,
+        "expiresAtTick": 83816613,
+        "issuedAtMs": 1792723420959,
+        "expiresAtMs": 1792728820959
+      },
+      "admittedIdentity": {
+        "trialId": "econ-w48-20261023-01",
+        "sequence": 3,
+        "remoteId": "W49N41:W48N41",
+        "epoch": 2,
+        "codeVersion": "1792719819692"
+      },
+      "outcome": {
+        "reason": "spawn_request_expired",
+        "decidedAtTick": 83815769
+      },
+      "observations": {
+        "bornAt": 83815616,
+        "birthPosition": {
+          "x": 30,
+          "y": 23,
+          "roomName": "W49N41"
+        },
+        "lastPosition": {
+          "x": 49,
+          "y": 26,
+          "roomName": "W49N41"
+        },
+        "lastPositionAt": 83815769,
+        "firstMovementAt": 83815624,
+        "enteredRemoteAt": 83815650,
+        "sourceSeenAt": 83815650,
+        "route": {
+          "valid": true,
+          "checkedAt": 83815768,
+          "outboundTicks": 36,
+          "inboundTicks": 36,
+          "roles": {
+            "remoteMiner": {
+              "outboundTicks": 37,
+              "inboundTicks": 36
+            },
+            "remoteHauler": {
+              "outboundTicks": 36,
+              "inboundTicks": 36
+            }
+          }
+        }
+      },
+      "controlClosureConfirmed": true
+    },
+    "previous": null
+  },
+  "epoch": 2
+}

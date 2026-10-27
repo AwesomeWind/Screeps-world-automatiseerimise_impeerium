@@ -1,5 +1,13 @@
 # tests 模块说明
 
+`home-evidence-window-{model,facts,runtime,report}.cjs` 覆盖独立自然观察窗：100观察tick/10分钟原截止、默认关闭、一次固定admission、4/16/200/128/32及UTF-16容量、pending/未知/JSON重载、原生不可枚举位置、T-1日志与双端库存、反向withdraw与相关并发。自然fixture只预置已有本房单位，使用真实Market/Miner/Hauler/Builder及ActionParser；队列在下一tick应用后生成simulated日志，不调用任何remote/native/economic submit/start。比较关闭/开启/写入故障的业务投影和动作完全一致。
+
+HTTP自然profile回归在本地运维工具目录；两个固定profile共用有界传输但不共用经济schema/报告。旧已消耗HTTP目录及授权日志不可作为测试输出或重跑入口。所有本地验证禁止网络和凭据；完整测试、dry build、真实API与经济验收分别报告。
+
+独立review反例另覆盖低CPU/hostile后的seal失败不恢复capture、延后seal保留原停止tick、未知seal不重放、采集CPU从读回/验证前计时；自然HTTP默认不借旧经济版本，真实读取须expectedVersion，离线无期望标unverified_version，CLI可显式--expected-version。原生事件存在但并发/再生/缺端点时保留unproved原因，不能与无事件混淆。
+
+`fixtures/home-retained-closed.json`是已保存的历史关闭记录，不是新鲜线上预检。新回归使用真正的父envelope.enabled=true形态核对过期/terminal/原身份/窗口/closure/tail和关闭scope；不能仅设request.enabled=true来代替旧协议。新鲜期限或foreign身份、开放scope不得被旧记录兼容例外放行。
+
 `tests/smoke.cjs` 是当前主要回归测试入口，运行命令：
 
 ```bash

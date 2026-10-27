@@ -1,5 +1,7 @@
 # config 模块说明
 
+`policy.homeEvidence` 默认 `enabled:false,request:null,cpu:{minBucket:5000,reserve:5,capture:2}`。请求不携带业务身份，profile固定母房自然行为；CPU配置只允许更高bucket/reserve与更小的正capture值，非法值拒绝采集，不自动修正配置。默认关闭不创建观察数据namespace。
+
 `config` 存放 Memory 默认值和房间级配置开关。
 
 ## MemoryConfig
