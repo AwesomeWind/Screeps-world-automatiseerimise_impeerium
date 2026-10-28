@@ -5,7 +5,30 @@ const bounded = value => JSON.stringify(value).length <= LIMITS.pageChars ? valu
 function locate(store) {
     if (store === undefined) return {error: 'missing_window'};
     if (!validHomeEvidenceStore(store)) return {error: 'corrupt'};
-    return {window: store.window};
+    // Root pending contains a candidate, never an acknowledged window transition.
+    const window = store.window && store.pending ? {...store.window,
+        pending: {key: store.pending.key, stage: 'capture', tick: store.pending.tick}} : store.window;
+    return {window};
+}
+function admissionHeader(store) {
+    const a = store.admission, q = a.request, w = store.window;
+    const phase = store.pending ? 'unknown' : a.status === 'reserved' ? 'interrupted' :
+        a.status !== 'accepted' ? a.status : !w.rows.length ? 'accepted_no_row' : w.capture.phase;
+    return {schemaVersion: 2, profile: store.profile, windowId: q.id, codeVersion: q.codeVersion,
+        shard: q.shard, roomName: q.roomName, phase, admission: copy(a), pending: copy(store.pending ?? null),
+        admissionPersisted: a.status === 'accepted' && !store.pending,
+        // A first row proves the service passed admission readback before reading
+        // events. An empty final candidate alone does not prove that checkpoint.
+        admissionConfirmed: a.status === 'accepted' && !store.pending && w.rows.length > 0,
+        ...(!w ? {coverage: {rows: null, partial: true, fullHundredTicks: false}} : {})};
+}
+function diagnosticReport(store) {
+    return {...admissionHeader(store), economicAcceptance: 'not_performed', productionSemantics: 'unverified',
+        method: {status: 'missing'}, shape: {status: 'missing'},
+        harvest: {status: 'missing', observedEvents: null, consistentObservations: 0, observedAmount: null},
+        transfer: {status: 'missing', observedEvents: null, consistentObservations: 0, observedAmount: null},
+        cpu: {hardLimitVerified: false}, persistence: {pending: !!store.pending, actualGlobalResetVerified: false},
+        memory: {serializedChars: JSON.stringify(store).length, charLimit: LIMITS.storeChars}};
 }
 function coverage(w) {
     let gaps = 0, previous = w.bounds.acceptedAtTick - 1;
@@ -63,12 +86,16 @@ function pairDirection(before, after, event, window) {
 
 export function homeEvidenceStatus(store) {
     const found = locate(store);
-    return found.error ? found : bounded(header(found.window));
+    if (found.error) return found;
+    const result = found.window ? header(found.window) : {};
+    if (store.schemaVersion === 2) Object.assign(result, admissionHeader(store));
+    return bounded(result);
 }
 
 export function summarizeHomeEvidence(store) {
     const found = locate(store);
     if (found.error) return found;
+    if (!found.window) return bounded(diagnosticReport(store));
     const w = found.window;
     const captureSamples = w.rows.map(row => row.cpu.captureCpu).filter(Number.isFinite);
     const result = {...header(w), economicAcceptance: 'not_performed',
@@ -107,6 +134,10 @@ export function summarizeHomeEvidence(store) {
     for (const group of [result.harvest, result.transfer]) {
         if (group.observedEvents > 0 && group.consistentObservations === 0) group.status = 'unproved';
     }
+    if (store.schemaVersion === 2) {
+        Object.assign(result, admissionHeader(store));
+        if (!w.rows.length) {result.harvest.observedEvents = null; result.transfer.observedEvents = null;}
+    }
     return bounded(result);
 }
 
@@ -114,9 +145,12 @@ export function readHomeEvidencePage(store, offset, limit) {
     if (!integer(offset) || !integer(limit) || limit < 1) return {error: 'invalid_page'};
     const found = locate(store);
     if (found.error) return found;
+    if (!found.window) return offset === 0 ? bounded({...admissionHeader(store), offset, total: null, items: [],
+        nextOffset: null, reason: 'not_admitted'}) : {error: 'invalid_page'};
     const w = found.window;
     if (offset > w.rows.length) return {error: 'invalid_page'};
     const page = {...header(w), offset, total: w.rows.length, items: [], nextOffset: null};
+    if (store.schemaVersion === 2) Object.assign(page, admissionHeader(store));
     const end = Math.min(w.rows.length, offset + Math.min(limit, LIMITS.pageRows));
     for (let index = offset; index < end; index++) {
         page.items.push(copy(w.rows[index])); page.nextOffset = index + 1 < w.rows.length ? index + 1 : null;

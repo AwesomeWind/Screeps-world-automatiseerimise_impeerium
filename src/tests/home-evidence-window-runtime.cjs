@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const {admitted, clock, packet} = require('./helpers/home-evidence-data.cjs');
+const {admitted, admittedV2, clock, packet} = require('./helpers/home-evidence-data.cjs');
 const {createHomeFixture} = require('./helpers/home-evidence-window-fixture.cjs');
 const load = () => import('../services/HomeEvidenceWindowService.js').catch(error => {
     if (error.code === 'ERR_MODULE_NOT_FOUND' && error.message.includes('HomeEvidenceWindowService.js')) return {};
@@ -169,7 +169,7 @@ test('home_review_unknown_seal_never_resumes_or_replays_after_danger_clears', as
     const find = f.room.find; f.room.find = (type, query) => type === FIND_HOSTILE_CREEPS && hostile ? [{}] : find(type, query);
     f.room.getEventLog = () => {reads++; return [];};
     const options = {now: () => f.clock().nowMs, readStore: () => raw, writeStore: value => {
-        writes++; if (value.window.capture.phase === 'sealed') throw Error('seal unknown before assignment'); raw = value;
+        writes++; if (value.window?.capture.phase === 'sealed') throw Error('seal unknown before assignment'); raw = value;
     }};
     const s = new Service('HomeEvidenceWindow', options); s.cleanup(); const firstReads = reads;
     f.advance(); hostile = true; s.cleanup(); const afterStop = writes;
@@ -180,7 +180,7 @@ test('home_review_unknown_seal_never_resumes_or_replays_after_danger_clears', as
 });
 
 test('home_review_pre_capture_validation_cost_is_inside_original_cpu_budget', async () => {
-    const {default: Service} = await load(); const f = await createHomeFixture(); f.enable(); const {store} = await admitted();
+    const {default: Service} = await load(); const f = await createHomeFixture(); f.enable(); const {store} = await admittedV2();
     let reads = 0; f.room.getEventLog = () => {reads++; return [];};
     const s = new Service('HomeEvidenceWindow', {now: () => f.clock().nowMs,
         readStore: () => {f.setCpu(2.1); return store;}, writeStore: () => assert.fail('budget exhausted')});

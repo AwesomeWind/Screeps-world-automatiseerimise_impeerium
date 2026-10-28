@@ -1,5 +1,8 @@
 # services 模块说明
 
+- HomeEvidenceWindow Store v2的admission与可空window分离；根pending保存reserve/reject/admit/capture/seal/diagnostic候选。Persistence只做一次pending和一次final并精确读回，unknown不重写；查询优先报告pending，不把候选accepted/window当作已接纳。v1旧记录继续严格只读。
+- 首因及首次实际观察clock固定；CPU不足且明确未调用写入时，可以在原身份/原期限内仅封存原诊断，不重读gate、选择对象或admit。CPU样本可含commitKind区分同tick的不同提交；未采到的样本null，不为补afterFinal递归写入。原预算5/2与bucket5000仍适用于全部诊断工作。
+
 - `HomeEvidenceWindowModel/Facts/Service/Report` 独立于远程经济窗口，只记录shard3/W49N41既有单位自然行为。默认关闭；100观察tick/10分钟、4名固定cohort/16对象/128原生事件读取/32相关事件存储/131072 UTF-16字符，容量可先到，记录partial不删历史。只读facade仅status/report/readPage，不ensure/prune/更新lastAccess。
 - 先判断撤回/期限/版本再做可选采集，unknown与pending不重放；admission固定在原acceptNotBeforeTick，错过不补开。最后cleanup不影响原P0关停/ActionParser；低CPU可能不能保存seal，但不能因此继续采集。Memory完全不可写及硬引擎终止不保证错误标记留存。
 - Home原生日志T读T-1，与相邻固定对象快照配对；TRANSFER正向和withdraw反向分开，并发/丢帧/损坏字段/数量不匹配不可作一致证明。simulated永不成为production_verified；无经济账或执行许可，不写回旧经济采集器验证标记。

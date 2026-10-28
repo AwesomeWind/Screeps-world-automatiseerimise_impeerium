@@ -90,6 +90,7 @@ function validPacket(p, window) {
 
 export function validHomeEvidenceStore(store) {
     try {
+        if (store?.schemaVersion === 2) return validAdmissionStore(store);
         if (!keys(store, ['schemaVersion', 'profile', 'window']) || store.schemaVersion !== 1 || store.profile !== 'home_natural_v1') return false;
         const w = store.window;
         if (!keys(w, ['header', 'bounds', 'rows', 'capture', 'seal'], ['pending']) ||
@@ -135,6 +136,7 @@ function flag(window, reason) {
 }
 
 export function advanceHomeEvidence(input, event, clock) {
+    if (['reserve', 'diagnostic'].includes(event?.type) || input?.schemaVersion === 2) return advanceAdmission(input, event, clock);
     const unchanged = reason => ({store: input, changed: false, reason});
     if (!validHomeClock(clock)) return unchanged('invalid_clock');
     if (input !== undefined && !validHomeEvidenceStore(input)) return unchanged('corrupt');
@@ -185,4 +187,114 @@ export function advanceHomeEvidence(input, event, clock) {
         return validHomeEvidenceStore(fallback) ? {store: fallback, changed: true, reason: 'capacity'} : unchanged('capacity');
     }
     return validHomeEvidenceStore(store) ? {store, changed: true, reason: stop} : unchanged('invalid_packet');
+}
+
+export const HOME_ADMISSION_STAGES = Object.freeze(['entry', 'reserve', 'reserved', 'gate', 'selection', 'admit', 'capture', 'seal', 'diagnostic']);
+export const HOME_ADMISSION_REASONS = Object.freeze([...STOP_REASONS, 'invalid_request', 'no_cohort', 'candidate_limit',
+    'invalid_selection', 'cpu_skipped', 'write_unknown', 'capture_failed', 'conflict']);
+export const HOME_GATE_DIAGNOSTIC_KEYS = Object.freeze(['controlTypes', 'retainedRecon', 'retainedEconomic', 'nativeState',
+    'configsClosed', 'operationFresh', 'scopeIdentity', 'scopeClosed', 'homeOwned', 'homeSafe', 'homeNormal']);
+export const HOME_CPU_STAGES = Object.freeze(['entry', 'afterGate', 'afterSelection', 'beforePending', 'afterPending', 'beforeFinal', 'afterFinal']);
+const COMMIT_KINDS = ['reserve', 'reject', 'admit', 'capture', 'seal', 'diagnostic'];
+export const homeCommitKey = (request, kind) => `${request.id}:${request.acceptNotBeforeTick}:${kind}`;
+export const emptyHomeCpu = () => Object.fromEntries(HOME_CPU_STAGES.map(key => [key, null]));
+
+function validDiagnostics(a) {
+    if (a.gate !== null && (!keys(a.gate, HOME_GATE_DIAGNOSTIC_KEYS) ||
+        !Object.values(a.gate).every(value => value === null || typeof value === 'boolean'))) return false;
+    if (a.selection !== null && (!keys(a.selection, ['visited', 'eligibleRoles', 'cohortCount', 'objectCount', 'reason']) ||
+        !['visited', 'eligibleRoles', 'cohortCount', 'objectCount'].every((key, index) =>
+            nullable(a.selection[key], value => homeInteger(value) && value <= [201, 200, 4, 16][index])) ||
+        !nullable(a.selection.reason, reason => ['no_cohort', 'candidate_limit', 'invalid_selection'].includes(reason)))) return false;
+    return keys(a.cpu, HOME_CPU_STAGES) && Object.values(a.cpu).every(sample => sample === null ||
+        keys(sample, ['tick', 'used', 'tickLimit', 'bucket', 'delta'], ['commitKind']) && homeInteger(sample.tick) &&
+        [sample.used, sample.tickLimit, sample.bucket, sample.delta].every(finite) && sample.used <= sample.tickLimit &&
+        (sample.commitKind === undefined || COMMIT_KINDS.includes(sample.commitKind)));
+}
+
+function validAdmissionStore(store) {
+    if (!keys(store, ['schemaVersion', 'profile', 'admission', 'window'], ['pending']) || store.profile !== HOME_EVIDENCE_PROFILE.id) return false;
+    const a = store.admission, q = a?.request;
+    if (!keys(a, ['request', 'firstSeen', 'stage', 'status', 'firstOutcome', 'gate', 'selection', 'cpu']) ||
+        !keys(a.firstSeen, ['tick', 'nowMs']) || !HOME_ADMISSION_STAGES.includes(a.stage) ||
+        !['reserved', 'rejected', 'unknown', 'accepted'].includes(a.status) ||
+        !validateHomeEvidenceRequest(q, {...a.firstSeen, codeVersion: q?.codeVersion, shard: q?.shard}).valid ||
+        a.firstSeen.tick !== q.acceptNotBeforeTick || !validDiagnostics(a)) return false;
+    const o = a.firstOutcome;
+    if (a.status === 'reserved' ? o !== null : !keys(o, ['kind', 'reason', 'stage', 'tick', 'nowMs']) ||
+        o.kind !== a.status || !HOME_ADMISSION_STAGES.includes(o.stage) || !homeInteger(o.tick) || o.tick < a.firstSeen.tick ||
+        !homeInteger(o.nowMs) || o.nowMs < a.firstSeen.nowMs || o.nowMs >= q.expiresAtMs ||
+        (o.kind === 'accepted' ? o.reason !== null || o.tick !== q.acceptNotBeforeTick : !HOME_ADMISSION_REASONS.includes(o.reason))) return false;
+    if (a.status === 'accepted' && (o.stage !== 'admit' || !validateHomeEvidenceRequest(q,
+        {tick: o.tick, nowMs: o.nowMs, codeVersion: q.codeVersion, shard: q.shard}).valid)) return false;
+    if (a.status === 'accepted') {
+        if (!store.window || store.window.pending !== undefined || !homeEqual(store.window.header?.request, q) ||
+            store.window.bounds?.acceptedAtTick !== q.acceptNotBeforeTick ||
+            !validHomeEvidenceStore({schemaVersion: 1, profile: store.profile, window: store.window})) return false;
+    } else if (store.window !== null) return false;
+    if (store.pending !== undefined && (!keys(store.pending, ['key', 'kind', 'tick']) || !COMMIT_KINDS.includes(store.pending.kind) ||
+        store.pending.key !== homeCommitKey(q, store.pending.kind) || store.pending.key.length > 96 ||
+        !homeInteger(store.pending.tick) || store.pending.tick < a.firstSeen.tick)) return false;
+    if (store.pending) {
+        const kind = store.pending.kind;
+        if (kind === 'reserve' && a.status !== 'reserved' || ['reject', 'diagnostic'].includes(kind) &&
+            !['rejected', 'unknown'].includes(a.status) || ['admit', 'capture', 'seal'].includes(kind) && a.status !== 'accepted' ||
+            kind === 'admit' && (store.window.rows.length !== 0 || store.window.capture.phase !== 'recording') ||
+            kind === 'seal' && store.window.capture.phase !== 'sealed') return false;
+    }
+    return JSON.stringify({admission: a, pending: store.pending}).length <= 8192 &&
+        JSON.stringify(store).length <= HOME_EVIDENCE_LIMITS.storeChars;
+}
+
+function advanceAdmission(input, event, clock) {
+    const unchanged = reason => ({store: input, changed: false, reason});
+    if (!validHomeClock(clock)) return unchanged('invalid_clock');
+    if (input !== undefined && !validHomeEvidenceStore(input)) return unchanged('corrupt');
+    if (event?.type === 'diagnostic') {
+        const snapshot = event.snapshot, a = snapshot?.admission;
+        if (!validHomeEvidenceStore(snapshot) || snapshot.schemaVersion !== 2 || snapshot.pending || snapshot.window !== null ||
+            !['rejected', 'unknown'].includes(a.status) || clock.tick < a.firstOutcome.tick || clock.nowMs < a.firstOutcome.nowMs ||
+            clock.nowMs >= a.request.expiresAtMs || input !== undefined &&
+            (input.schemaVersion !== 2 || input.pending || input.window !== null || input.admission.status !== 'reserved' ||
+                !homeEqual(input.admission.request, a.request) || !homeEqual(input.admission.firstSeen, a.firstSeen))) return unchanged('invalid_diagnostic');
+        return {store: homeCopy(snapshot), changed: true, reason: null};
+    }
+    if (event?.type === 'reserve') {
+        if (input !== undefined) return unchanged('existing_window');
+        if (!validateHomeEvidenceRequest(event.request, clock).valid || clock.tick !== event.request.acceptNotBeforeTick) return unchanged('invalid_request');
+        const store = {schemaVersion: 2, profile: HOME_EVIDENCE_PROFILE.id, admission: {
+            request: homeCopy(event.request), firstSeen: {tick: clock.tick, nowMs: clock.nowMs}, stage: 'reserved',
+            status: 'reserved', firstOutcome: null, gate: null, selection: null, cpu: emptyHomeCpu()}, window: null};
+        return {store, changed: true, reason: null};
+    }
+    if (input?.schemaVersion !== 2) return unchanged('missing_window');
+    if (input.pending) return unchanged('pending_write');
+    const store = homeCopy(input), a = store.admission, q = a.request;
+    if (['reject', 'admit', 'diagnostic'].includes(event?.type)) {
+        if (a.firstOutcome !== null) return unchanged('outcome_frozen');
+        if (clock.tick < a.firstSeen.tick || clock.nowMs < a.firstSeen.nowMs || clock.nowMs >= q.expiresAtMs) return unchanged('invalid_clock');
+        if (event.type === 'diagnostic') return unchanged('invalid_event');
+        if (event.type === 'admit') {
+            if (!homeEqual(q, event.request) || clock.tick !== q.acceptNotBeforeTick) return unchanged('invalid_request');
+            const legacy = advanceHomeEvidence(undefined, event, clock);
+            if (!legacy.changed) return unchanged(legacy.reason);
+            store.window = legacy.store.window;
+            a.status = 'accepted'; a.stage = 'admit';
+        } else {
+            if (!HOME_ADMISSION_REASONS.includes(event.reason) || !HOME_ADMISSION_STAGES.includes(event.stage)) return unchanged('invalid_event');
+            a.status = event.reason === 'write_unknown' ? 'unknown' : 'rejected'; a.stage = event.stage;
+        }
+        a.firstOutcome = {kind: a.status, reason: event.type === 'admit' ? null : event.reason, stage: a.stage, tick: clock.tick, nowMs: clock.nowMs};
+        for (const key of ['gate', 'selection', 'cpu']) if (event.diagnostic?.[key] !== undefined) a[key] = homeCopy(event.diagnostic[key]);
+    } else {
+        if (!store.window) return unchanged('missing_window');
+        const result = advanceHomeEvidence({schemaVersion: 1, profile: store.profile, window: store.window}, event, clock);
+        if (!result.changed) return unchanged(result.reason);
+        store.window = result.store.window;
+        if (JSON.stringify(store).length > HOME_EVIDENCE_LIMITS.storeChars - HOME_EVIDENCE_LIMITS.commitReserveChars) {
+            store.window = homeCopy(input.window); flag(store.window, 'capacity'); sealWindow(store.window, 'capacity', clock);
+            store.window.capture.revision++;
+        }
+    }
+    return validHomeEvidenceStore(store) ? {store, changed: true, reason: null} : unchanged('invalid_admission');
 }

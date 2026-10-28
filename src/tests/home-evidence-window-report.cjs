@@ -132,3 +132,28 @@ test('home_review_distinguishes_absent_events_from_present_unproved_flow', async
     concurrent.window.rows[1].api.nativeCount = 2;
     assert.ok(r.summarizeHomeEvidence(concurrent).harvest.unprovedReasons.includes('concurrency'));
 });
+test('v2_rejected_report_and_queries_are_readonly_without_a_window', async () => {
+    const m = await import('../services/HomeEvidenceWindowModel.js');
+    const r = await import('../services/HomeEvidenceWindowReport.js');
+    const d = require('./helpers/home-evidence-data.cjs');
+    const reserved = m.advanceHomeEvidence(undefined, {type: 'reserve', request: d.request()}, d.clock).store;
+    const store = m.advanceHomeEvidence(reserved, {type: 'reject', reason: 'no_cohort', stage: 'selection'}, d.clock).store;
+    const before = JSON.stringify(store);
+    assert.equal(r.homeEvidenceStatus(store).phase, 'rejected');
+    const report = r.summarizeHomeEvidence(store);
+    assert.equal(report.admission.firstOutcome.reason, 'no_cohort');
+    assert.equal(report.harvest.observedEvents, null);
+    assert.equal(report.coverage.rows, null);
+    assert.equal(report.economicAcceptance, 'not_performed');
+    assert.deepEqual(r.readHomeEvidencePage(store, 0, 16).items, []);
+    assert.equal(JSON.stringify(store), before);
+});
+test('v2_accepted_without_row_and_pending_candidates_are_not_proof', async () => {
+    const {m, store} = await require('./helpers/home-evidence-data.cjs').admittedV2();
+    const r = await import('../services/HomeEvidenceWindowReport.js');
+    assert.equal(r.homeEvidenceStatus(store).phase, 'accepted_no_row');
+    assert.equal(r.summarizeHomeEvidence(store).harvest.observedEvents, null);
+    store.pending = {key: m.homeCommitKey(store.admission.request, 'admit'), kind: 'admit', tick: 100};
+    assert.equal(r.homeEvidenceStatus(store).phase, 'unknown');
+    assert.equal(r.homeEvidenceStatus(store).admissionConfirmed, false);
+});

@@ -21,6 +21,8 @@ export function decodeHomeMemoryResponse(body, options = {}) {
     if (window.error || report.error) throw new EvidenceReadError('REPORT_FAILED');
     const versionCheck = expected.expectedVersion === undefined ? 'not_requested' : expected.expectedVersion === window.codeVersion ? 'matched' : 'mismatch';
     const status = expected.expectedWindowId && expected.expectedWindowId !== window.windowId ? 'window_mismatch' :
-        versionCheck === 'mismatch' ? 'version_mismatch' : versionCheck === 'not_requested' ? 'unverified_version' : window.coverage.partial ? 'partial' : 'available';
+        versionCheck === 'mismatch' ? 'version_mismatch' : versionCheck === 'not_requested' ? 'unverified_version' :
+            store.schemaVersion === 2 && ['unknown', 'interrupted', 'rejected', 'accepted_no_row'].includes(window.phase) ? 'diagnostic' :
+                window.coverage.partial ? 'partial' : 'available';
     return {...base, status, versionCheck, store, window, report};
 }

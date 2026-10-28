@@ -9,6 +9,28 @@ import {fileURLToPath} from 'node:url';
 import {wire, fixture as economicFixture} from './test-fixture.mjs';
 const require = createRequire(import.meta.url);
 const {admitted, clock} = require('../../../src/tests/helpers/home-evidence-data.cjs');
+test('home_http_v2_rejection_is_a_diagnostic_download_not_capture', async () => {
+    const {request} = require('../../../src/tests/helpers/home-evidence-data.cjs');
+    const m = await import('../../../src/services/HomeEvidenceWindowModel.js');
+    const {decodeHomeMemoryResponse} = await load('home-decoder');
+    const reserved = m.advanceHomeEvidence(undefined, {type: 'reserve', request: request()}, clock).store;
+    const store = m.advanceHomeEvidence(reserved, {type: 'reject', reason: 'cpu_skipped', stage: 'selection'}, clock).store;
+    const out = decodeHomeMemoryResponse(wire(store), {expectedVersion: clock.codeVersion});
+    assert.equal(out.status, 'diagnostic'); assert.equal(out.report.phase, 'rejected');
+    assert.equal(out.report.coverage.rows, null); assert.equal(out.runtimeAcceptance, 'not_performed');
+    assert.equal(decodeHomeMemoryResponse(wire(store), {expectedVersion: 'foreign'}).status, 'version_mismatch');
+    assert.equal(decodeHomeMemoryResponse(wire(store), {expectedWindowId: 'foreign'}).status, 'window_mismatch');
+});
+test('home_http_v2_pending_cannot_be_an_admission_proof', async () => {
+    const {m, store} = await require('../../../src/tests/helpers/home-evidence-data.cjs').admittedV2();
+    const {decodeHomeMemoryResponse} = await load('home-decoder');
+    store.pending = {key: m.homeCommitKey(store.admission.request, 'admit'), kind: 'admit', tick: 100};
+    const out = decodeHomeMemoryResponse(wire(store), {expectedVersion: clock.codeVersion});
+    assert.equal(out.status, 'diagnostic'); assert.equal(out.report.phase, 'unknown');
+    assert.equal(out.report.admissionConfirmed, false);
+    store.window.header.request.id = 'foreign';
+    assert.throws(() => decodeHomeMemoryResponse(wire(store)), /EVIDENCE_INVALID_STORE/);
+});
 const root = new URL('./', import.meta.url);
 const load = name => import('./' + name + '.mjs').catch(error => {
     if (error.code === 'ERR_MODULE_NOT_FOUND' && error.message.includes(name + '.mjs')) return {};

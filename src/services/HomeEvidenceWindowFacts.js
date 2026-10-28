@@ -1,5 +1,5 @@
 import {HOME_EVIDENCE_PROFILE as PROFILE, HOME_EVIDENCE_LIMITS as LIMITS, HOME_ROLES,
-    homeRecord as record, homeInteger as integer, homeId as id} from './HomeEvidenceWindowModel.js';
+    homeRecord as record, homeInteger as integer, homeId as id, HOME_GATE_DIAGNOSTIC_KEYS} from './HomeEvidenceWindowModel.js';
 import {reconTrialPermission} from './RemoteReconTrialModel.js';
 import {economicTrialPermission, economicIdentityMatches} from './RemoteEconomicTrialModel.js';
 import {validNativeEconomicOpsState} from './NativeEconomicTrialOpsModel.js';
@@ -46,6 +46,15 @@ function retainedEconomicClosed(settings, state, clock) {
 }
 
 export function collectHomeObservationGate(clock, deps = {}) {
+    return inspectHomeObservationGate(clock, deps).gate;
+}
+
+export function inspectHomeObservationGate(clock, deps = {}) {
+    const diagnostic = Object.fromEntries(HOME_GATE_DIAGNOSTIC_KEYS.map(key => [key, null]));
+    return {gate: computeHomeGate(clock, deps, diagnostic), diagnostic};
+}
+
+function computeHomeGate(clock, deps, diagnostic) {
     const game = deps.game || global.Game, memory = deps.memory || global.Memory;
     const output = {observedTick: clock.tick, known: false, closed: false, homeReady: false, reason: 'controls_unconfirmed'};
     if (game?.time !== clock.tick || game?.shard?.name !== PROFILE.shard) return output;
@@ -53,7 +62,8 @@ export function collectHomeObservationGate(clock, deps = {}) {
     const values = [remote?.enabled, remote?.reconTrial?.enabled, remote?.economicTrial?.enabled,
         remote?.nativeTrialOps?.enabled, remote?.evidenceWindow?.enabled, p?.goalPlanning?.enabled,
         memory?.empire?.market?.enabled, p?.roomGovernor?.shadow, p?.scheduler?.enforce];
-    if (!values.every(bool)) return output;
+    diagnostic.controlTypes = values.every(bool);
+    if (!diagnostic.controlTypes) return output;
     let closed = [remote.enabled, remote.nativeTrialOps.enabled, remote.evidenceWindow.enabled,
         p.goalPlanning.enabled, memory.empire.market.enabled].every(value => value === false) &&
         p.roomGovernor.shadow === true && p.scheduler.enforce === false;
@@ -71,45 +81,73 @@ export function collectHomeObservationGate(clock, deps = {}) {
             if (permit.reason === 'state_invalid') return output;
             if (session?.managed === true && (!session.outcome || integer(session.tailExpiresAtTick) && clock.tick <= session.tailExpiresAtTick)) closed = false;
         }
-        if (state?.nativeEconomicOps !== undefined && !validNativeEconomicOpsState(state.nativeEconomicOps)) return output;
-        if (!retainedReconClosed(remote.reconTrial, state?.reconTrials, clock) ||
-            !retainedEconomicClosed(remote.economicTrial, state?.economicTrials, clock)) closed = false;
+        diagnostic.nativeState = state?.nativeEconomicOps === undefined || validNativeEconomicOpsState(state.nativeEconomicOps);
+        if (!diagnostic.nativeState) return output;
+        diagnostic.retainedRecon = !!retainedReconClosed(remote.reconTrial, state?.reconTrials, clock);
+        diagnostic.retainedEconomic = !!retainedEconomicClosed(remote.economicTrial, state?.economicTrials, clock);
+        if (!diagnostic.retainedRecon || !diagnostic.retainedEconomic) closed = false;
     } catch {return output;}
     const configs = boundedEntries(memory?.empire?.remoteRooms), operations = boundedEntries(state?.operations);
     const scopes = boundedEntries(deps.scopes || global.RemoteMining);
     if (!configs || !operations || !scopes) return output;
+    diagnostic.configsClosed = true;
     for (const [, raw] of configs) {
-        if (!record(raw) || !bool(raw.enabled) || !bool(raw.hold)) return output;
-        if (raw.enabled || !raw.hold) closed = false;
+        if (!record(raw) || !bool(raw.enabled) || !bool(raw.hold)) {diagnostic.configsClosed = null; return output;}
+        if (raw.enabled || !raw.hold) {closed = false; diagnostic.configsClosed = false;}
     }
+    for (const [, op] of operations) {
+        if (!record(op) || op.evaluatedAt !== clock.tick) {diagnostic.operationFresh = false; return output;}
+    }
+    diagnostic.operationFresh = true;
+    for (const [key, op] of operations) {
+        if ((deps.scopes || global.RemoteMining)?.[key]?.operation !== op) {diagnostic.scopeIdentity = false; return output;}
+    }
+    diagnostic.scopeIdentity = true;
+    diagnostic.scopeClosed = true;
     for (const [key, op] of operations) {
         const scope = (deps.scopes || global.RemoteMining)?.[key];
-        if (!record(op) || op.evaluatedAt !== clock.tick || !bool(op.allowRecon) || !bool(op.allowEconomicDeparture) ||
-            scope?.operation !== op || !bool(scope?.state?.allowRecon) || !bool(scope?.state?.allowEconomicDeparture)) return output;
-        if (op.allowRecon || op.allowEconomicDeparture || scope.state.allowRecon || scope.state.allowEconomicDeparture) closed = false;
+        if (!bool(op.allowRecon) || !bool(op.allowEconomicDeparture) ||
+            !bool(scope?.state?.allowRecon) || !bool(scope?.state?.allowEconomicDeparture)) {diagnostic.scopeClosed = null; return output;}
+        if (op.allowRecon || op.allowEconomicDeparture || scope.state.allowRecon || scope.state.allowEconomicDeparture) {
+            closed = false; diagnostic.scopeClosed = false;
+        }
     }
-    if (scopes.some(([key]) => !operations.some(([opKey]) => opKey === key))) return output;
+    if (scopes.some(([key]) => !operations.some(([opKey]) => opKey === key))) {diagnostic.scopeIdentity = false; return output;}
     // A configured scope with no current evaluation is unknown, not a fabricated closed scope.
-    if (configs.some(([room, raw]) => !operations.some(([key]) => key === raw.baseRoom + ':' + room))) return output;
+    if (configs.some(([room, raw]) => !operations.some(([key]) => key === raw.baseRoom + ':' + room))) {diagnostic.operationFresh = false; return output;}
     output.known = true; output.closed = closed;
     if (!closed) {output.reason = 'controls_open'; return output;}
     const home = game.rooms?.[PROFILE.roomName];
-    if (!home || home.controller?.my !== true) {output.reason = 'home_unavailable'; return output;}
+    diagnostic.homeOwned = !!home && home.controller?.my === true;
+    if (!diagnostic.homeOwned) {output.reason = 'home_unavailable'; return output;}
     try {
         const hostiles = home.find(global.FIND_HOSTILE_CREEPS);
         if (!Array.isArray(hostiles)) return {...output, known: false, reason: 'controls_unconfirmed'};
-        if (hostiles.length) {output.reason = 'home_danger'; return output;}
+        diagnostic.homeSafe = hostiles.length === 0;
+        if (!diagnostic.homeSafe) {output.reason = 'home_danger'; return output;}
     } catch {return {...output, known: false, reason: 'controls_unconfirmed'};}
-    if ((deps.phases || global.RoomPhase)?.[PROFILE.roomName]?.recovery?.mode !== 'normal') {output.reason = 'home_not_ready'; return output;}
+    diagnostic.homeNormal = (deps.phases || global.RoomPhase)?.[PROFILE.roomName]?.recovery?.mode === 'normal';
+    if (!diagnostic.homeNormal) {output.reason = 'home_not_ready'; return output;}
     return {...output, homeReady: true, reason: null};
 }
 
 export function selectHomeEvidenceObjects(clock, deps = {}) {
+    return inspectHomeEvidenceSelection(clock, deps).selection;
+}
+
+export function inspectHomeEvidenceSelection(clock, deps = {}) {
+    const diagnostic = {visited: 0, eligibleRoles: null, cohortCount: null, objectCount: null, reason: null};
+    const selection = computeHomeSelection(clock, deps, diagnostic);
+    diagnostic.reason = selection.reason;
+    return {selection, diagnostic};
+}
+
+function computeHomeSelection(clock, deps, diagnostic) {
     const game = deps.game || global.Game, memory = deps.memory || global.Memory;
     const rejected = reason => ({cohort: [], objectIds: [], complete: false, reason});
     if (game?.time !== clock.tick || !record(game.creeps)) return rejected('invalid_selection');
     let checked = 0;
-    const visit = () => {checkpoint(deps); if (++checked > LIMITS.candidates) throw new Error('candidate_limit');};
+    const visit = () => {checkpoint(deps); diagnostic.visited = ++checked; if (checked > LIMITS.candidates) throw new Error('candidate_limit');};
     try {
         const candidates = [];
         for (const name in game.creeps) if (Object.hasOwn(game.creeps, name)) {
@@ -119,10 +157,12 @@ export function selectHomeEvidenceObjects(clock, deps = {}) {
             }
         }
         const cohort = [];
+        diagnostic.eligibleRoles = candidates.length;
         for (const role of HOME_ROLES) {
             const first = candidates.filter(c => c.role === role).sort((a, b) => a.id.localeCompare(b.id))[0];
             if (first && cohort.length < LIMITS.cohort) cohort.push(first);
         }
+        diagnostic.cohortCount = cohort.length;
         if (!cohort.length) return rejected('no_cohort');
         const objectIds = cohort.map(c => c.id), home = game.rooms?.[PROFILE.roomName];
         const add = object => {
@@ -142,6 +182,7 @@ export function selectHomeEvidenceObjects(clock, deps = {}) {
         if (!Array.isArray(structures)) return rejected('invalid_selection');
         for (const object of structures) {visit(); if (object?.structureType === 'container' && id(object.id)) containers.push(object);}
         containers.sort((a, b) => a.id.localeCompare(b.id)).forEach(add);
+        diagnostic.objectCount = objectIds.length;
         return {cohort, objectIds, complete: true, reason: null};
     } catch (error) {
         if (error.code === 'HOME_CPU_LIMIT') throw error;

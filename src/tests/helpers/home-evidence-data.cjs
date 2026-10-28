@@ -17,4 +17,9 @@ async function admitted() {
     const m = await import('../../services/HomeEvidenceWindowModel.js');
     return {m, store: m.advanceHomeEvidence(undefined, {type: 'admit', request: request(), selection: selection(), gate: gate()}, clock).store};
 }
-module.exports = {ids, clock, request, gate, selection, packet, admitted};
+async function admittedV2() {
+    const m = await import('../../services/HomeEvidenceWindowModel.js');
+    const reserved = m.advanceHomeEvidence(undefined, {type: 'reserve', request: request()}, clock).store;
+    return {m, store: m.advanceHomeEvidence(reserved, {type: 'admit', request: request(), selection: selection(), gate: gate()}, clock).store};
+}
+module.exports = {ids, clock, request, gate, selection, packet, admitted, admittedV2};
