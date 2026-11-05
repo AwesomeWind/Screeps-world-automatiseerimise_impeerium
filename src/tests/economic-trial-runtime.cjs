@@ -4,6 +4,114 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createEconomicTrialFixture } = require('./helpers/economic-trial-fixture.cjs');
 
+async function actorWithCurrentLeg(role = 'remoteMiner') {
+    const scene = await createEconomicTrialFixture({ nativePositions: true });
+    scene.prepare(); scene.advance();
+    await until(scene, () => {
+        const actor = Game.creeps[scene.current.slots[role].name];
+        return actor && !actor.spawning;
+    });
+    const actor = Game.creeps[scene.current.slots[role].name];
+    const guard = scene.f.services.find(service => service.name === 'RemoteEconomicTrial');
+    const target = scene.current.containerPos;
+    const sequence = scene.f.operation.recoverySequence || 0;
+    const goalKey = pos => `${pos.roomName}:${pos.x}:${pos.y}:${sequence}`;
+    actor.memory.task = null;
+    actor.memory.remoteLeg = { goalKey: goalKey(target), startedAt: Game.time, expiresAt: Game.time + 1,
+        state: 'safe_wait', blockedReason: 'leg_expired', blockedGoalKey: goalKey(target), retryCount: 1 };
+    return { scene, actor, guard, target, goalKey };
+}
+
+test('movement hard expiry closes the bound miner trial after the original deadline', async () => {
+    const { scene, actor: miner, guard, target } = await actorWithCurrentLeg();
+    // Same coordinates in the home room do not satisfy a remote container goal.
+    miner.pos = new RoomPosition(target.x, target.y, scene.current.baseRoom);
+    const deadline = miner.memory.remoteLeg.expiresAt;
+    const evidence = structuredClone(scene.current.evidence);
+    scene.f.nextTick({ tick: deadline });
+    guard.advance({ kind: 'evaluate' });
+    assert.equal(scene.current.outcome, undefined);
+    scene.f.nextTick({ tick: deadline + 1 });
+    guard.advance({ kind: 'evaluate' });
+    assert.equal(scene.current.outcome?.stopReason, 'movement_leg_expired');
+    assert.equal(scene.current.closeAppliedAtTick, deadline + 1);
+    assert.equal(scene.current.tailExpiresAtTick, deadline + 301);
+    assert.equal(miner.memory.remoteLeg.expiresAt, deadline);
+    assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+    assert.equal(scene.f.operation.allowEconomicDeparture, false);
+    assert.equal(scene.f.operation.allowRecon, false);
+    assert.deepEqual(scene.current.evidence, evidence);
+    scene.restoreMemory(); scene.advance();
+    assert.equal(scene.current.closureVerifiedAtTick, deadline + 2);
+    assert.equal(scene.current.tailExpiresAtTick, deadline + 301);
+});
+
+test('movement hard expiry ignores arrived goals and stale recovery goals', async () => {
+    const { scene, actor: miner, guard, target, goalKey } = await actorWithCurrentLeg();
+    const leg = miner.memory.remoteLeg;
+    miner.pos = new RoomPosition(target.x, target.y, target.roomName);
+    miner.room = scene.f.remote;
+    scene.f.nextTick({ tick: leg.expiresAt });
+    guard.advance({ kind: 'evaluate' });
+    scene.f.nextTick({ tick: leg.expiresAt + 1 });
+    guard.advance({ kind: 'evaluate' });
+    assert.equal(scene.current.outcome, undefined, 'arrived legacy leg');
+
+    miner.pos = new RoomPosition(9, 10, scene.current.baseRoom);
+    miner.room = scene.f.home;
+    const homeGoal = scene.f.homeSink.pos;
+    leg.goalKey = goalKey(homeGoal);
+    leg.goal = { x: homeGoal.x, y: homeGoal.y, roomName: homeGoal.roomName, range: 1, arrival: 'home_interior' };
+    guard.advance({ kind: 'evaluate' });
+    assert.equal(scene.current.outcome, undefined, 'safe return to the interior');
+    miner.pos = new RoomPosition(0, 10, scene.current.baseRoom);
+    scene.f.operation.recoverySequence = (scene.f.operation.recoverySequence || 0) + 1;
+    guard.advance({ kind: 'evaluate' });
+    assert.equal(scene.current.outcome, undefined, 'obsolete recovery goal');
+    leg.goalKey = goalKey(homeGoal).replace(/:\d+$/, ':' + scene.f.operation.recoverySequence);
+    guard.advance({ kind: 'evaluate' });
+    assert.equal(scene.current.outcome?.stopReason, 'movement_leg_expired', 'border is still in transit');
+});
+
+test('movement hard expiry uses receiver range for a loaded hauler already inside home', async () => {
+    const { scene, actor, guard, goalKey } = await actorWithCurrentLeg('remoteHauler');
+    const sink = scene.f.homeSink.pos;
+    const leg = actor.memory.remoteLeg;
+    leg.goalKey = goalKey(sink);
+    leg.goal = { x: sink.x, y: sink.y, roomName: sink.roomName, range: 1, arrival: 'range' };
+    actor.store.energy = 10;
+    actor.pos = new RoomPosition(sink.x - 1, sink.y, sink.roomName);
+    actor.room = scene.f.home;
+    scene.f.nextTick({ tick: leg.expiresAt });
+    guard.advance({ kind: 'evaluate' });
+    scene.f.nextTick({ tick: leg.expiresAt + 1 });
+    guard.advance({ kind: 'evaluate' });
+    assert.equal(scene.current.outcome, undefined, 'arrived inside receiver range');
+    actor.pos = new RoomPosition(sink.x - 2, sink.y, sink.roomName);
+    guard.advance({ kind: 'evaluate' });
+    assert.equal(scene.current.outcome?.stopReason, 'movement_leg_expired');
+});
+
+test('movement hard expiry withdraws before work even when the state commit fails', async () => {
+    const { scene, actor: miner, guard } = await actorWithCurrentLeg();
+    const deadline = miner.memory.remoteLeg.expiresAt;
+    scene.f.nextTick({ tick: deadline });
+    guard.advance({ kind: 'evaluate' });
+    scene.f.nextTick({ tick: deadline + 1 });
+    const root = Memory.empire.remoteMining;
+    const retained = root.economicTrials;
+    Object.defineProperty(root, 'economicTrials', { configurable: true, get: () => retained,
+        set() { throw new Error('movement close commit failed'); } });
+    try {
+        assert.throws(() => guard.advance({ kind: 'end_tick' }), /movement close commit failed/);
+        assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+        assert.equal(scene.f.operation.allowEconomicDeparture, false);
+        assert.equal(Memory.empire.remoteRooms.W1N2.hold, true);
+    } finally {
+        Object.defineProperty(root, 'economicTrials', { configurable: true, writable: true, value: retained });
+    }
+});
+
 test('econ_p1_runtime_default_off_and_order', async () => {
     const scene = await createEconomicTrialFixture();
     scene.advance();

@@ -2,6 +2,81 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createOccupancyFixture } = require('./helpers/route-occupancy-fixture.cjs');
 
+async function boundMiner(kind) {
+    const scene = await createOccupancyFixture(kind);
+    scene.fixture.runTick();
+    const actor = scene.scout, operation = scene.fixture.operation;
+    const { remoteQuotaKey } = await import('../services/RemoteMiningState.js');
+    const { validEconomicTrialState } = await import('../services/RemoteEconomicTrialModel.js');
+    const identity = { trialId: 'bound-miner', sequence: 5, remoteId: operation.remoteId,
+        epoch: operation.epoch, codeVersion: global.EmpireServicesVersion = 'occupancy-test' };
+    Game.time = 200;
+    Object.assign(actor.memory, { role: 'remoteMiner', quotaKey: remoteQuotaKey(operation.config, 'remoteMiner'),
+        economicTrialId: identity.trialId, economicTrialSequence: identity.sequence });
+    actor.body = [WORK, WORK, WORK, WORK, CARRY, MOVE, MOVE, MOVE, MOVE, MOVE].map(type => ({ type, hits: 100 }));
+    delete actor.memory.remoteLeg;
+    actor.memory.task = null;
+    const miner = { calls: 1, requestId: 'miner-request', deadline: 205, acceptedAt: 200, name: actor.name,
+        bodyCost: 700, cost: 700, callState: 'result_known', ledgerStage: 'applied', nativeResult: OK,
+        ledgerApplication: { applied: true, cost: 700 },
+        receiptBinding: { identity, requestId: 'miner-request', name: actor.name, tick: 200 } };
+    const current = { identity, managed: true, status: 'preparing', startedAtTick: 100, expiresAtTick: 1100,
+        issuedAtMs: Date.now(), lastNowMs: Date.now(), lastTick: 200, scopeCheckedAt: 200, configFingerprint: 'fixture',
+        visionAcquired: true, safeStreak: 100, safeStartedAtTick: 101, lastSafeTick: 200,
+        slots: { scout: { calls: 0 }, remoteMiner: miner, remoteHauler: { calls: 0 } }, events: [], outbox: [],
+        evidence: { confirmedSpawnCost: 700, confirmedInfrastructureCost: 0, unknownEnergyUpperBound: 0,
+            unknownEvents: 0, returnedEnergy: 0, pickups: {}, delivered: {} } };
+    current.expiresAtMs = current.issuedAtMs + 5400000;
+    const state = { schemaVersion: 1, lastSequence: 5, current, previous: null };
+    assert.equal(validEconomicTrialState(state), true);
+    Memory.empire.remoteMining.economicTrials = state;
+    global.RemoteMining[operation.remoteId].state.allowEconomicDeparture = true;
+    const strategy = scene.fixture.services.find(service => typeof service.moveActor === 'function');
+    const goal = { x: 1, y: 25, roomName: 'W1N2', range: 0 };
+    return { ...scene, actor, current, goal, planMove() { return strategy.moveActor(actor, operation, goal); } };
+}
+
+test('bound economic miner initially routes around a live work position', async () => {
+    const scene = await boundMiner('miner');
+    assert.equal(scene.planMove(), true);
+    assert.equal(scene.searches.at(-1).stationCost, 255);
+    assert.equal(scene.actor.memory.task.path[0].y, 29);
+});
+
+test('bound economic miner spends its only retry on live occupancy and keeps its deadline', async () => {
+    const scene = await boundMiner('empty'), { actor, fixture, current, goal } = scene;
+    const { clearTaskState } = await import('../core/TaskMetadata.js');
+    assert.equal(scene.planMove(), true);
+    const { startedAt, expiresAt } = actor.memory.remoteLeg;
+    const originalGoal = structuredClone(actor.memory.remoteLeg.goal);
+    assert.deepEqual(originalGoal, { ...goal, arrival: 'range' });
+    const blocker = fixture.actor('Traffic', 'hauler', [CARRY, MOVE]);
+    blocker.pos = new RoomPosition(43, 30, 'W1N1');
+    const attempt = () => actor.moveByPath(actor.memory.task.path.map(p => new RoomPosition(p.x, p.y, p.roomName)));
+    assert.equal(attempt(), OK);
+    assert.equal(scene.moves.at(-1).blocked, true);
+    Game.time = 205;
+    clearTaskState(actor, 'move_stuck_or_expired', { movementFailure: 'stuck', moveGoal: goal, legExpiresAt: expiresAt });
+    current.lastTick = current.scopeCheckedAt = Game.time;
+    assert.equal(scene.planMove(), false);
+    Game.time = 207;
+    current.lastTick = current.scopeCheckedAt = Game.time;
+    assert.equal(scene.planMove(), true);
+    assert.equal(scene.searches.at(-1).stationCost, 255);
+    assert.equal(attempt(), OK);
+    scene.advance(208, () => {});
+    assert.deepEqual([actor.pos.x, actor.pos.y], [43, 29]);
+    assert.equal(actor.memory.remoteLeg.retryCount, 1);
+    assert.equal(actor.memory.remoteLeg.startedAt, startedAt);
+    assert.equal(actor.memory.remoteLeg.expiresAt, expiresAt);
+    assert.deepEqual(actor.memory.remoteLeg.goal, originalGoal);
+    clearTaskState(actor, 'move_stuck_or_expired', { movementFailure: 'stuck', moveGoal: goal, legExpiresAt: expiresAt });
+    current.lastTick = current.scopeCheckedAt = Game.time;
+    const searches = scene.searches.length;
+    assert.equal(scene.planMove(), false);
+    assert.equal(scene.searches.length, searches);
+});
+
 test('scout initial planning avoids an actually occupied mining station', async () => {
     const scene = await createOccupancyFixture();
     const route = await scene.plan('work_positions');

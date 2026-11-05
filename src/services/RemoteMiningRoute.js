@@ -63,7 +63,7 @@ export function planRemoteRoute(home, target, facts, policy, tick) {
                 }
                 else if (structure.structureType !== STRUCTURE_CONTAINER && !(structure.structureType === STRUCTURE_RAMPART && (structure.my || structure.isPublic))) matrix.set(structure.pos.x, structure.pos.y, 255);
             }
-            // Opt-in scout snapshots; empty work positions and stale Memory are not obstacles.
+            // Opt-in occupancy snapshots use live actors on their work positions.
             // Skipping the actor's origin never clears static structures or danger costs.
             blockRouteOccupancy(matrix, room, home, facts.occupancyMode);
             for (const zone of zones.filter(value => value.roomName === roomName)) {
@@ -93,6 +93,8 @@ export function createRemoteMoveTask(actorState, route, goal, tick) {
         const duration = Math.ceil(2*route.estimatedLegTicks)+20;
         if (!Number.isFinite(duration) || duration > 300) return null;
         actorState.goalKey = key;
+        actorState.goal = { x: goal.x, y: goal.y, roomName: goal.roomName,
+            range: goal.range ?? 1, arrival: goal.arrival ?? 'range' };
         actorState.startedAt = tick;
         actorState.expiresAt = tick+duration;
         actorState.retryCount = 0;

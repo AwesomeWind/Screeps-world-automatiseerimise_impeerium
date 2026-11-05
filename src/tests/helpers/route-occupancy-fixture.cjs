@@ -101,7 +101,7 @@ async function createOccupancyFixture(kind = 'miner') {
         if (result === OK && !blocked) pending = next;
         return result;
     };
-    const advance = tick => {
+    const advance = (tick, runTick = () => fixture.runTick()) => {
         if (pending) {
             // Occupancy may change after an accepted intent, before the next position is observed.
             if (!occupied(pending)) {
@@ -111,7 +111,7 @@ async function createOccupancyFixture(kind = 'miner') {
             pending = null;
         }
         fixture.nextTick({ tick });
-        fixture.runTick();
+        runTick();
     };
     const plan = async (mode, goal = { x: 1, y: 25, roomName: 'W1N2' }, range = 0) => {
         const route = await import('../../services/RemoteMiningRoute.js');

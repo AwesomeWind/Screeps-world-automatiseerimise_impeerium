@@ -4,6 +4,61 @@ import { economicTrialConfigFingerprint } from './RemoteEconomicTrialConfig.js';
 import { economicIdentityMatches } from './RemoteEconomicTrialModel.js';
 import { resolveNativeEconomicOwnership } from './NativeEconomicTrialOpsOwnership.js';
 
+const activeMovementStages = new Set(['recon', 'observing', 'preparing', 'hauling']);
+const tile = value => Number.isInteger(value) && value >= 0 && value < 50;
+const samePosition = (a, b) => a?.roomName === b.roomName && a?.x === b.x && a?.y === b.y;
+
+function currentLegGoal(actor, session, recoverySequence) {
+    const leg = actor.memory.remoteLeg;
+    if (typeof leg?.goalKey !== 'string') return null;
+    const [roomName, xText, yText] = leg.goalKey.split(':');
+    const point = { roomName, x: Number(xText), y: Number(yText) };
+    if (![session.baseRoom, session.targetRoom].includes(roomName) || !tile(point.x) || !tile(point.y) ||
+        leg.goalKey !== `${roomName}:${point.x}:${point.y}:${recoverySequence}`) return null;
+
+    const task = actor.memory.task;
+    if (task && (task.type !== 'MOVE_TO' || !samePosition(task.pos, point))) return null;
+    const safeReturn = roomName === session.baseRoom && actor.memory.role !== 'remoteHauler';
+    if (leg.goal !== undefined) {
+        const goal = leg.goal;
+        if (!samePosition(goal, point) || !tile(goal.range) ||
+            !['range', 'home_interior'].includes(goal.arrival) ||
+            goal.arrival === 'home_interior' && roomName !== session.baseRoom ||
+            task && (task.range ?? 1) !== goal.range) return null;
+        return goal;
+    }
+    if (safeReturn) return { ...point, range: 1, arrival: 'home_interior' };
+    if (task && tile(task.range ?? 1)) return { ...point, range: task.range ?? 1, arrival: 'range' };
+    if (actor.memory.role === 'remoteMiner' && session.containerPos && samePosition(session.containerPos, point)) {
+        return { ...point, range: 0, arrival: 'range' };
+    }
+    return null;
+}
+
+function expiredMovement(actors, session, operation, clock) {
+    if (!session?.managed || session.outcome || !activeMovementStages.has(session.status) ||
+        session.identity.codeVersion !== clock.codeVersion || operation?.epoch !== session.identity.epoch) return null;
+    for (const actor of actors) {
+        const { role, remoteId, epoch, economicTrialId, economicTrialSequence, remoteLeg: leg } = actor.memory;
+        const slot = session.slots[role];
+        if (actor.spawning || slot?.name !== actor.name || !Number.isSafeInteger(slot.acceptedAt) ||
+            remoteId !== session.identity.remoteId || epoch !== session.identity.epoch ||
+            economicTrialId !== session.identity.trialId || economicTrialSequence !== session.identity.sequence ||
+            !Number.isSafeInteger(leg?.startedAt) || leg.startedAt < slot.acceptedAt ||
+            !Number.isSafeInteger(leg.expiresAt) || leg.expiresAt < leg.startedAt || clock.tick <= leg.expiresAt) continue;
+        const goal = currentLegGoal(actor, session, operation.recoverySequence || 0);
+        if (!goal) continue;
+        const { x, y, roomName } = actor.pos;
+        const arrived = roomName === goal.roomName && (goal.arrival === 'home_interior'
+            ? x > 0 && x < 49 && y > 0 && y < 49
+            : Math.max(Math.abs(x - goal.x), Math.abs(y - goal.y)) <= goal.range);
+        if (!arrived) return { role, name: actor.name, pos: { x, y, roomName },
+            goal: { x: goal.x, y: goal.y, roomName: goal.roomName, range: goal.range, arrival: goal.arrival },
+            expiresAt: leg.expiresAt, retryCount: [0, 1].includes(leg.retryCount) ? leg.retryCount : null };
+    }
+    return null;
+}
+
 export function collectEconomicTrialFacts(scope, clock) {
     const empire = Memory.empire;
     const policy = empire.control.policy;
@@ -159,6 +214,7 @@ export function collectEconomicTrialFacts(scope, clock) {
             ),
         reconLocked,
         fatalReason,
+        movementFailure: expiredMovement(actors, current, operation, clock),
         scopeFresh,
         remoteVisible: !!remote,
         upcomingNames: population

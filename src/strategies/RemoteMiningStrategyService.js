@@ -176,7 +176,13 @@ export default class RemoteMiningStrategyService extends BaseService {
             leg.retryCount = (leg.retryCount || 0) + 1;
             delete leg.retryAfter;
         }
-        const occupancyMode = creep.memory.role === 'scout' ?
+        const economicMiner = creep.memory.role === 'remoteMiner' && creep.memory.economicTrialId
+            ? getEconomicTrialPermit({ remoteId: creep.memory.remoteId, epoch: creep.memory.epoch,
+                trialId: creep.memory.economicTrialId, sequence: creep.memory.economicTrialSequence,
+                role: creep.memory.role, name: creep.name, action: returning ? 'return' : 'outbound' })
+            : null;
+        const avoidsOccupancy = creep.memory.role === 'scout' || (economicMiner?.managed && economicMiner.allowed);
+        const occupancyMode = avoidsOccupancy ?
             (leg.goalKey === goalKey && leg.retryCount === 1 ? 'live_creeps' : 'work_positions') : undefined;
         const route = planRemoteRoute(creep.pos,goal,{baseRoom:operation.config.baseRoom,targetRoom:operation.config.targetRoom,
             body:creep.body,loadState:{energy:creep.store.getUsedCapacity()},range:goal.range,
@@ -210,7 +216,7 @@ export default class RemoteMiningStrategyService extends BaseService {
         }
         const goal = operation.config.homeDeliveryTargetIds.map(id => Game.getObjectById(id)).find(target => target?.pos);
         leg.state = 'returning';
-        if (goal) this.moveActor(creep, operation, movementGoal(goal.pos, 1));
+        if (goal) this.moveActor(creep, operation, { ...movementGoal(goal.pos, 1), arrival: 'home_interior' });
         else leg.state = 'safe_wait';
     }
 

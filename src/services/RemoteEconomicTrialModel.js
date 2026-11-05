@@ -258,8 +258,13 @@ export function advanceEconomicTrial(input, event, facts, clock) {
             request?.action === 'hold' ? 'manual_hold' :
             session.configFingerprint !== facts.configFingerprint ? 'config_changed' :
             clock.tick > session.lastTick + 1 ? 'tick_gap' : failure(facts) ||
-            (session.visionAcquired === true && facts.remoteVisible !== true ? 'vision_lost' : null);
-        if (reason) effects = stopEconomicTrial(session, reason, clock, reason.endsWith('expired') ? 'expired' : 'aborted');
+            (session.visionAcquired === true && facts.remoteVisible !== true ? 'vision_lost' : null) ||
+            (facts.movementFailure ? 'movement_leg_expired' : null);
+        if (reason) {
+            const alreadyStopped = !!session.outcome;
+            effects = stopEconomicTrial(session, reason, clock, reason.endsWith('expired') ? 'expired' : 'aborted');
+            if (!alreadyStopped && reason === 'movement_leg_expired') session.outcome.movementFailure = copy(facts.movementFailure);
+        }
         else if (!session.outcome) {
             session.lastTick = clock.tick;
             session.lastNowMs = clock.nowMs;
