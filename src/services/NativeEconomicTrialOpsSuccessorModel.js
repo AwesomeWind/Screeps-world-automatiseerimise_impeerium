@@ -5,7 +5,10 @@ import {
     validateNativeSuccessorRequest,
     createNativeParentArchive,
     decodeNativeSnapshot,
-    nativeParentEvidenceMatches,
+    nativeSuccessorParentMatches,
+    nativeSuccessorPrevious,
+    nativeUnadmittedReady,
+    resolveArchivedEconomicState,
     exactNativeFields
 } from './NativeEconomicTrialOpsSuccessorProtocol.js';
 import {
@@ -105,7 +108,7 @@ function validCurrent(c) {
         integer(c.lastNowMs) &&
         integer(c.preflightAt) &&
         c.preflightAt <= c.lastTick &&
-        c.archiveRef === c.request.parent.nativeId &&
+        c.archiveRef === (c.request.unadmitted?.nativeId ?? c.request.parent.nativeId) &&
         Array.isArray(c.events) &&
         c.events.length <= 32 &&
         c.events.every((e) => record(e) && integer(e.tick) && typeof e.reason === 'string' && e.reason.length <= 160) &&
@@ -179,7 +182,7 @@ export function validNativeSuccessorState(state) {
                 typeof a.id !== 'string' ||
                 ids.has(a.id) ||
                 !integer(a.atTick) ||
-                !validEconomicTrialState(a.economicState) ||
+                !validEconomicTrialState(resolveArchivedEconomicState(a, state.history.slice(0, index))) ||
                 !record(a.settings) ||
                 !record(a.originalWindow)
             )
@@ -198,14 +201,16 @@ export function validNativeSuccessorState(state) {
             ids.add(a.id);
         }
         const archive = state.history.at(-1),
-            parent = decodeNativeSnapshot(archive.nativeSnapshot, state.history.slice(0, -1));
+            parent = decodeNativeSnapshot(archive.nativeSnapshot, state.history.slice(0, -1)),
+            economic = resolveArchivedEconomicState(archive, state.history.slice(0, -1));
         return (
             state.current.archiveRef === archive.id &&
-            equal(state.previous, parent.current) &&
+            (!state.current.request.unadmitted || equal(archive.settings.nativeTrialOps, { enabled: true, request: state.current.request })) &&
+            equal(nativeSuccessorPrevious(state), parent.current) &&
             [state.current.releaseRequest, state.current.startRequest].every(
-                (q) => q === null || q.configFingerprint === archive.economicState.current.configFingerprint
+                (q) => q === null || q.configFingerprint === economic.current.configFingerprint
             ) &&
-            nativeParentEvidenceMatches(state.current.request, parent, archive.economicState)
+            nativeSuccessorParentMatches(state.current.request, parent, economic, archive.settings.economicTrial)
         );
     } catch {
         return false;
@@ -255,7 +260,10 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
             ? 'parent_not_terminal'
             : !facts.parentProof.valid
               ? facts.parentProof.reason
-              : !equal(input, facts.nativeState)
+              : q.unadmitted && (!nativeUnadmittedReady(facts) ||
+                    !nativeSuccessorParentMatches(q, input, facts.economicState, facts.economicSettings))
+                ? 'parent_invalid'
+                : !equal(input, facts.nativeState)
                 ? 'parent_changed'
                 : history.length >= 4
                   ? 'history_capacity'
@@ -282,7 +290,7 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
         schemaVersion: 2,
         lastAcceptedStartSequence: q.startSequence,
         current,
-        previous: copy(input.current),
+        ...(q.unadmitted ? { previousRef: archive.id } : { previous: copy(input.current) }),
         history: [...copy(history), archive],
         rejections: copy(input.rejections || []),
         ...(input.lastRejection ? { lastRejection: copy(input.lastRejection) } : {})
@@ -294,7 +302,23 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
 
 export function successorParent(state) {
     if (!Array.isArray(state?.history)) return undefined;
-    return state.history.find((a) => a?.id === state.current?.archiveRef)?.economicState?.current;
+    const index = state.history.findIndex((a) => a?.id === state.current?.archiveRef);
+    try {
+        return index < 0 ? undefined : resolveArchivedEconomicState(state.history[index], state.history.slice(0, index)).current;
+    } catch {
+        return undefined;
+    }
+}
+
+function sameArchivedParent(current, archived, unadmitted, tick) {
+    if (!unadmitted) return equal(current, archived);
+    if (!current) return false;
+    // The inert, expired release can advance the generic rejection tick while the parent remains unchanged.
+    const { lastRejection, ...proof } = current;
+    const { lastRejection: before, ...archivedProof } = archived;
+    return equal(proof, archivedProof) && (equal(lastRejection, before) ||
+        (exactNativeFields(lastRejection, ['tick', 'reason']) && lastRejection.reason === 'release_blocked' &&
+            integer(lastRejection.tick) && lastRejection.tick >= (before?.tick ?? 0) && lastRejection.tick <= tick));
 }
 
 function advanceCurrent(input, event, facts, clock, profile) {
@@ -463,6 +487,7 @@ function advanceCurrent(input, event, facts, clock, profile) {
         clock.codeVersion !== q.codeVersion ||
         facts.operationEpoch !== q.parent.identity.epoch ||
         !facts.protectedSafe ||
+        (q.unadmitted && facts.observersClosed !== true) ||
         !facts.configSafe ||
         !facts.clockFresh
     )
@@ -473,7 +498,7 @@ function advanceCurrent(input, event, facts, clock, profile) {
     else if (c.stage === 'preflight') {
         if (
             !safeToPrepare ||
-            !equal(facts.economicState, archive.economicState) ||
+            !sameArchivedParent(facts.economicState, resolveArchivedEconomicState(archive, state.history.slice(0, -1)), q.unadmitted, clock.tick) ||
             !equal(facts.economicSettings, archive.settings.economicTrial)
         )
             stop('archive_not_verified');

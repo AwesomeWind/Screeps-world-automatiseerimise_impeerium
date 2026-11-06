@@ -1,4 +1,5 @@
 import { validNativeEconomicOpsState, nativeOpsEconomicIdentity } from './NativeEconomicTrialOpsModel.js';
+import { resolveArchivedEconomicState } from './NativeEconomicTrialOpsSuccessorProtocol.js';
 import { economicIdentityMatches } from './RemoteEconomicTrialModel.js';
 import {
     NATIVE_OPS_PROFILE,
@@ -112,7 +113,7 @@ export function resolveNativeSuccessorRelease({ nativeState, nativeSettings, eco
     if (current.lastTick !== clock.tick) return { ...result, reason: 'native_release_tick_unconfirmed' };
     if (!integer(clock.nowMs) || clock.nowMs < current.lastNowMs || clock.nowMs >= owner.stopAtMs)
         return { ...result, reason: 'native_release_clock_invalid' };
-    const archived = nativeState.history.at(-1).economicState;
+    const archived = resolveArchivedEconomicState(nativeState.history.at(-1), nativeState.history.slice(0, -1));
     if (economicState?.lastSequence !== archived.lastSequence || !equal(economicState?.current, archived.current))
         return { ...result, reason: 'native_release_parent_changed' };
     return { ...result, allowed: true, reason: null };

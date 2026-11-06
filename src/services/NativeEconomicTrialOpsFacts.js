@@ -9,7 +9,7 @@ import {
     nativeOpsInteger as integer
 } from './NativeEconomicTrialOpsProfile.js';
 import { validNativeEconomicOpsState } from './NativeEconomicTrialOpsModel.js';
-import { nativeParentEvidenceMatches } from './NativeEconomicTrialOpsSuccessorProtocol.js';
+import { nativeSuccessorParentMatches } from './NativeEconomicTrialOpsSuccessorProtocol.js';
 
 function budgetSpent(buckets, tick) {
     if (
@@ -27,6 +27,8 @@ export function collectNativeSuccessorFacts(profile, clock) {
         native = remote?.nativeEconomicOps;
     const ledger = remote?.operations?.[profile.remoteId]?.ledger;
     const q = facts.settings?.request;
+    const policy = empire.control?.policy;
+    const observersClosed = policy?.homeEvidence?.enabled === false && policy?.remoteMining?.evidenceWindow?.enabled === false;
     const bindingPending = Object.values(remote?.economicTrials?.current?.slots || {}).some(
         (slot) => slot.admissionStage === 'binding'
     );
@@ -43,7 +45,7 @@ export function collectNativeSuccessorFacts(profile, clock) {
     const parentValid =
         validNativeEconomicOpsState(native) &&
         validEconomicTrialState(facts.economicState) &&
-        nativeParentEvidenceMatches(q, native, facts.economicState) &&
+        nativeSuccessorParentMatches(q, native, facts.economicState, facts.economicSettings) &&
         optionalUnknownKnown &&
         optionalEvidenceKnown &&
         integer(native.current.lastTick) &&
@@ -54,9 +56,11 @@ export function collectNativeSuccessorFacts(profile, clock) {
         facts.operationEpoch === q?.parent?.identity?.epoch;
     const reasons = facts.reasons.filter((reason) => reason !== 'preparation_changed');
     if (bindingPending && !reasons.includes('pending_scope')) reasons.push('pending_scope');
+    if (q?.unadmitted && !observersClosed) reasons.push('observer_open');
     const valid = parentValid && reasons.length === 0;
     return {
         ...facts,
+        observersClosed,
         quiet: facts.quiet && !bindingPending,
         ready: valid,
         nativeState: copy(native),

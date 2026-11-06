@@ -5,6 +5,7 @@ import {
     nativeOpsRecord as record,
     nativeOpsInteger as integer
 } from './NativeEconomicTrialOpsProfile.js';
+import { nativeReleaseReceiptMatches } from './RemoteEconomicTrialModel.js';
 
 export const NATIVE_SUCCESSOR_PROFILE = Object.freeze({ ...NATIVE_OPS_PROFILE, id: 'w49n41-w48n41-first-delivery-v2' });
 const fields = [
@@ -35,9 +36,16 @@ export function validateNativeSuccessorRequest(q, profile, clock) {
     const invalid = (reason) => ({ valid: false, reason });
     const p = q?.parent,
         i = p?.identity,
-        s = p?.settlement;
+        s = p?.settlement,
+        unadmitted = q?.unadmitted;
+    const recovery = record(q) && Object.hasOwn(q, 'unadmitted');
+    const sequence = recovery ? Math.max(i?.sequence, unadmitted?.highWater) : i?.sequence;
     if (
-        !exactNativeFields(q, fields) ||
+        !exactNativeFields(q, recovery ? [...fields, 'unadmitted'] : fields) ||
+        (recovery && (!exactNativeFields(unadmitted, ['nativeId', 'highWater']) ||
+            !identifier(unadmitted.nativeId) || unadmitted.nativeId === p?.nativeId ||
+            unadmitted.nativeId === q.id || !integer(unadmitted.highWater) ||
+            unadmitted.highWater <= i?.sequence)) ||
         q.schemaVersion !== 2 ||
         !identifier(q.id) ||
         !identifier(q.trialId) ||
@@ -71,8 +79,8 @@ export function validateNativeSuccessorRequest(q, profile, clock) {
         s.unknownUpperBound !== 0 ||
         !integer(q.releaseSequence) ||
         !integer(q.startSequence) ||
-        q.releaseSequence !== i.sequence + 1 ||
-        q.startSequence !== i.sequence + 2 ||
+        q.releaseSequence !== sequence + 1 ||
+        q.startSequence !== sequence + 2 ||
         ['allowParentArchive', 'allowEconomicRelease', 'allowStart', 'allowHold'].some((key) => q[key] !== true)
     )
         return invalid('request_invalid');
@@ -105,10 +113,53 @@ export function makeNativeSuccessorSubmission(request, profile = NATIVE_SUCCESSO
         codeVersion: q?.codeVersion
     });
     if (!validation.valid) throw new Error(validation.reason);
+    if (q.unadmitted) return makeUnadmittedCommand('submit', q);
     const expression =
         'Memory.empire.control.policy.remoteMining.nativeTrialOps=' + JSON.stringify({ enabled: true, request: q });
     if (JSON.stringify(expression).length > 1024) throw new Error('Native successor serialized request exceeds 1024');
     return expression;
+}
+
+function packUnadmitted(q) {
+    const p = q.parent, i = p.identity, s = p.settlement;
+    return [q.id, q.trialId, q.codeVersion, q.unadmitted.nativeId, q.unadmitted.highWater,
+        q.releaseSequence, q.startSequence, q.issuedAtMs, q.stopAtMs, q.notAfterMs,
+        q.acceptNotBeforeTick, q.acceptNotAfterTick,
+        [p.nativeId, i.trialId, i.sequence, i.remoteId, i.epoch, i.codeVersion, p.closureVerifiedAtTick,
+            s.spawnEnergy, s.infrastructureEnergy, s.returnedEnergy, s.unknownEvents, s.unknownUpperBound]];
+}
+
+export function decodeNativeUnadmittedCommand(payload, profile = NATIVE_SUCCESSOR_PROFILE) {
+    if (!Array.isArray(payload) || payload.length !== 13 || !Array.isArray(payload[12]) || payload[12].length !== 12)
+        throw Error('Invalid unadmitted command');
+    const [id, trialId, codeVersion, nativeId, highWater, releaseSequence, startSequence, issuedAtMs,
+        stopAtMs, notAfterMs, acceptNotBeforeTick, acceptNotAfterTick, proof] = payload;
+    const [parentId, parentTrial, sequence, remoteId, epoch, parentVersion, closureVerifiedAtTick,
+        spawnEnergy, infrastructureEnergy, returnedEnergy, unknownEvents, unknownUpperBound] = proof;
+    const request = {
+        schemaVersion: 2, id, profileId: profile.id, codeVersion,
+        parent: { nativeId: parentId, identity: { trialId: parentTrial, sequence, remoteId, epoch, codeVersion: parentVersion },
+            closureVerifiedAtTick, settlement: { spawnEnergy, infrastructureEnergy, returnedEnergy, unknownEvents, unknownUpperBound } },
+        trialId, releaseSequence, startSequence, issuedAtMs, stopAtMs, notAfterMs, acceptNotBeforeTick, acceptNotAfterTick,
+        allowParentArchive: true, allowEconomicRelease: true, allowStart: true, allowHold: true,
+        unadmitted: { nativeId, highWater }
+    };
+    const check = validateNativeSuccessorRequest(request, profile, { tick: acceptNotBeforeTick, nowMs: issuedAtMs, codeVersion });
+    if (!check.valid) throw Error(check.reason);
+    return request;
+}
+
+function makeUnadmittedCommand(action, q) {
+    const expression = 'global.NativeSuccessorHandoff.' + action + '(' + JSON.stringify(packUnadmitted(q)) + ')';
+    if (JSON.stringify(expression).length > 1024) throw Error('Unadmitted command exceeds 1024');
+    return expression;
+}
+
+export function makeNativeUnadmittedExit(q, profile = NATIVE_SUCCESSOR_PROFILE) {
+    if (!q?.unadmitted || !validateNativeSuccessorRequest(q, profile, {
+        tick: q.acceptNotBeforeTick, nowMs: q.issuedAtMs, codeVersion: q.codeVersion
+    }).valid) throw Error('Invalid unadmitted exit');
+    return makeUnadmittedCommand('exit', q);
 }
 
 function resolvePreviousReference(snapshot, history, ref) {
@@ -119,12 +170,19 @@ function resolvePreviousReference(snapshot, history, ref) {
         !identifier(ref) ||
         archive?.id !== ref ||
         current?.archiveRef !== ref ||
-        current?.request?.parent?.nativeId !== ref ||
+        (current?.request?.unadmitted?.nativeId ?? current?.request?.parent?.nativeId) !== ref ||
         current?.request?.id === ref ||
         !record(previous) ||
         previous.request?.id !== ref
     )
         return undefined;
+    return previous;
+}
+
+export function nativeSuccessorPrevious(state) {
+    if (!Object.hasOwn(state, 'previousRef')) return state.previous;
+    const previous = resolvePreviousReference(state, state.history, state.previousRef);
+    if (Object.hasOwn(state, 'previous') || !previous) throw Error('Invalid native previous reference');
     return previous;
 }
 
@@ -169,7 +227,7 @@ export function decodeNativeSnapshot(snapshot, history) {
 
 export function createNativeParentArchive(rawNative, economicState, settings, clock) {
     const request = rawNative.current.request;
-    return {
+    const archive = {
         id: request.id,
         atTick: clock.tick,
         nativeSnapshot: encodeNativeSnapshot(rawNative),
@@ -177,6 +235,41 @@ export function createNativeParentArchive(rawNative, economicState, settings, cl
         settings: copy(settings),
         originalWindow: { issuedAtMs: request.issuedAtMs, stopAtMs: request.stopAtMs, notAfterMs: request.notAfterMs }
     };
+    const next = settings.nativeTrialOps?.request;
+    if (next?.unadmitted) {
+        const old = rawNative.history.at(-1);
+        const { lastRejection, ...current } = economicState;
+        const { lastRejection: ignored, ...oldEconomic } = resolveArchivedEconomicState(old, rawNative.history.slice(0, -1));
+        if (equal(current, oldEconomic) && (lastRejection === undefined || validReleaseRejection(lastRejection, archive.atTick))) {
+            delete archive.economicState;
+            archive.economicStateRef = old.id;
+            if (lastRejection !== undefined) archive.economicLastRejection = copy(lastRejection);
+        }
+    }
+    return archive;
+}
+
+function validReleaseRejection(value, atTick) {
+    return exactNativeFields(value, ['tick', 'reason']) && integer(value.tick) &&
+        value.tick <= atTick && value.reason === 'release_blocked';
+}
+
+export function resolveArchivedEconomicState(archive, prefix) {
+    if (!Object.hasOwn(archive, 'economicStateRef')) {
+        if (Object.hasOwn(archive, 'economicLastRejection')) throw Error('Unbound economic rejection');
+        return archive.economicState;
+    }
+    const target = prefix.at(-1), current = archive.nativeSnapshot?.current;
+    const q = archive.settings?.nativeTrialOps?.request;
+    if (Object.hasOwn(archive, 'economicState') || !target || archive.economicStateRef !== target.id ||
+        archive.id === target.id || current?.archiveRef !== target.id || q?.parent?.nativeId !== target.id ||
+        q?.unadmitted?.nativeId !== archive.id || current?.request?.id !== archive.id ||
+        (Object.hasOwn(archive, 'economicLastRejection') && !validReleaseRejection(archive.economicLastRejection, archive.atTick)))
+        throw Error('Invalid archived economic reference');
+    const economic = copy(resolveArchivedEconomicState(target, prefix.slice(0, -1)));
+    delete economic.lastRejection;
+    if (Object.hasOwn(archive, 'economicLastRejection')) economic.lastRejection = copy(archive.economicLastRejection);
+    return economic;
 }
 
 export function nativeParentEvidenceMatches(request, native, economic) {
@@ -219,4 +312,42 @@ export function nativeParentEvidenceMatches(request, native, economic) {
         e?.unknownEnergyUpperBound === 0 &&
         (!Object.hasOwn(e, 'logisticsUnknownEnergyUpperBound') || e.logisticsUnknownEnergyUpperBound === 0)
     );
+}
+
+export function nativeUnadmittedReady(facts) {
+    return ['protectedSafe', 'observersClosed', 'clockFresh', 'configSafe', 'homeReady', 'receiverSafe',
+        'budgetSafe', 'accountingKnown', 'quiet', 'reconReleased', 'executionClosed'].every(key => facts[key] === true);
+}
+
+export function nativeSuccessorParentMatches(q, native, economic, economicSettings) {
+    if (!q?.unadmitted) return nativeParentEvidenceMatches(q, native, economic);
+    const c = native?.current, release = c?.releaseRequest, archive = native?.history?.at(-1);
+    const reference = q.unadmitted;
+    if (native?.schemaVersion !== 2 || c?.stage !== 'terminal' ||
+        c.request.id !== reference.nativeId || native.lastAcceptedStartSequence !== reference.highWater ||
+        c.request.startSequence !== reference.highWater || c.admittedIdentity !== null || c.startRequest !== null ||
+        c.controlClosureConfirmed === true || c.unknownEffect === true || !c.outcome ||
+        !exactNativeFields(c.intents, ['replace_release_request']) ||
+        c.intents.replace_release_request?.status !== 'applied' ||
+        !equal(c.request.parent, q.parent) || archive?.id !== q.parent.nativeId || c.archiveRef !== archive.id ||
+        !release || release.sequence !== c.request.releaseSequence ||
+        !equal(economicSettings, { enabled: true, request: release }) ||
+        !(release.activateAtTick < q.acceptNotBeforeTick) ||
+        !(c.request.notAfterMs < q.issuedAtMs) ||
+        !(economic?.current?.tailExpiresAtTick < q.acceptNotBeforeTick))
+        return false;
+    try {
+        const oldNative = decodeNativeSnapshot(archive.nativeSnapshot, native.history.slice(0, -1));
+        const oldEconomic = resolveArchivedEconomicState(archive, native.history.slice(0, -1));
+        const { lastRejection: ignored, nativeReleaseReceipt: receipt, ...currentProof } = economic;
+        const { lastRejection: ignoredOld, nativeReleaseReceipt: oldReceipt, ...oldProof } = oldEconomic;
+        if (receipt?.nativeId === c.request.id &&
+            (!nativeReleaseReceiptMatches(receipt, release, c.request.id) || receipt.status !== 'refused')) return false;
+        const receiptMatches = equal(receipt, oldReceipt) ||
+            (nativeReleaseReceiptMatches(receipt, release, c.request.id) && receipt.status === 'refused');
+        return receiptMatches && equal(currentProof, oldProof) &&
+            nativeParentEvidenceMatches(q, oldNative, economic);
+    } catch {
+        return false;
+    }
 }

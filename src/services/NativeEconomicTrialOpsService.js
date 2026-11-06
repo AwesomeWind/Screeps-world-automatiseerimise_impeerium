@@ -13,7 +13,10 @@ import {
     nativeOpsEqual as equal
 } from './NativeEconomicTrialOpsProfile.js';
 import { summarizeNativeEconomicOps } from './NativeEconomicTrialOpsEvidence.js';
-import { NATIVE_SUCCESSOR_PROFILE, validateNativeSuccessorRequest } from './NativeEconomicTrialOpsSuccessorProtocol.js';
+import {
+    NATIVE_SUCCESSOR_PROFILE, validateNativeSuccessorRequest, decodeNativeUnadmittedCommand,
+    nativeSuccessorParentMatches, nativeUnadmittedReady
+} from './NativeEconomicTrialOpsSuccessorProtocol.js';
 import { successorParent } from './NativeEconomicTrialOpsSuccessorModel.js';
 
 export default class NativeEconomicTrialOpsService extends BaseService {
@@ -30,6 +33,10 @@ export default class NativeEconomicTrialOpsService extends BaseService {
         return { tick: Game.time, nowMs: this.now(), codeVersion: global.EmpireServicesVersion };
     }
     init() {
+        global.NativeSuccessorHandoff = {
+            submit: (payload) => this.unadmittedCommand('submit', payload),
+            exit: (payload) => this.unadmittedCommand('exit', payload)
+        };
         global.RemoteTrialOps = {
             status: (id) => {
                 try {
@@ -49,6 +56,37 @@ export default class NativeEconomicTrialOpsService extends BaseService {
                 }
             }
         };
+    }
+    unadmittedCommand(action, payload) {
+        try {
+            const clock = this.clock();
+            const request = decodeNativeUnadmittedCommand(payload, this.successorProfile);
+            const empire = Memory.empire, policy = empire.control.policy.remoteMining;
+            if (request.codeVersion !== clock.codeVersion || clock.nowMs < request.issuedAtMs || clock.nowMs >= request.notAfterMs)
+                return false;
+            if (action === 'exit') {
+                if (!equal(policy.nativeTrialOps, { enabled: true, request })) return false;
+                policy.nativeTrialOps.enabled = false;
+                return true;
+            }
+            if (action !== 'submit' || !validateNativeSuccessorRequest(request, this.successorProfile, clock).valid) return false;
+            const native = empire.remoteMining?.nativeEconomicOps;
+            if (!validNativeEconomicOpsState(native) ||
+                !equal(policy.nativeTrialOps, { enabled: false, request: native.current.request })) return false;
+            const facts = this.collectFacts(clock);
+            if (!nativeUnadmittedReady(facts) || facts.operationEpoch !== request.parent.identity.epoch ||
+                !nativeSuccessorParentMatches(request, native, facts.economicState, facts.economicSettings)) return false;
+            const settings = { enabled: true, request };
+            const preview = advanceNativeEconomicOps(native, { kind: 'evaluate' }, {
+                ...facts, settings, parentProof: { valid: true, reason: null },
+                archiveInputs: { economicTrial: facts.economicSettings, nativeTrialOps: settings }
+            }, clock, this.successorProfile);
+            if (preview.error || preview.effects.length || !equal(preview.state.current.request, request)) return false;
+            policy.nativeTrialOps = settings;
+            return true;
+        } catch {
+            return false;
+        }
     }
     summarize() {
         return summarizeNativeEconomicOps(
@@ -84,6 +122,7 @@ export default class NativeEconomicTrialOpsService extends BaseService {
     }
     advance(event) {
         const raw = Memory.empire.remoteMining?.nativeEconomicOps;
+        const requested = Memory.empire.control.policy.remoteMining.nativeTrialOps?.request;
         if (raw === undefined && Memory.empire.control.policy.remoteMining.nativeTrialOps?.enabled !== true) return;
         try {
             const clock = this.clock();
@@ -99,7 +138,16 @@ export default class NativeEconomicTrialOpsService extends BaseService {
                 this.requestOwnedStop(result.error);
                 return;
             }
-            this.persist(result.state);
+            if (requested?.unadmitted && raw?.current?.request.id === requested.unadmitted.nativeId &&
+                equal(result.state?.current?.request, requested)) {
+                const policy = Memory.empire.control.policy.remoteMining;
+                if (!equal(policy.nativeTrialOps, { enabled: true, request: requested })) return;
+                // A partially persisted archive must never leave the old submission armed for replay.
+                policy.nativeTrialOps.enabled = false;
+                this.persist(result.state);
+                if (!equal(policy.nativeTrialOps, { enabled: false, request: requested })) return;
+                policy.nativeTrialOps.enabled = true;
+            } else this.persist(result.state);
             // Recovery never replays a business intent. Independently withdraw a still-running
             // owned session even if its once-only hold intent is interrupted or unknown.
             if (result.state?.current?.stage === 'stopping')
@@ -110,6 +158,8 @@ export default class NativeEconomicTrialOpsService extends BaseService {
             if (current?.stage === 'terminal' && equal(settings?.request, current.request)) settings.enabled = false;
         } catch {
             this.lastError = 'ops_service_failure';
+            const settings = Memory.empire.control.policy.remoteMining.nativeTrialOps;
+            if (requested?.unadmitted && equal(settings?.request, requested)) settings.enabled = false;
             this.requestOwnedStop(this.lastError);
         }
     }
@@ -214,6 +264,7 @@ export default class NativeEconomicTrialOpsService extends BaseService {
             clock.nowMs < c.lastNowMs ||
             facts.operationEpoch !== c.request.parent.identity.epoch ||
             !facts.protectedSafe ||
+            (c.request.unadmitted && facts.observersClosed !== true) ||
             !facts.clockFresh ||
             !facts.configSafe ||
             !facts.accountingKnown ||
