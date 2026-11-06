@@ -6,6 +6,7 @@ async function createTerminal03Replay() {
     const protocol = await import('../../services/NativeEconomicTrialOpsSuccessorProtocol.js');
     const model = await import('../../services/NativeEconomicTrialOpsSuccessorModel.js');
     const { advanceEconomicTrial } = await import('../../services/RemoteEconomicTrialModel.js');
+    const { resolveNativeSuccessorRelease } = await import('../../services/NativeEconomicTrialOpsOwnership.js');
     const old = structuredClone(frozen);
     const parent = old.economic.current;
     const profile = protocol.NATIVE_SUCCESSOR_PROFILE;
@@ -53,6 +54,8 @@ async function createTerminal03Replay() {
         function evaluateEconomic(closed) {
             const result = advanceEconomicTrial(facts.economicState, { kind: 'evaluate' }, {
                 request: facts.economicSettings.request, guardEnabled: true, closed,
+                nativeRelease: resolveNativeSuccessorRelease({ nativeState: state, nativeSettings: settings,
+                    economicState: facts.economicState, request: facts.economicSettings.request, clock }),
                 baseRoom: parent.baseRoom, targetRoom: parent.targetRoom, remoteId: parent.identity.remoteId,
                 epoch: parent.identity.epoch, configFingerprint: parent.configFingerprint,
                 receiverId: parent.receiverId, sourceId: parent.sourceId, containerPos: parent.containerPos,
@@ -64,10 +67,10 @@ async function createTerminal03Replay() {
         tick();
         apply('replace_release_request');
         tick();
+        state = advance(state).state;
         evaluateEconomic(true);
         assert.equal(facts.economicState.lastSequence, 8);
         assert.deepEqual(facts.economicState.current, { ...parent, managed: false });
-        state = advance(state).state;
         tick();
         apply('prepare_start');
         tick();

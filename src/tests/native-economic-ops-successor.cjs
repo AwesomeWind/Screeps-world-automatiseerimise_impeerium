@@ -850,3 +850,182 @@ test('successor_archive_real_03_summary_keeps_fees_and_closure_after_json_reload
     delete restored.history.at(-1).nativeSnapshot.previousRef;
     assert.equal(summarizeNativeEconomicOps(restored, r.facts.economicState, r.clock).status, 'state_invalid');
 });
+
+test('successor_clock_04_retains_distinct_tick_and_wall_evidence', async () => {
+    const { createRelease04Replay } = require('./helpers/native-release-04-replay.cjs');
+    const r = await createRelease04Replay();
+    const tick = r.written.lastTick, now = r.written.lastNowMs;
+    for (const [step, elapsed, tickDiscontinuous, wallClockBackwards] of [
+        [3, r.stopped.lastNowMs - now, true, false],
+        [1, -1, false, true],
+        [3, -1, true, true]
+    ]) {
+        const result = r.evaluate(tick + step, now + elapsed);
+        const restored = JSON.parse(JSON.stringify(result.state));
+        const { clockDiscontinuity, ...outcome } = restored.current.outcome;
+        assert.equal(outcome.reason, 'clock_discontinuity');
+        assert.deepEqual(clockDiscontinuity, {
+            previousTick: tick, previousNowMs: now, tick: tick + step, nowMs: now + elapsed,
+            phase: 'release_confirming', releaseActivateAtTick: tick + 1, tickDiscontinuous, wallClockBackwards
+        });
+        assert.deepEqual(result.effects, []);
+        assert.deepEqual(restored.history, r.state.history);
+        assert.deepEqual(restored.current.releaseRequest, r.written.releaseRequest);
+        assert.deepEqual(r.evaluate(tick + step + 1, now + elapsed + 1, restored).state, restored);
+    }
+    const normal = r.evaluate(tick + 1, now + 1);
+    assert.equal(normal.state.current.outcome, null);
+    const missed = r.evaluate(tick + 3, r.stopped.lastNowMs);
+    const { clockDiscontinuity, ...originalOutcome } = missed.state.current.outcome;
+    assert.deepEqual({ ...missed.state.current, outcome: originalOutcome }, r.stopped);
+});
+
+test('successor_clock_evaluate_shares_its_phase_clock_with_facts', async () => {
+    const { createRelease04Replay } = require('./helpers/native-release-04-replay.cjs');
+    const r = await createRelease04Replay();
+    const { default: Service } = await import('../services/NativeEconomicTrialOpsService.js');
+    global.Memory = { empire: { remoteMining: { nativeEconomicOps: r.state },
+        control: { policy: { remoteMining: { nativeTrialOps: r.facts.settings } } } } };
+    const service = new Service('NativeEconomicTrialOps');
+    let calls = 0, factClock;
+    service.clock = () => r.clock(r.written.lastTick + 1, r.written.lastNowMs + ++calls);
+    service.collectFacts = sampled => { factClock = sampled; return r.facts; };
+    service.analyze();
+    assert.equal(calls, 1);
+    assert.equal(Memory.empire.remoteMining.nativeEconomicOps.current.lastNowMs, factClock.nowMs);
+});
+
+
+test('successor_release_04_cannot_unlock_parent_when_native_misses_or_stops_on_activation', async () => {
+    const { createRelease04Replay } = require('./helpers/native-release-04-replay.cjs');
+    const r = await createRelease04Replay();
+    const ownership = await import('../services/NativeEconomicTrialOpsOwnership.js');
+    const { advanceEconomicTrial } = await import('../services/RemoteEconomicTrialModel.js');
+    const activate = r.written.releaseRequest.activateAtTick, before = r.written.lastNowMs;
+    const armed = r.evaluate(activate, before + 1).state;
+    const stopped = r.evaluate(activate, before - 1).state;
+    const parent = r.parent.economic.current;
+    const tagged = { ...r.written.releaseRequest, nativeSuccessorId: r.written.request.id };
+    const armTagged = structuredClone(armed);
+    armTagged.current.releaseRequest = tagged;
+    const checks = [
+        { name: 'native_stopped', state: stopped, settings: { ...r.facts.settings, enabled: false }, request: r.written.releaseRequest },
+        { name: 'native_missed_evaluate', state: r.state, request: r.written.releaseRequest },
+        { name: 'economic_wall_rollback', state: armed, now: before, request: r.written.releaseRequest },
+        { name: 'stop_boundary', state: armed, now: r.written.request.stopAtMs, request: r.written.releaseRequest },
+        { name: 'missing_owner', state: undefined, settings: {}, request: tagged },
+        { name: 'wrong_marker', state: armTagged, request: { ...tagged, nativeSuccessorId: 'foreign' } },
+        { name: 'wrong_parent', state: armTagged, request: { ...tagged, targetTrialId: 'foreign' } },
+        { name: 'planned_or_unknown', state: armTagged, intent: 'planned', request: tagged },
+        { name: 'unknown', state: armTagged, intent: 'unknown', request: tagged },
+        { name: 'too_early', state: armTagged, tick: activate - 1, request: tagged },
+        { name: 'too_late', state: armTagged, tick: activate + 1, request: tagged },
+        { name: 'old_actors', state: armTagged, request: tagged, oldActors: true },
+        { name: 'unsettled', state: armTagged, request: tagged, unsettled: true },
+        { name: 'legacy_native_exact', state: armed, request: r.written.releaseRequest, allowed: true },
+        { name: 'tagged_native_exact', state: armTagged, request: tagged, allowed: true },
+        { name: 'independent_v1_exact', state: undefined, settings: {}, request: { ...r.written.releaseRequest, id: 'manual-release' }, allowed: true }
+    ];
+    for (const c of checks) {
+        const native = structuredClone(c.state);
+        if (c.intent) native.current.intents.replace_release_request.status = c.intent;
+        const clock = r.clock(c.tick ?? activate, c.now ?? before + 2);
+        const nativeRelease = ownership.resolveNativeSuccessorRelease?.({
+            nativeState: native, nativeSettings: c.settings ?? r.facts.settings, economicState: r.parent.economic,
+            request: c.request, clock
+        });
+        const result = advanceEconomicTrial(r.parent.economic, { kind: 'evaluate' }, {
+            guardEnabled: true, request: c.request, nativeRelease, closed: true, oldActors: c.oldActors ?? false,
+            unsettled: c.unsettled ?? false, remoteId: parent.identity.remoteId, epoch: parent.identity.epoch,
+            configFingerprint: parent.configFingerprint
+        }, clock);
+        assert.equal(result.state.lastSequence, c.allowed ? 8 : 7, c.name);
+        assert.deepEqual(result.state.current, { ...parent, managed: !c.allowed }, c.name);
+        assert.deepEqual(result.effects, [], c.name);
+        if (c.name === 'tagged_native_exact' || c.name === 'legacy_native_exact') {
+            assert.equal(result.state.nativeReleaseReceipt.status, 'applied');
+            assert.equal(result.state.nativeReleaseReceipt.reason, null);
+            const duplicate = advanceEconomicTrial(result.state, { kind: 'evaluate' }, {
+                guardEnabled: true, request: c.request, nativeRelease: { ...nativeRelease, allowed: false,
+                    reason: 'native_release_parent_changed' }
+            }, clock);
+            assert.deepEqual(duplicate.state.nativeReleaseReceipt, result.state.nativeReleaseReceipt);
+        }
+        if (c.name === 'too_early' || c.name === 'too_late') assert.equal(result.state.nativeReleaseReceipt, undefined);
+    }
+});
+
+test('successor_release_writer_marks_only_native_v2_release_and_uses_the_fixed_tick', async () => {
+    const { createTerminal03Replay } = require('./helpers/native-successor-03-replay.cjs');
+    const r = await createTerminal03Replay();
+    const ready = r.advance();
+    const result = r.switchToChild(ready);
+    assert.equal(result.state.current.releaseRequest.nativeSuccessorId, r.request.id);
+    assert.equal(Object.hasOwn(result.state.current.startRequest, 'nativeSuccessorId'), false);
+    assert.equal(result.state.current.releaseRequest.activateAtTick, r.request.acceptNotBeforeTick + 2);
+});
+
+
+test('successor_release_receipt_survives_repeated_rejection_reload_and_status', async () => {
+    const { createRelease04Replay } = require('./helpers/native-release-04-replay.cjs');
+    const r = await createRelease04Replay();
+    const { resolveNativeSuccessorRelease } = await import('../services/NativeEconomicTrialOpsOwnership.js');
+    const { advanceEconomicTrial } = await import('../services/RemoteEconomicTrialModel.js');
+    const { summarizeNativeEconomicOps } = await import('../services/NativeEconomicTrialOpsEvidence.js');
+    const activate = r.written.releaseRequest.activateAtTick, before = r.written.lastNowMs;
+    const stopped = r.evaluate(activate, before - 1).state;
+    const parent = r.parent.economic.current;
+    const request = r.written.releaseRequest;
+    const at = r.clock(activate, before + 1);
+    const nativeRelease = resolveNativeSuccessorRelease({ nativeState: stopped,
+        nativeSettings: { ...r.facts.settings, enabled: false }, economicState: r.parent.economic, request, clock: at });
+    const facts = { guardEnabled: true, request, nativeRelease, closed: true,
+        remoteId: parent.identity.remoteId, epoch: parent.identity.epoch, configFingerprint: parent.configFingerprint };
+    const first = advanceEconomicTrial(r.parent.economic, { kind: 'evaluate' }, facts, at);
+    const expected = { nativeId: r.written.request.id, requestId: request.id, sequence: 8, tick: activate,
+        nativeEvaluatedAt: activate, status: 'refused', reason: 'native_release_not_owned' };
+    assert.deepEqual(first.state.nativeReleaseReceipt, expected);
+    const saved = JSON.parse(JSON.stringify(first.state));
+    for (const tick of [activate, activate + 1, activate + 2]) {
+        const later = advanceEconomicTrial(saved, { kind: 'evaluate' }, facts, r.clock(tick, at.nowMs + 1));
+        assert.deepEqual(later.state.nativeReleaseReceipt, expected);
+        assert.equal(later.state.lastSequence, 7);
+        assert.deepEqual(later.state.current, parent);
+    }
+    const tampered = { ...request, nativeSuccessorId: 'foreign' };
+    const tamperedGate = resolveNativeSuccessorRelease({ nativeState: stopped,
+        nativeSettings: r.facts.settings, economicState: saved, request: tampered, clock: at });
+    const rejected = advanceEconomicTrial(saved, { kind: 'evaluate' },
+        { ...facts, request: tampered, nativeRelease: tamperedGate }, at);
+    assert.deepEqual(rejected.state.nativeReleaseReceipt, expected);
+    const summary = summarizeNativeEconomicOps(JSON.parse(JSON.stringify(stopped)), saved, at);
+    assert.deepEqual(summary.current.releaseReceipt, expected);
+    assert.equal(summary.current.outcome.clockDiscontinuity.wallClockBackwards, true);
+    assert.equal(summary.current.economic, null);
+    assert.equal(summary.current.archive.oldCosts.confirmedSpawnCost, 50);
+    const { default: Service } = await import('../services/NativeEconomicTrialOpsService.js');
+    global.Memory = JSON.parse(JSON.stringify({ empire: { remoteMining: { nativeEconomicOps: stopped, economicTrials: saved } } }));
+    delete global.RemoteTrialOps;
+    const service = new Service('NativeEconomicTrialOps');
+    service.clock = () => at;
+    service.init();
+    const restarted = global.RemoteTrialOps.status(r.written.request.id);
+    assert.deepEqual(restarted.releaseReceipt, expected);
+    assert.deepEqual(restarted.outcome, summary.current.outcome);
+});
+
+test('successor_release_clock_diagnostic_persist_failure_still_withdraws_owned_session', async () => {
+    const f = await parentScene();
+    until(f, () => f.scene.current.identity.trialId === f.q.trialId);
+    const service = f.scene.f.services.find(s => s.name === 'NativeEconomicTrialOps');
+    let failed = false;
+    const persist = service.persist.bind(service);
+    service.persist = state => {
+        if (state.current.outcome?.clockDiscontinuity) { failed = true; throw Error('diagnostic persistence failure'); }
+        return persist(state);
+    };
+    f.advance({ nowMs: f.s.clock().nowMs - 1 });
+    assert.equal(failed, true);
+    assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
+    assert.equal(Memory.empire.remoteRooms.W1N2.hold, true);
+});

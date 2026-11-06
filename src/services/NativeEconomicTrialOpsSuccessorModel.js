@@ -56,7 +56,8 @@ function validPrepared(value, c, release) {
         'expiresAtTick',
         'issuedAtMs',
         'expiresAtMs',
-        ...(release ? ['targetTrialId'] : [])
+        ...(release ? ['targetTrialId'] : []),
+        ...(release && Object.hasOwn(value, 'nativeSuccessorId') ? ['nativeSuccessorId'] : [])
     ];
     const q = c.request;
     return (
@@ -65,6 +66,7 @@ function validPrepared(value, c, release) {
         value.action === (release ? 'release' : 'start') &&
         value.id === (release ? 'release-' + q.trialId : q.trialId) &&
         (!release || value.targetTrialId === q.parent.identity.trialId) &&
+        (!Object.hasOwn(value, 'nativeSuccessorId') || value.nativeSuccessorId === q.id) &&
         value.sequence === (release ? q.releaseSequence : q.startSequence) &&
         value.remoteId === q.parent.identity.remoteId &&
         value.epoch === q.parent.identity.epoch &&
@@ -78,6 +80,20 @@ function validPrepared(value, c, release) {
         value.issuedAtMs < q.stopAtMs &&
         value.expiresAtMs === value.issuedAtMs + 5400000
     );
+}
+
+function validClockDiscontinuity(outcome) {
+    if (!Object.hasOwn(outcome, 'clockDiscontinuity')) return true;
+    const detail = outcome.clockDiscontinuity;
+    return outcome.reason === 'clock_discontinuity' &&
+        exactNativeFields(detail, ['previousTick', 'previousNowMs', 'tick', 'nowMs', 'phase',
+            'releaseActivateAtTick', 'tickDiscontinuous', 'wallClockBackwards']) &&
+        [detail.previousTick, detail.previousNowMs, detail.tick, detail.nowMs].every(integer) &&
+        detail.tick === outcome.decidedAtTick && stages.has(detail.phase) &&
+        (detail.releaseActivateAtTick === null || integer(detail.releaseActivateAtTick)) &&
+        detail.tickDiscontinuous === (detail.tick !== detail.previousTick + 1) &&
+        detail.wallClockBackwards === (detail.nowMs < detail.previousNowMs) &&
+        (detail.tickDiscontinuous || detail.wallClockBackwards);
 }
 
 function validCurrent(c) {
@@ -126,7 +142,7 @@ function validCurrent(c) {
                 c.outcome.reason.length <= 160 &&
                 integer(c.outcome.decidedAtTick) &&
                 c.outcome.decidedAtTick >= c.preflightAt &&
-                c.outcome.decidedAtTick <= c.lastTick)) &&
+                c.outcome.decidedAtTick <= c.lastTick && validClockDiscontinuity(c.outcome))) &&
         JSON.stringify(c).length <= 16384
     );
 }
@@ -357,7 +373,7 @@ function advanceCurrent(input, event, facts, clock, profile) {
             schemaVersion: 1,
             action: release ? 'release' : 'start',
             id: release ? 'release-' + q.trialId : q.trialId,
-            ...(release ? { targetTrialId: q.parent.identity.trialId } : {}),
+            ...(release ? { targetTrialId: q.parent.identity.trialId, nativeSuccessorId: q.id } : {}),
             sequence: release ? q.releaseSequence : q.startSequence,
             remoteId: q.parent.identity.remoteId,
             epoch: q.parent.identity.epoch,
@@ -432,8 +448,17 @@ function advanceCurrent(input, event, facts, clock, profile) {
     if (Object.values(c.intents).some((i) => i.status === 'planned')) {
         c.unknownEffect = true;
         stop('effect_interrupted');
-    } else if (clock.tick !== c.lastTick + 1 || clock.nowMs < c.lastNowMs) stop('clock_discontinuity');
-    else if (!equal(facts.settings, { enabled: true, request: q })) stop('request_changed');
+    } else if (clock.tick !== c.lastTick + 1 || clock.nowMs < c.lastNowMs) {
+        const phase = c.stage;
+        const firstStop = c.outcome === null;
+        stop('clock_discontinuity');
+        if (firstStop) c.outcome.clockDiscontinuity = {
+            previousTick: c.lastTick, previousNowMs: c.lastNowMs, tick: clock.tick, nowMs: clock.nowMs, phase,
+            releaseActivateAtTick: c.releaseRequest?.activateAtTick ?? null,
+            tickDiscontinuous: clock.tick !== c.lastTick + 1,
+            wallClockBackwards: clock.nowMs < c.lastNowMs
+        };
+    } else if (!equal(facts.settings, { enabled: true, request: q })) stop('request_changed');
     else if (
         clock.codeVersion !== q.codeVersion ||
         facts.operationEpoch !== q.parent.identity.epoch ||

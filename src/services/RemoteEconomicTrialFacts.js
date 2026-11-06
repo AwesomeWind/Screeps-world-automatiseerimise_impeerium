@@ -2,7 +2,7 @@ import { currentCreepPopulation } from '../core/CreepPopulation.js';
 import { normalizeRemoteConfig } from './RemoteMiningState.js';
 import { economicTrialConfigFingerprint } from './RemoteEconomicTrialConfig.js';
 import { economicIdentityMatches } from './RemoteEconomicTrialModel.js';
-import { resolveNativeEconomicOwnership } from './NativeEconomicTrialOpsOwnership.js';
+import { resolveNativeEconomicOwnership, resolveNativeSuccessorRelease } from './NativeEconomicTrialOpsOwnership.js';
 
 const activeMovementStages = new Set(['recon', 'observing', 'preparing', 'hauling']);
 const tile = value => Number.isInteger(value) && value >= 0 && value < 50;
@@ -154,6 +154,10 @@ export function collectEconomicTrialFacts(scope, clock) {
     return {
         guardEnabled: settings?.enabled === true,
         request: settings?.request || null,
+        nativeRelease: resolveNativeSuccessorRelease({
+            nativeState: empire.remoteMining?.nativeEconomicOps, nativeSettings: remotePolicy.nativeTrialOps,
+            economicState: empire.remoteMining?.economicTrials, request: settings?.request, clock
+        }),
         remoteId,
         baseRoom,
         targetRoom,

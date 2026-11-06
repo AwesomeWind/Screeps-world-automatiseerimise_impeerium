@@ -1,0 +1,155 @@
+{
+  "version": "1793872243759",
+  "archivedAtTick": 84099026,
+  "written": {
+    "request": {
+      "schemaVersion": 2,
+      "id": "nops-w48-20261105-04",
+      "profileId": "w49n41-w48n41-first-delivery-v2",
+      "codeVersion": "1793872243759",
+      "parent": {
+        "nativeId": "nops-w48-20261105-03",
+        "identity": {
+          "trialId": "econ-w48-20261105-03",
+          "sequence": 7,
+          "remoteId": "W49N41:W48N41",
+          "epoch": 2,
+          "codeVersion": "1793857706098"
+        },
+        "closureVerifiedAtTick": 84084311,
+        "settlement": {
+          "spawnEnergy": 50,
+          "infrastructureEnergy": 0,
+          "returnedEnergy": 0,
+          "unknownEvents": 0,
+          "unknownUpperBound": 0
+        }
+      },
+      "trialId": "econ-w48-20261105-04",
+      "releaseSequence": 8,
+      "startSequence": 9,
+      "issuedAtMs": 1793928917188,
+      "stopAtMs": 1793934188616,
+      "notAfterMs": 1793934308616,
+      "acceptNotBeforeTick": 84099023,
+      "acceptNotAfterTick": 84099033,
+      "allowParentArchive": true,
+      "allowEconomicRelease": true,
+      "allowStart": true,
+      "allowHold": true
+    },
+    "stage": "release_confirming",
+    "lastTick": 84099027,
+    "lastNowMs": 1793928932579,
+    "preflightAt": 84099026,
+    "archiveRef": "nops-w48-20261105-03",
+    "releaseRequest": {
+      "schemaVersion": 1,
+      "action": "release",
+      "id": "release-econ-w48-20261105-04",
+      "targetTrialId": "econ-w48-20261105-03",
+      "sequence": 8,
+      "remoteId": "W49N41:W48N41",
+      "epoch": 2,
+      "codeVersion": "1793872243759",
+      "configFingerprint": "{\"baseRoom\":\"W49N41\",\"targetRoom\":\"W48N41\",\"sourceId\":\"5bbcaa6d9099fc012e63155b\",\"containerId\":null,\"containerPos\":{\"x\":19,\"y\":6,\"roomName\":\"W48N41\"},\"receiverIds\":[\"6ad0b55bceeb3db0d3b4dda0\"],\"allowContainerBuild\":true,\"reserveController\":false,\"roleLimits\":{\"scout\":1,\"remoteMiner\":1,\"remoteHauler\":1,\"reserver\":0},\"bodyEnergyLimits\":{\"scout\":50,\"remoteMiner\":800,\"remoteHauler\":800,\"reserver\":650},\"spawnEnergyLimit\":2000,\"infrastructureEnergyLimit\":6000,\"windowTicks\":1000,\"safeStreakTicks\":100,\"maxLegTicks\":300,\"reconCooldownTicks\":200}",
+      "activateAtTick": 84099028,
+      "expiresAtTick": 84100028,
+      "issuedAtMs": 1793928932579,
+      "expiresAtMs": 1793934332579
+    },
+    "startRequest": null,
+    "intents": {
+      "replace_release_request": {
+        "status": "applied",
+        "tick": 84099027
+      }
+    },
+    "events": [
+      {
+        "tick": 84099027,
+        "stage": "release_writing",
+        "reason": "replace_release_request"
+      }
+    ],
+    "admittedIdentity": null,
+    "outcome": null
+  },
+  "stopped": {
+    "request": {
+      "schemaVersion": 2,
+      "id": "nops-w48-20261105-04",
+      "profileId": "w49n41-w48n41-first-delivery-v2",
+      "codeVersion": "1793872243759",
+      "parent": {
+        "nativeId": "nops-w48-20261105-03",
+        "identity": {
+          "trialId": "econ-w48-20261105-03",
+          "sequence": 7,
+          "remoteId": "W49N41:W48N41",
+          "epoch": 2,
+          "codeVersion": "1793857706098"
+        },
+        "closureVerifiedAtTick": 84084311,
+        "settlement": {
+          "spawnEnergy": 50,
+          "infrastructureEnergy": 0,
+          "returnedEnergy": 0,
+          "unknownEvents": 0,
+          "unknownUpperBound": 0
+        }
+      },
+      "trialId": "econ-w48-20261105-04",
+      "releaseSequence": 8,
+      "startSequence": 9,
+      "issuedAtMs": 1793928917188,
+      "stopAtMs": 1793934188616,
+      "notAfterMs": 1793934308616,
+      "acceptNotBeforeTick": 84099023,
+      "acceptNotAfterTick": 84099033,
+      "allowParentArchive": true,
+      "allowEconomicRelease": true,
+      "allowStart": true,
+      "allowHold": true
+    },
+    "stage": "terminal",
+    "lastTick": 84099030,
+    "lastNowMs": 1793928948331,
+    "preflightAt": 84099026,
+    "archiveRef": "nops-w48-20261105-03",
+    "releaseRequest": {
+      "schemaVersion": 1,
+      "action": "release",
+      "id": "release-econ-w48-20261105-04",
+      "targetTrialId": "econ-w48-20261105-03",
+      "sequence": 8,
+      "remoteId": "W49N41:W48N41",
+      "epoch": 2,
+      "codeVersion": "1793872243759",
+      "configFingerprint": "{\"baseRoom\":\"W49N41\",\"targetRoom\":\"W48N41\",\"sourceId\":\"5bbcaa6d9099fc012e63155b\",\"containerId\":null,\"containerPos\":{\"x\":19,\"y\":6,\"roomName\":\"W48N41\"},\"receiverIds\":[\"6ad0b55bceeb3db0d3b4dda0\"],\"allowContainerBuild\":true,\"reserveController\":false,\"roleLimits\":{\"scout\":1,\"remoteMiner\":1,\"remoteHauler\":1,\"reserver\":0},\"bodyEnergyLimits\":{\"scout\":50,\"remoteMiner\":800,\"remoteHauler\":800,\"reserver\":650},\"spawnEnergyLimit\":2000,\"infrastructureEnergyLimit\":6000,\"windowTicks\":1000,\"safeStreakTicks\":100,\"maxLegTicks\":300,\"reconCooldownTicks\":200}",
+      "activateAtTick": 84099028,
+      "expiresAtTick": 84100028,
+      "issuedAtMs": 1793928932579,
+      "expiresAtMs": 1793934332579
+    },
+    "startRequest": null,
+    "intents": {
+      "replace_release_request": {
+        "status": "applied",
+        "tick": 84099027
+      }
+    },
+    "events": [
+      {
+        "tick": 84099027,
+        "stage": "release_writing",
+        "reason": "replace_release_request"
+      }
+    ],
+    "admittedIdentity": null,
+    "outcome": {
+      "reason": "clock_discontinuity",
+      "decidedAtTick": 84099030
+    }
+  }
+}

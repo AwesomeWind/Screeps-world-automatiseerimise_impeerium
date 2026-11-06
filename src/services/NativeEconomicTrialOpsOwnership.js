@@ -77,3 +77,43 @@ export function resolveNativeEconomicOwnership({
                 : null;
     return { identity, owner, request, failure };
 }
+
+function isSuccessorRelease(request, ownerRequest) {
+    const parent = ownerRequest?.parent?.identity;
+    return ownerRequest?.schemaVersion === 2 && !!parent &&
+        request.id === 'release-' + ownerRequest.trialId &&
+        request.sequence === ownerRequest.releaseSequence &&
+        request.remoteId === parent.remoteId;
+}
+
+export function resolveNativeSuccessorRelease({ nativeState, nativeSettings, economicState, request, clock }) {
+    if (request?.action !== 'release') return null;
+    const current = nativeState?.current;
+    const owner = current?.request;
+    const marked = Object.hasOwn(request, 'nativeSuccessorId');
+    const ownerMatches = isSuccessorRelease(request, owner);
+    const policyMatches = isSuccessorRelease(request, nativeSettings?.request);
+    if (!marked && !ownerMatches && !policyMatches) return null;
+
+    const result = {
+        nativeId: ownerMatches ? owner.id : policyMatches ? nativeSettings.request.id : request.nativeSuccessorId,
+        nativeEvaluatedAt: integer(current?.lastTick) ? current.lastTick : null,
+        allowed: false,
+        reason: 'native_release_not_owned'
+    };
+    if (clock.tick !== request.activateAtTick) return result;
+    if (nativeState?.schemaVersion !== 2 || !validNativeEconomicOpsState(nativeState) ||
+        !ownerMatches || (marked && request.nativeSuccessorId !== owner.id) ||
+        !equal(request, current.releaseRequest)) return result;
+    const intent = current.intents.replace_release_request;
+    if (nativeSettings?.enabled !== true || !equal(nativeSettings.request, owner) ||
+        current.stage !== 'release_confirming' || intent?.status !== 'applied' ||
+        intent.tick + 1 !== request.activateAtTick || current.unknownEffect === true) return result;
+    if (current.lastTick !== clock.tick) return { ...result, reason: 'native_release_tick_unconfirmed' };
+    if (!integer(clock.nowMs) || clock.nowMs < current.lastNowMs || clock.nowMs >= owner.stopAtMs)
+        return { ...result, reason: 'native_release_clock_invalid' };
+    const archived = nativeState.history.at(-1).economicState;
+    if (economicState?.lastSequence !== archived.lastSequence || !equal(economicState?.current, archived.current))
+        return { ...result, reason: 'native_release_parent_changed' };
+    return { ...result, allowed: true, reason: null };
+}

@@ -187,6 +187,50 @@ function makeSession(request, facts, clock) {
     };
 }
 
+const releaseReceiptReasons = new Set([
+    'native_release_not_owned', 'native_release_tick_unconfirmed', 'native_release_clock_invalid',
+    'native_release_parent_changed', 'release_request_invalid', 'release_parent_changed',
+    'release_scope_open', 'release_old_actors', 'release_unsettled'
+]);
+
+export function nativeReleaseReceiptMatches(receipt, request, nativeId) {
+    return record(receipt) && request?.action === 'release' &&
+        typeof nativeId === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(nativeId) &&
+        typeof request.id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(request.id) &&
+        integer(request.sequence) && integer(request.activateAtTick) &&
+        Object.keys(receipt).length === 7 &&
+        receipt.nativeId === nativeId && receipt.requestId === request.id &&
+        receipt.sequence === request.sequence && receipt.tick === request.activateAtTick &&
+        (receipt.nativeEvaluatedAt === null || integer(receipt.nativeEvaluatedAt)) &&
+        (receipt.status === 'applied' ? receipt.reason === null :
+            receipt.status === 'refused' && releaseReceiptReasons.has(receipt.reason));
+}
+
+function releaseRefusal(request, facts, clock, session, lastSequence, requiresNative) {
+    if (requiresNative && facts.nativeRelease?.allowed !== true)
+        return facts.nativeRelease?.reason ?? 'native_release_not_owned';
+    if (requestError(request, facts, clock, 'release') || clock.tick !== request.activateAtTick)
+        return 'release_request_invalid';
+    if (session?.status !== 'terminal' || request.targetTrialId !== session.identity.trialId ||
+        !integer(request.sequence) || request.sequence <= lastSequence) return 'release_parent_changed';
+    if (!facts.closed) return 'release_scope_open';
+    if (facts.oldActors) return 'release_old_actors';
+    if (facts.unsettled) return 'release_unsettled';
+    return null;
+}
+
+function recordNativeRelease(state, request, clock, nativeRelease, reason) {
+    if (clock.tick !== request.activateAtTick) return;
+    const nativeId = nativeRelease?.nativeId ?? request.nativeSuccessorId;
+    if (nativeReleaseReceiptMatches(state.nativeReleaseReceipt, request, nativeId)) return;
+    const receipt = {
+        nativeId, requestId: request.id, sequence: request.sequence, tick: clock.tick,
+        nativeEvaluatedAt: nativeRelease?.nativeEvaluatedAt ?? null,
+        status: reason === null ? 'applied' : 'refused', reason
+    };
+    if (nativeReleaseReceiptMatches(receipt, request, nativeId)) state.nativeReleaseReceipt = receipt;
+}
+
 export function advanceEconomicTrial(input, event, facts, clock) {
     if (input !== undefined && !validEconomicTrialState(input)) {
         return { state: input, permit: permit(true, clock, false, 'state_invalid'), effects: [{ type: 'emergency_close' }] };
@@ -197,13 +241,14 @@ export function advanceEconomicTrial(input, event, facts, clock) {
     let effects = [];
     const request = facts.request;
     if (event.kind === 'evaluate' && facts.guardEnabled && request?.action === 'release') {
-        if (!requestError(request, facts, clock, 'release') && clock.tick === request.activateAtTick &&
-            session?.status === 'terminal' && request.targetTrialId === session.identity.trialId &&
-            integer(request.sequence) && request.sequence > state.lastSequence && facts.closed &&
-            !facts.oldActors && !facts.unsettled) {
+        const nativeRelease = facts.nativeRelease;
+        const requiresNative = nativeRelease != null || Object.hasOwn(request, 'nativeSuccessorId');
+        const reason = releaseRefusal(request, facts, clock, session, state.lastSequence, requiresNative);
+        if (reason === null) {
             session.managed = false;
             state.lastSequence = request.sequence;
         } else state.lastRejection = { tick: clock.tick, reason: 'release_blocked' };
+        if (requiresNative) recordNativeRelease(state, request, clock, nativeRelease, reason);
     } else if (event.kind === 'evaluate' && facts.guardEnabled && request &&
         (!session || request.id !== session.identity.trialId || request.sequence !== session.identity.sequence)) {
         let reason = requestError(request, facts, clock) ? 'request_invalid' :

@@ -74,10 +74,10 @@ export default class NativeEconomicTrialOpsService extends BaseService {
             Memory.empire.control.policy.remoteMining.nativeTrialOps?.request?.schemaVersion === 2
         );
     }
-    collectFacts() {
+    collectFacts(clock = this.clock()) {
         return this.successorMode()
-            ? collectNativeSuccessorFacts(this.successorProfile, this.clock())
-            : collectNativeEconomicOpsFacts(this.profile, this.clock());
+            ? collectNativeSuccessorFacts(this.successorProfile, clock)
+            : collectNativeEconomicOpsFacts(this.profile, clock);
     }
     activeProfile() {
         return this.successorMode() ? this.successorProfile : this.profile;
@@ -86,8 +86,9 @@ export default class NativeEconomicTrialOpsService extends BaseService {
         const raw = Memory.empire.remoteMining?.nativeEconomicOps;
         if (raw === undefined && Memory.empire.control.policy.remoteMining.nativeTrialOps?.enabled !== true) return;
         try {
-            const facts = this.collectFacts();
-            const result = advanceNativeEconomicOps(raw, event, facts, this.clock(), this.activeProfile());
+            const clock = this.clock();
+            const facts = this.collectFacts(clock);
+            const result = advanceNativeEconomicOps(raw, event, facts, clock, this.activeProfile());
             if (result.error) {
                 this.lastError = result.error;
                 if (validNativeEconomicOpsState(result.state)) {
@@ -120,12 +121,13 @@ export default class NativeEconomicTrialOpsService extends BaseService {
             this.requestOwnedStop('effect_failed');
         }
         const raw = Memory.empire.remoteMining.nativeEconomicOps;
-        const facts = this.collectFacts();
+        const clock = this.clock();
+        const facts = this.collectFacts(clock);
         const next = advanceNativeEconomicOps(
             raw,
             { kind: 'effect_result', key: effect.key, result },
             facts,
-            this.clock(),
+            clock,
             this.activeProfile()
         );
         this.persist(next.state);
@@ -198,7 +200,7 @@ export default class NativeEconomicTrialOpsService extends BaseService {
     }
     applySuccessorEffect(effect) {
         const clock = this.clock(),
-            facts = this.collectFacts(),
+            facts = this.collectFacts(clock),
             state = Memory.empire.remoteMining.nativeEconomicOps,
             c = state.current,
             before = effect.expectedBefore;
@@ -209,6 +211,7 @@ export default class NativeEconomicTrialOpsService extends BaseService {
             clock.codeVersion !== c.request.codeVersion ||
             clock.nowMs >= c.request.stopAtMs ||
             clock.tick !== c.lastTick ||
+            clock.nowMs < c.lastNowMs ||
             facts.operationEpoch !== c.request.parent.identity.epoch ||
             !facts.protectedSafe ||
             !facts.clockFresh ||

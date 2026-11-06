@@ -1,5 +1,5 @@
 import { validNativeEconomicOpsState, nativeOpsEconomicIdentity } from './NativeEconomicTrialOpsModel.js';
-import { summarizeEconomicTrial, economicIdentityMatches } from './RemoteEconomicTrialModel.js';
+import { summarizeEconomicTrial, economicIdentityMatches, nativeReleaseReceiptMatches } from './RemoteEconomicTrialModel.js';
 import { nativeOpsCopy as copy } from './NativeEconomicTrialOpsProfile.js';
 
 export function summarizeNativeEconomicOps(state, economicState, clock) {
@@ -8,6 +8,7 @@ export function summarizeNativeEconomicOps(state, economicState, clock) {
     const economic = summarizeEconomicTrial(economicState, clock);
     const history = state.schemaVersion === 2 ? state.history : [];
     const economicHistory = history.map((a) => summarizeEconomicTrial(a.economicState, clock));
+    const receipts = [economicState, ...history.map((a) => a.economicState)].map((value) => value?.nativeReleaseReceipt);
     function compact(c) {
         if (!c) return null;
         const identity = nativeOpsEconomicIdentity(c.request, { remoteId: c.request.oldIdentity?.remoteId });
@@ -21,6 +22,9 @@ export function summarizeNativeEconomicOps(state, economicState, clock) {
             request: copy(c.request),
             version: c.request.codeVersion,
             outcome: copy(c.outcome),
+            ...(c.request.schemaVersion === 2 ? {
+                releaseReceipt: copy(receipts.find((receipt) => nativeReleaseReceiptMatches(receipt, c.releaseRequest, c.request.id))) ?? null
+            } : {}),
             admittedIdentity: copy(c.admittedIdentity),
             controlClosureConfirmed: c.controlClosureConfirmed === true,
             unknownEffect: c.unknownEffect === true,
