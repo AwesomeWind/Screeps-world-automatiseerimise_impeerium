@@ -219,6 +219,7 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
         return { state: input, effects: [] };
     const validation = validateNativeSuccessorRequest(q, { ...profile, id: NATIVE_SUCCESSOR_PROFILE.id }, clock);
     const history = input.schemaVersion === 2 ? input.history : [];
+    // A compact previousRef is already represented by an earlier archive current.
     const used = [
         input.current,
         input.previous,

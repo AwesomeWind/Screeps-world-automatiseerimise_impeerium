@@ -111,9 +111,32 @@ export function makeNativeSuccessorSubmission(request, profile = NATIVE_SUCCESSO
     return expression;
 }
 
+function resolvePreviousReference(snapshot, history, ref) {
+    const archive = history.at(-1);
+    const previous = archive?.nativeSnapshot?.current;
+    const current = snapshot.current;
+    if (
+        !identifier(ref) ||
+        archive?.id !== ref ||
+        current?.archiveRef !== ref ||
+        current?.request?.parent?.nativeId !== ref ||
+        current?.request?.id === ref ||
+        !record(previous) ||
+        previous.request?.id !== ref
+    )
+        return undefined;
+    return previous;
+}
+
 export function encodeNativeSnapshot(raw) {
     const snapshot = copy(raw);
     if (snapshot.schemaVersion === 2) {
+        const ref = snapshot.current?.archiveRef;
+        const previous = resolvePreviousReference(snapshot, snapshot.history, ref);
+        if (previous && equal(snapshot.previous, previous)) {
+            snapshot.previousRef = ref;
+            delete snapshot.previous;
+        }
         snapshot.historyRefs = snapshot.history.map((archive) => archive.id);
         delete snapshot.history;
     }
@@ -132,6 +155,12 @@ export function decodeNativeSnapshot(snapshot, history) {
             new Set(raw.historyRefs).size !== raw.historyRefs.length
         )
             throw new Error('Invalid native history references');
+        if (Object.hasOwn(raw, 'previousRef')) {
+            const previous = resolvePreviousReference(raw, history, raw.previousRef);
+            if (Object.hasOwn(raw, 'previous') || !previous) throw new Error('Invalid native previous reference');
+            raw.previous = copy(previous);
+            delete raw.previousRef;
+        }
         raw.history = copy(history);
         delete raw.historyRefs;
     }

@@ -123,6 +123,44 @@ test('successor_p2_lossless_flat_archive_and_capacity', async () => {
     assert.throws(() => p.decodeNativeSnapshot({ ...encoded, historyRefs: ['old', 'old'] }, v2.history));
 });
 
+
+test('successor_archive_previous_reference_decodes_the_real_parent_losslessly', async () => {
+    const { native } = require('./fixtures/native-successor-03-terminal.json'),
+        { encodeNativeSnapshot, decodeNativeSnapshot } = await import('../services/NativeEconomicTrialOpsSuccessorProtocol.js');
+    const inline = { ...encodeNativeSnapshot(native), previous: native.previous };
+    delete inline.previousRef;
+    const compact = { ...inline, previousRef: native.history.at(-1).id };
+    delete compact.previous;
+    const before = structuredClone(compact), prefix = structuredClone(native.history);
+    const restored = decodeNativeSnapshot(compact, native.history);
+    assert.deepEqual(restored, native);
+    restored.previous.stage = 'changed in caller';
+    assert.deepEqual(native.history, prefix);
+    assert.deepEqual(compact, before);
+    assert.deepEqual(decodeNativeSnapshot({ ...inline, previous: native.previous }, native.history), native);
+});
+
+test('successor_archive_previous_reference_rejects_noncanonical_targets', async () => {
+    const { native } = require('./fixtures/native-successor-03-terminal.json'),
+        { encodeNativeSnapshot, decodeNativeSnapshot } = await import('../services/NativeEconomicTrialOpsSuccessorProtocol.js');
+    const inline = { ...encodeNativeSnapshot(native), previous: native.previous };
+    delete inline.previousRef;
+    const compact = { ...inline, previousRef: native.history.at(-1).id };
+    delete compact.previous;
+    for (const [snapshot, history] of [
+        [{ ...compact, previous: inline.previous }, native.history],
+        [{ ...compact, previousRef: 'missing' }, native.history],
+        [{ ...compact, previousRef: native.history[0].id }, native.history],
+        [{ ...compact, previousRef: native.current.request.id }, native.history],
+        [{ ...compact, previousRef: null }, native.history],
+        [{ ...compact, current: { ...compact.current, archiveRef: 'wrong' } }, native.history],
+        [compact, [...native.history].reverse()],
+        [{ ...compact, historyRefs: [compact.previousRef, compact.previousRef] }, [native.history.at(-1), native.history.at(-1)]],
+        [compact, [native.history[0], { ...native.history[1], nativeSnapshot: {} }]],
+        [compact, [native.history[0], { ...native.history[1], nativeSnapshot: native.history[0].nativeSnapshot }]]
+    ]) assert.throws(() => decodeNativeSnapshot(snapshot, history), /Invalid native .*references?/);
+});
+
 function until(f, predicate, max = 30) {
     for (let i = 0; i < max && !predicate(); i++) f.advance();
     assert.ok(predicate(), JSON.stringify(Memory.empire.remoteMining.nativeEconomicOps.current));
@@ -320,6 +358,18 @@ test('successor_p6_two_generations_real_first_delivery', async () => {
     until(f, () => f.scene.current.identity.trialId === next.trialId);
     assert.equal(Memory.empire.remoteMining.nativeEconomicOps.history.length, 2);
     assert.equal(f.scene.current.identity.sequence, 7);
+    const compactHistory = structuredClone(Memory.empire.remoteMining.nativeEconomicOps.history);
+    const previousSummary = global.RemoteTrialOps.status(q.id);
+    assert.equal(compactHistory.at(-1).nativeSnapshot.previousRef, compactHistory[0].id);
+    assert.equal(previousSummary.controlClosureConfirmed, true);
+    delete global.RemoteTrialOps;
+    f.restoreMemory();
+    f.advance();
+    const restoredSummary = global.RemoteTrialOps.status(q.id);
+    assert.deepEqual(Memory.empire.remoteMining.nativeEconomicOps.history, compactHistory);
+    assert.deepEqual(restoredSummary.economic.settlement, previousSummary.economic.settlement);
+    assert.equal(restoredSummary.economic.closureVerifiedAtTick, previousSummary.economic.closureVerifiedAtTick);
+    assert.equal(restoredSummary.controlClosureConfirmed, true);
     let capacityRefused = false;
     for (let cycle = 0; cycle < 3; cycle++) {
         until(f, () => Memory.empire.remoteMining.nativeEconomicOps.current.stage === 'terminal', 950);
@@ -731,4 +781,72 @@ test('successor_review_owned_stop_does_not_depend_on_history_read', async () => 
     assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
     assert.equal(Memory.empire.remoteRooms.W1N2.hold, true);
     assert.equal(Memory.empire.remoteMining.nativeEconomicOps.history, null);
+});
+
+test('successor_archive_real_03_switches_to_04_within_the_original_capacity', async () => {
+    const { createTerminal03Replay } = require('./helpers/native-successor-03-replay.cjs');
+    const r = await createTerminal03Replay();
+    const before = structuredClone(r.old);
+    const admitted = r.advance();
+    assert.equal(admitted.error, undefined);
+    assert.deepEqual(admitted.effects, []);
+    assert.equal(admitted.state.current.stage, 'preflight');
+    assert.deepEqual(admitted.state.history.slice(0, -1), before.native.history);
+    const archive = admitted.state.history.at(-1);
+    assert.equal(archive.nativeSnapshot.previousRef, before.native.history.at(-1).id);
+    assert.equal(Object.hasOwn(archive.nativeSnapshot, 'previous'), false);
+    assert.deepEqual(r.protocol.decodeNativeSnapshot(archive.nativeSnapshot, before.native.history), before.native);
+    assert.deepEqual(archive.economicState, before.economic);
+    assert.deepEqual(archive.settings.economicTrial, before.economicSettings);
+    assert.equal(JSON.stringify({ ...admitted.state, current: null }).length, 47345);
+    const persisted = JSON.parse(JSON.stringify(admitted));
+    const child = r.switchToChild(persisted);
+    assert.deepEqual(child.effects, ['replace_release_request', 'prepare_start', 'activate_start']);
+    assert.deepEqual(r.facts.economicState.previous, { ...before.economic.current, managed: false });
+    assert.equal(r.facts.economicState.current.evidence.confirmedSpawnCost, 0);
+    assert.equal(r.model.validNativeSuccessorState(JSON.parse(JSON.stringify(child.state))), true);
+    assert.deepEqual(r.old, before);
+});
+
+test('successor_archive_preserves_inline_previous_when_the_values_differ', async () => {
+    const { native } = require('./fixtures/native-successor-03-terminal.json'),
+        { encodeNativeSnapshot, decodeNativeSnapshot } = await import('../services/NativeEconomicTrialOpsSuccessorProtocol.js');
+    const raw = structuredClone(native);
+    raw.previous.observations.extra = 'distinct evidence';
+    const encoded = encodeNativeSnapshot(raw);
+    assert.equal(Object.hasOwn(encoded, 'previousRef'), false);
+    assert.deepEqual(decodeNativeSnapshot(encoded, raw.history), raw);
+});
+
+test('successor_archive_still_rejects_over_capacity_without_evicting_the_parent', async () => {
+    const { createTerminal03Replay } = require('./helpers/native-successor-03-replay.cjs');
+    const r = await createTerminal03Replay();
+    r.facts.archiveInputs.extra = 'x'.repeat(2500);
+    const result = r.advance();
+    assert.equal(result.error, 'history_capacity');
+    assert.deepEqual(result.effects, []);
+    assert.deepEqual(result.state.history, r.old.native.history);
+    assert.deepEqual(result.state.current, r.old.native.current);
+});
+
+
+test('successor_archive_real_03_summary_keeps_fees_and_closure_after_json_reload', async () => {
+    const { createTerminal03Replay } = require('./helpers/native-successor-03-replay.cjs');
+    const r = await createTerminal03Replay();
+    const { summarizeNativeEconomicOps } = await import('../services/NativeEconomicTrialOpsEvidence.js');
+    const { state } = r.switchToChild(r.advance());
+    const restored = JSON.parse(JSON.stringify(state));
+    const summary = summarizeNativeEconomicOps(restored, r.facts.economicState, r.clock);
+    const parent = summary.history.at(-1);
+    assert.equal(parent.id, r.old.native.current.request.id);
+    assert.equal(parent.controlClosureConfirmed, true);
+    assert.equal(parent.economic.closeAppliedAtTick, 84084310);
+    assert.equal(parent.economic.closureVerifiedAtTick, 84084311);
+    assert.equal(parent.economic.settlement.confirmedSpawnCost, 50);
+    assert.equal(parent.economic.settlement.returnedEnergy, 0);
+    assert.equal(summary.current.archive.oldCosts.confirmedSpawnCost, 50);
+    assert.deepEqual(summary.current.archive.originalWindow, restored.history.at(-1).originalWindow);
+    assert.equal(summary.current.economic.settlement.confirmedSpawnCost, 0);
+    delete restored.history.at(-1).nativeSnapshot.previousRef;
+    assert.equal(summarizeNativeEconomicOps(restored, r.facts.economicState, r.clock).status, 'state_invalid');
 });
