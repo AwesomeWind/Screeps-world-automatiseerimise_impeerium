@@ -1145,3 +1145,126 @@ test('source_damaged_miner_releases_station_for_functional_replacement', async (
     assert.equal(f.miner.memory.remoteLeg.state, 'returning');
     assert.equal(f.miner.memory.task.type, 'MOVE_TO');
 });
+
+test('telemetry_catches_up_on_first_completed_tick_after_missed_period', async (t) => {
+    const { installGlobals } = require('./helpers/remote-mining-fixture.cjs');
+    const globals = ['Game', 'Memory', 'EmpireServices', 'EmpireServicesVersion', 'RoomPhase', 'EmpireTelemetry'];
+    const before = Object.fromEntries(globals.map(key => [key, Object.getOwnPropertyDescriptor(global, key)]));
+    t.after(() => {
+        for (const [key, descriptor] of Object.entries(before)) {
+            if (descriptor) Object.defineProperty(global, key, descriptor);
+            else delete global[key];
+        }
+    });
+    installGlobals();
+    const { loop } = await import('../main.js');
+    const { default: Metrics } = await import('../services/EmpireMetricsService.js');
+    const run = (interrupted, bucket) => {
+        global.Memory = {};
+        global.Game = {
+            time: 84105150, cpu: { bucket, getUsed: () => 0 },
+            rooms: { W49N41: { controller: { my: true } } }, creeps: {}, spawns: {}
+        };
+        global.EmpireServicesVersion = '__SERVICE_VERSION__';
+        global.EmpireServices = [
+            {
+                name: 'RemoteMining', init() {}, analyze() {
+                    global.RoomPhase = { W49N41: { recovery: { evaluatedAt: Game.time } } };
+                },
+                run() {
+                    if (interrupted.has(Game.time)) throw Error('late tick interruption');
+                },
+                cleanup() {}
+            },
+            new Metrics('EmpireMetrics')
+        ];
+        const checkpoints = {};
+        for (let tick = 84105150; tick <= 84105167; tick++) {
+            Game.time = tick;
+            if (interrupted.has(tick)) assert.throws(loop, /late tick interruption/);
+            else loop();
+            checkpoints[tick] = Memory.empire.control.telemetry.updatedAt;
+        }
+        return { checkpoints, control: Memory.empire.control };
+    };
+    const normal = run(new Set(), 3);
+    assert.equal(normal.checkpoints[84105167], 84105160);
+    const stalled = run(new Set([84105160]), 3);
+    assert.equal(stalled.checkpoints[84105160], 84105150);
+    assert.equal(stalled.checkpoints[84105161], 84105161);
+    assert.equal(stalled.checkpoints[84105167], 84105161);
+    assert.equal(stalled.control.metrics.rooms.W49N41.capturedAt, 84105150);
+    assert.deepEqual(stalled.control.telemetry.history.map(sample => sample.tick), [84105150, 84105161]);
+    const delayed = run(new Set([84105160, 84105161, 84105162]), 9000);
+    assert.equal(delayed.checkpoints[84105162], 84105150);
+    assert.equal(delayed.checkpoints[84105163], 84105163);
+});
+
+
+test('telemetry_commits_only_a_current_completed_tick_and_preserves_version_history', async () => {
+    await createRemoteFixture();
+    const { default: Telemetry } = await import('../core/RuntimeTelemetry.js');
+    const control = Memory.empire.control;
+    control.policy.telemetry.persistInterval = 10;
+    Game.time = 100;
+    Telemetry.beginTick('old');
+    Telemetry.finishTick();
+    const original = structuredClone(control.telemetry);
+    assert.equal(original.updatedAt, 100);
+
+    Game.time = 111;
+    Telemetry.finishTick(); // A stale global must not represent an unstarted tick.
+    assert.deepEqual(control.telemetry, original);
+    Telemetry.beginTick('old');
+    assert.throws(() => Telemetry.measure('Interrupted', 'run', () => { throw Error('interrupted'); }), /interrupted/);
+    Telemetry.finishTick();
+    assert.deepEqual(control.telemetry, original);
+
+    Game.time = 112;
+    Telemetry.beginTick('new');
+    Telemetry.finishTick();
+    const replacement = structuredClone(control.telemetry);
+    assert.equal(replacement.updatedAt, 112);
+    assert.equal(replacement.codeVersion, 'new');
+    assert.deepEqual(replacement.history.map(s => s.tick), [112]);
+    Telemetry.beginTick('another');
+    Telemetry.finishTick();
+    assert.deepEqual(control.telemetry, replacement);
+
+    Game.time = 111;
+    Telemetry.beginTick('new');
+    Telemetry.finishTick();
+    assert.deepEqual(control.telemetry, replacement);
+
+    control.telemetry.updatedAt = 'invalid';
+    Game.time = 113;
+    control.policy.telemetry.enabled = false;
+    Telemetry.beginTick('new');
+    Telemetry.finishTick();
+    assert.equal(control.telemetry.updatedAt, 'invalid');
+    control.policy.telemetry.enabled = true;
+    Telemetry.beginTick('new');
+    Telemetry.finishTick();
+    assert.equal(control.telemetry.updatedAt, 113);
+});
+
+test('telemetry_aggregation_failure_cannot_publish_a_partial_sample', async () => {
+    await createRemoteFixture();
+    const { default: Telemetry } = await import('../core/RuntimeTelemetry.js');
+    const control = Memory.empire.control;
+    Game.time = 100;
+    Telemetry.beginTick('old');
+    Telemetry.finishTick();
+    const before = structuredClone(control.telemetry);
+    Game.time = 111;
+    Telemetry.beginTick('new');
+    Object.defineProperty(global.EmpireTelemetry.services, 'BadService', {
+        enumerable: true, get() { throw Error('aggregation failed'); }
+    });
+    assert.throws(() => Telemetry.finishTick(), /aggregation failed/);
+    assert.deepEqual(control.telemetry, before);
+    Telemetry.beginTick('new');
+    Telemetry.finishTick();
+    assert.equal(control.telemetry.updatedAt, 111);
+    assert.deepEqual(control.telemetry.history.map(s => s.tick), [111]);
+});

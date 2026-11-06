@@ -52,13 +52,14 @@ const RuntimeTelemetry = {
     },
 
     finishTick() {
-        if (!global.EmpireTelemetry || !global.EmpireTelemetry.enabled) return;
-        const end = cpuUsed();
         const state = global.EmpireTelemetry;
+        const tick = Game.time;
+        if (!state?.enabled || !Number.isSafeInteger(tick) || tick < 0 || state.tick !== tick) return;
+        const end = cpuUsed();
         state.totalCpu = state.startedAt !== null && end !== null ? Math.max(0, end - state.startedAt) : null;
         const control = ensureEmpireControl();
+        const hasErrors = Object.keys(state.errors).length > 0;
         if (control.metrics.remoteObservation?.current) {
-            const hasErrors = Object.keys(state.errors).length > 0;
             control.metrics.remoteObservation = hasErrors ?
                 pauseObservation(control.metrics.remoteObservation, { tick: Game.time, reason: 'runtime_error' }) :
                 finishObservationTick(control.metrics.remoteObservation, {
@@ -71,34 +72,46 @@ const RuntimeTelemetry = {
             const last = Array.isArray(history.samples) && history.samples[history.samples.length - 1];
             if (last && last.tick === Game.time && last.codeVersion === state.codeVersion) last.totalCpu = state.totalCpu;
         }
+        if (hasErrors) return;
         const interval = Math.max(1, control.policy.telemetry.persistInterval || 10);
-        if (Game.time % interval !== 0) return;
         const saved = control.telemetry;
-        if (saved.codeVersion !== state.codeVersion) {
-            saved.codeVersion = state.codeVersion;
-            saved.history = [];
-            saved.services = {};
-            delete saved.totalCpuEwma;
+        const sameVersion = saved.codeVersion === state.codeVersion;
+        if (Number.isSafeInteger(saved.updatedAt) && saved.updatedAt >= 0) {
+            if (saved.updatedAt >= tick || (sameVersion && tick - saved.updatedAt < interval)) return;
         }
-        saved.updatedAt = Game.time;
-        if (Number.isFinite(state.totalCpu)) saved.totalCpuEwma = ewma(saved.totalCpuEwma, state.totalCpu);
-        if (!Array.isArray(saved.history)) saved.history = [];
-        if (!saved.history.length || saved.history[saved.history.length - 1].tick !== Game.time) {
-            saved.history.push({ tick: Game.time, codeVersion: state.codeVersion, totalCpu: state.totalCpu, bucket: Game.cpu && Number.isFinite(Game.cpu.bucket) ? Game.cpu.bucket : null });
-        }
+
+        // Only publish after this tick's sample and all aggregates are ready.
+        const next = {
+            ...saved,
+            codeVersion: state.codeVersion,
+            history: sameVersion && Array.isArray(saved.history) ? saved.history.slice() : [],
+            services: sameVersion ? { ...saved.services } : {}
+        };
+        if (!sameVersion) delete next.totalCpuEwma;
+        if (Number.isFinite(state.totalCpu)) next.totalCpuEwma = ewma(next.totalCpuEwma, state.totalCpu);
+        const sample = {
+            tick,
+            codeVersion: state.codeVersion,
+            totalCpu: state.totalCpu,
+            bucket: Game.cpu && Number.isFinite(Game.cpu.bucket) ? Game.cpu.bucket : null
+        };
+        if (next.history.at(-1)?.tick === tick) next.history[next.history.length - 1] = sample;
+        else next.history.push(sample);
         const limit = Math.min(50, Number.isSafeInteger(control.policy.telemetry.historyLimit) && control.policy.telemetry.historyLimit > 0 ? control.policy.telemetry.historyLimit : 50);
-        if (saved.history.length > limit) saved.history.splice(0, saved.history.length - limit);
-        const samples = saved.history.map(sample => sample.totalCpu).filter(Number.isFinite).sort((a, b) => a - b);
-        saved.totalCpuP95 = samples.length ? samples[Math.ceil(samples.length * 0.95) - 1] : null;
-        saved.knownCpuSamples = samples.length;
-        if (!saved.services) saved.services = {};
-        for (const name in state.services) {
-            if (!saved.services[name]) saved.services[name] = {};
-            for (const phase in state.services[name]) {
+        if (next.history.length > limit) next.history.splice(0, next.history.length - limit);
+        const samples = next.history.map(entry => entry.totalCpu).filter(Number.isFinite).sort((a, b) => a - b);
+        next.totalCpuP95 = samples.length ? samples[Math.ceil(samples.length * 0.95) - 1] : null;
+        next.knownCpuSamples = samples.length;
+        for (const [name, phases] of Object.entries(state.services)) {
+            const totals = { ...next.services[name] };
+            for (const [phase, cpu] of Object.entries(phases)) {
                 const key = `${phase}Ewma`;
-                saved.services[name][key] = ewma(saved.services[name][key], state.services[name][phase]);
+                totals[key] = ewma(totals[key], cpu);
             }
+            next.services[name] = totals;
         }
+        next.updatedAt = tick;
+        control.telemetry = next;
     }
 };
 
