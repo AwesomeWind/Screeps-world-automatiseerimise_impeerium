@@ -146,7 +146,13 @@ export default class NativeEconomicTrialOpsService extends BaseService {
                 if (!equal(policy.nativeTrialOps, { enabled: true, request: requested })) return;
                 // A partially persisted archive must never leave the old submission armed for replay.
                 policy.nativeTrialOps.enabled = false;
+                const retainedProof = result.state.previousAbort ? JSON.stringify(result.state) : null;
                 this.persist(result.state);
+                if (retainedProof !== null &&
+                    JSON.stringify(Memory.empire.remoteMining.nativeEconomicOps) !== retainedProof) {
+                    this.lastError = 'archive_readback_unconfirmed';
+                    return;
+                }
                 if (!equal(policy.nativeTrialOps, { enabled: false, request: requested })) return;
                 policy.nativeTrialOps.enabled = true;
             } else this.persist(result.state);
@@ -289,7 +295,7 @@ export default class NativeEconomicTrialOpsService extends BaseService {
             if (
                 !equal(effect.request, c.releaseRequest) ||
                 !equal(facts.economicState.current, parent) ||
-                state.history.at(-1).atTick >= clock.tick
+                Math.max(state.history.at(-1).atTick, c.preflightAt) >= clock.tick
             )
                 return false;
             policy.economicTrial = { enabled: true, request: copy(effect.request) };

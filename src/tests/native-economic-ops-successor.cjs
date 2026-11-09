@@ -1113,27 +1113,40 @@ test('unadmitted_p2_fixed_submit_and_exit_fit_wire_and_round_trip_the_full_reque
 });
 
 
-async function unadmittedRuntime() {
+async function unadmittedRuntime(replay) {
     const {createUnadmitted04Replay} = require('./helpers/native-unadmitted-04-replay.cjs');
-    const r = await createUnadmitted04Replay(), p = r.protocol;
+    const r = await (replay ?? createUnadmitted04Replay)(), p = r.protocol;
     const {default: Service} = await import('../services/NativeEconomicTrialOpsService.js');
     const {resolveNativeSuccessorRelease} = await import('../services/NativeEconomicTrialOpsOwnership.js');
     const {advanceEconomicTrial} = await import('../services/RemoteEconomicTrialModel.js');
-    const remote = {nativeEconomicOps:r.native,economicTrials:r.economic,operations:{}};
-    const policy = {enabled:false,evidenceWindow:{enabled:false},nativeTrialOps:structuredClone(r.closed.nativeSettings),
+    let remote = {nativeEconomicOps:r.native,economicTrials:r.economic,operations:{}};
+    let policy = {enabled:false,evidenceWindow:{enabled:false},nativeTrialOps:structuredClone(r.closed.nativeSettings),
         economicTrial:structuredClone(r.closed.economicSettings)};
-    const config = {enabled:false,hold:true};
+    let config = {enabled:false,hold:true};
     global.Memory={empire:{control:{policy:{remoteMining:policy,homeEvidence:{enabled:false}}},remoteMining:remote,
         remoteRooms:{[p.NATIVE_SUCCESSOR_PROFILE.targetRoom]:config}}};
-    const service=new Service('NativeEconomicTrialOps');
-    service.clock=()=>({...r.clock});
+    let service;
     const facts=()=>({...r.facts,observersClosed:policy.evidenceWindow.enabled===false,settings:policy.nativeTrialOps,economicSettings:policy.economicTrial,economicState:remote.economicTrials,
         nativeState:remote.nativeEconomicOps,executionClosed:!policy.enabled&&config.hold,
         parentProof:{valid:p.nativeSuccessorParentMatches(policy.nativeTrialOps.request,remote.nativeEconomicOps,remote.economicTrials,policy.economicTrial),
             reason:'parent_invalid'},
         archiveInputs:{economicTrial:policy.economicTrial,nativeTrialOps:policy.nativeTrialOps}});
-    service.collectFacts=facts;
-    service.init();
+    const createService = () => {
+        service = new Service('NativeEconomicTrialOps');
+        service.clock = () => ({...r.clock});
+        service.collectFacts = facts;
+        service.init();
+    };
+    createService();
+    const reset = () => {
+        global.Memory = JSON.parse(JSON.stringify(Memory));
+        remote = Memory.empire.remoteMining;
+        policy = Memory.empire.control.policy.remoteMining;
+        config = Memory.empire.remoteRooms[p.NATIVE_SUCCESSOR_PROFILE.targetRoom];
+        delete global.RemoteTrialOps;
+        delete global.NativeSuccessorHandoff;
+        createService();
+    };
     const tick=()=>{r.clock.tick++;r.clock.nowMs+=1000;};
     const evaluateEconomic=()=> {
         const parent=r.economic.current, request=policy.economicTrial.request;
@@ -1152,7 +1165,8 @@ async function unadmittedRuntime() {
         const {runInNewContext}=require('node:vm');
         return runInNewContext(mode==='submit'?p.makeNativeSuccessorSubmission(q):p.makeNativeUnadmittedExit(q),{global});
     };
-    return {...r,remote,policy,config,service,facts,tick,evaluateEconomic,call};
+    return {...r, get remote() {return remote;}, get policy() {return policy;},
+        get config() {return config;}, get service() {return service;}, facts, tick, evaluateEconomic, call, reset};
 }
 
 test('unadmitted_p3_fixed_entry_archives_then_releases_10_and_starts_11_offline', async () => {
@@ -1282,4 +1296,226 @@ test('native_07_validation_rejects_oversize_root_before_decoding_archives', asyn
         JSON.parse = parse;
     }
     assert.equal(decodes, 0);
+});
+
+async function createClosed07Replay() {
+    const {createUnadmitted04Replay} = require('./helpers/native-unadmitted-04-replay.cjs');
+    const r = await createUnadmitted04Replay();
+    const sealed = structuredClone(require('./fixtures/native-successor-07-closed.json'));
+    const {native, economic, policy} = sealed;
+    const clock = {tick: sealed.tick + 20, nowMs: native.current.request.notAfterMs + 1, codeVersion: 'offline-07-successor'};
+    const q = {...structuredClone(native.current.request), id: 'nops-w48-offline-08', trialId: 'econ-w48-offline-08',
+        unadmitted: {nativeId: native.current.request.id, highWater: 11}, releaseSequence: 12, startSequence: 13,
+        codeVersion: clock.codeVersion, issuedAtMs: clock.nowMs, stopAtMs: clock.nowMs + 5280000,
+        notAfterMs: clock.nowMs + 5400000, acceptNotBeforeTick: clock.tick, acceptNotAfterTick: clock.tick + 10};
+    const settings = {enabled: true, request: q};
+    return {...r, native, economic, clock, q, facts: {...r.facts, economicState: economic,
+        nativeState: native, settings, economicSettings: policy.economicTrial,
+        archiveInputs: {economicTrial: policy.economicTrial, nativeTrialOps: settings}},
+        closed: {economicSettings: policy.economicTrial, nativeSettings: policy.nativeTrialOps}};
+}
+
+test('closed07_recovery_retains_sealed_state_and_all_four_archives_before_release', async t => {
+    const r = await createClosed07Replay();
+    const result = r.model.advanceNativeSuccessor(r.native, {kind: 'evaluate'}, r.facts, r.clock, r.protocol.NATIVE_SUCCESSOR_PROFILE);
+    assert.equal(result.error, undefined);
+    assert.deepEqual(result.effects, []);
+    assert.deepEqual(result.state.history, r.native.history);
+    assert.equal(result.state.current.stage, 'preflight');
+    const reset = JSON.parse(JSON.stringify(result.state));
+    const projection = JSON.stringify({...reset, current: null}).length;
+    assert.ok(projection <= 49152);
+    t.diagnostic('07 archive projection: ' + projection + '/49152');
+    assert.ok(JSON.stringify(reset).length <= 65536);
+    assert.equal(r.model.validNativeSuccessorState(reset), true);
+    assert.deepEqual(r.protocol.restoreNativePreReleaseAbort(reset), r.native);
+    assert.deepEqual(r.model.successorParent(reset), r.economic.current);
+    assert.equal(r.economic.current.managed, true);
+    assert.equal(r.economic.current.evidence.confirmedSpawnCost, 50);
+});
+
+test('closed07_recovery_real_service_previews_then_releases_12_and_starts_13_after_reset', async t => {
+    const r = await unadmittedRuntime(createClosed07Replay);
+    const submitChars = JSON.stringify(r.protocol.makeNativeSuccessorSubmission(r.q)).length;
+    const exitChars = JSON.stringify(r.protocol.makeNativeUnadmittedExit(r.q)).length;
+    assert.ok(submitChars <= 1024 && exitChars <= 1024);
+    t.diagnostic('submit/exit wire: ' + submitChars + '/' + exitChars + ' chars');
+
+    assert.equal(r.call('submit'), true);
+    assert.equal(r.call('submit'), false);
+    assert.equal(r.remote.economicTrials.current.managed, true);
+    r.service.analyze();
+    assert.equal(r.remote.nativeEconomicOps.current.stage, 'preflight');
+    assert.equal(r.policy.economicTrial.request.sequence, 8);
+    r.reset();
+    r.tick(); r.evaluateEconomic(); r.service.analyze();
+    assert.equal(r.policy.economicTrial.request.sequence, 12);
+    assert.equal(r.remote.economicTrials.current.managed, true);
+    r.tick(); r.service.analyze(); r.evaluateEconomic();
+    assert.equal(r.remote.economicTrials.lastSequence, 12);
+    assert.equal(r.remote.economicTrials.current.managed, false);
+    r.tick(); r.service.analyze();
+    assert.equal(r.policy.economicTrial.request.sequence, 13);
+    assert.equal(r.policy.economicTrial.enabled, false);
+    r.tick(); r.service.analyze(); r.evaluateEconomic(); r.service.cleanup();
+    assert.equal(r.remote.economicTrials.current.identity.sequence, 13);
+    assert.equal(r.remote.economicTrials.current.safeStreak, 0);
+    assert.equal(r.remote.economicTrials.current.evidence.confirmedSpawnCost, 0);
+    assert.equal(r.remote.nativeEconomicOps.current.stage, 'observing');
+    assert.deepEqual(r.protocol.restoreNativePreReleaseAbort(r.remote.nativeEconomicOps), r.native);
+    assert.deepEqual(r.remote.nativeEconomicOps.history, r.native.history);
+    const summary = r.service.summarize();
+    assert.deepEqual(summary.previous.request, r.native.current.request);
+    assert.deepEqual(summary.previous.outcome, r.native.current.outcome);
+    assert.equal(summary.current.archive.source, 'native-pre-release-abort');
+    assert.equal(summary.current.archive.originalWindow.notAfterMs, r.native.current.request.notAfterMs);
+    assert.equal(summary.current.archive.oldCosts.confirmedSpawnCost, 50);
+    assert.equal(r.call('exit'), true);
+    assert.equal(r.call('exit'), false);
+});
+
+test('closed07_recovery_does_not_rearm_when_archive_write_returns_without_persisting', async () => {
+    const r = await unadmittedRuntime(createClosed07Replay);
+    assert.equal(r.call('submit'), true);
+    const persist = r.service.persist;
+    r.service.persist = () => {
+        assert.equal(r.policy.nativeTrialOps.enabled, false);
+    };
+    r.service.analyze();
+    assert.equal(r.policy.nativeTrialOps.enabled, false);
+    assert.deepEqual(r.remote.nativeEconomicOps, r.native);
+    assert.equal(r.remote.economicTrials.current.managed, true);
+    assert.equal(r.call('submit'), false);
+    r.service.persist = persist;
+    r.tick(); r.service.analyze(); r.evaluateEconomic();
+    assert.equal(r.policy.economicTrial.request.sequence, 8);
+});
+
+test('closed07_recovery_unknown_archive_or_release_never_replays_after_reload', async () => {
+    for (const failure of ['archive before write', 'archive after write', 'release after write']) {
+        const r = await unadmittedRuntime(createClosed07Replay);
+        assert.equal(r.call('submit'), true);
+        const persist = r.service.persist.bind(r.service);
+        if (failure.startsWith('archive')) {
+            r.service.persist = state => {
+                assert.equal(r.policy.nativeTrialOps.enabled, false);
+                if (failure === 'archive after write') persist(state);
+                throw Error('unknown archive');
+            };
+            r.service.analyze();
+        } else {
+            r.service.analyze(); r.tick();
+            const write = r.service.applyEffect.bind(r.service);
+            r.service.applyEffect = effect => {
+                assert.equal(effect.type, 'replace_release_request');
+                assert.equal(write(effect), true);
+                throw Error('unknown release');
+            };
+            r.service.analyze();
+        }
+        r.reset();
+        r.service.applyEffect = () => { assert.fail('effect replayed after ' + failure); };
+        r.tick(); r.service.analyze(); r.evaluateEconomic(); r.service.cleanup();
+        assert.equal(r.remote.economicTrials.current.managed, true);
+        assert.equal(r.remote.economicTrials.lastSequence, 7);
+        assert.deepEqual(r.remote.nativeEconomicOps.history, r.native.history);
+        assert.equal(r.call('submit'), false);
+        if (failure === 'release after write') {
+            assert.equal(r.remote.nativeEconomicOps.current.unknownEffect, true);
+            assert.equal(r.remote.economicTrials.nativeReleaseReceipt.status, 'refused');
+        }
+    }
+});
+
+test('closed07_recovery_a_missed_native_tick_cannot_release_03', async () => {
+    const r = await unadmittedRuntime(createClosed07Replay);
+    assert.equal(r.call('submit'), true);
+    r.service.analyze(); r.tick(); r.service.analyze();
+    assert.equal(r.policy.economicTrial.request.sequence, 12);
+    r.tick(); r.evaluateEconomic(); // Native did not reach the release tick.
+    assert.equal(r.remote.economicTrials.nativeReleaseReceipt.reason, 'native_release_tick_unconfirmed');
+    assert.equal(r.remote.economicTrials.lastSequence, 7);
+    assert.equal(r.remote.economicTrials.current.managed, true);
+    r.tick(); r.service.analyze(); r.evaluateEconomic();
+    assert.equal(r.remote.nativeEconomicOps.current.outcome.reason, 'clock_discontinuity');
+    assert.equal(r.remote.nativeEconomicOps.current.startRequest, null);
+    assert.deepEqual(r.protocol.restoreNativePreReleaseAbort(r.remote.nativeEconomicOps), r.native);
+});
+
+test('closed07_recovery_rejects_damaged_proof_expiry_and_occupied_retention_slot', async () => {
+    const r = await createClosed07Replay();
+    const advance = (n, facts, clock = r.clock) =>
+        r.model.advanceNativeSuccessor(n, {kind: 'evaluate'}, facts, clock, r.protocol.NATIVE_SUCCESSOR_PROFILE);
+    for (const mutate of [
+        f => { f.economicState.current.evidence.confirmedSpawnCost++; },
+        f => { f.economicState.current.managed = false; },
+        f => { f.economicSettings.request.sequence = 10; },
+        f => { f.settings.request.unadmitted.highWater = 9; },
+        f => { f.settings.request.issuedAtMs = r.native.current.request.notAfterMs; },
+        f => { f.accountingKnown = false; },
+        f => { f.clockFresh = false; }
+    ]) {
+        const facts = structuredClone(r.facts);
+        mutate(facts);
+        const result = advance(r.native, facts);
+        assert.ok(result.error, mutate.toString());
+        assert.deepEqual(result.effects, []);
+        assert.deepEqual(result.state.history, r.native.history);
+    }
+    const accepted = advance(r.native, r.facts).state;
+    for (const mutate of [
+        n => { n.previousRef = n.history.at(-1).id; },
+        n => { n.previousAbort.historyRefs.reverse(); },
+        n => { n.previousAbort.current.request.parentProofRef = n.history[0].id; },
+        n => { n.previousAbort.current.request.parent = r.q.parent; },
+        n => { n.previousAbort.current.intents.prepare_start = {status: 'planned', tick: n.previousAbort.current.preflightAt}; },
+        n => { n.previousAbort.current.unknownEffect = true; },
+        n => { n.previousAbort.current.outcome.clockDiscontinuity.phase = 'release_writing'; },
+        n => { n.current.archiveRef = n.history[0].id; },
+        n => { n.extra = 'x'.repeat(500); }
+    ]) {
+        const changed = structuredClone(accepted);
+        mutate(changed);
+        assert.equal(r.model.validNativeSuccessorState(changed), false, mutate.toString());
+    }
+    const finished = structuredClone(accepted);
+    finished.current.stage = 'terminal';
+    finished.current.outcome = {reason: 'request_changed', decidedAtTick: finished.current.lastTick};
+    assert.equal(r.model.validNativeSuccessorState(finished), true);
+    const q = {...r.q, id: 'nops-w48-offline-09', trialId: 'econ-w48-offline-09',
+        releaseSequence: 14, startSequence: 15, unadmitted: {nativeId: r.q.id, highWater: 13}};
+    const blocked = advance(finished, {...r.facts, nativeState: finished, settings: {enabled: true, request: q}});
+    assert.ok(blocked.error);
+    assert.deepEqual(blocked.effects, []);
+    assert.deepEqual(blocked.state.previousAbort, accepted.previousAbort);
+    assert.deepEqual(blocked.state.history, r.native.history);
+});
+
+test('closed07_recovery_unknown_start_activation_withdraws_scope_without_replay', async () => {
+    const r = await unadmittedRuntime(createClosed07Replay);
+    assert.equal(r.call('submit'), true);
+    r.service.analyze();
+    r.tick(); r.service.analyze();
+    r.tick(); r.service.analyze(); r.evaluateEconomic();
+    r.tick(); r.service.analyze();
+    const write = r.service.applyEffect.bind(r.service);
+    r.service.applyEffect = effect => {
+        assert.equal(effect.type, 'activate_start');
+        assert.equal(write(effect), true);
+        assert.equal(r.policy.enabled, true);
+        throw Error('unknown start activation');
+    };
+    r.tick(); r.service.analyze(); r.evaluateEconomic(); r.service.cleanup();
+    assert.equal(r.remote.nativeEconomicOps.current.unknownEffect, true);
+    assert.equal(r.remote.nativeEconomicOps.current.intents.activate_start.status, 'unknown');
+    assert.equal(r.policy.enabled, false);
+    assert.equal(r.config.enabled, false);
+    assert.equal(r.policy.economicTrial.enabled, false);
+    assert.equal(r.remote.economicTrials.lastSequence, 12);
+    r.reset();
+    r.service.applyEffect = () => { assert.fail('start activation replayed'); };
+    r.tick(); r.service.analyze(); r.evaluateEconomic(); r.service.cleanup();
+    assert.equal(r.remote.economicTrials.lastSequence, 12);
+    assert.equal(r.policy.enabled, false);
+    assert.deepEqual(r.protocol.restoreNativePreReleaseAbort(r.remote.nativeEconomicOps), r.native);
 });

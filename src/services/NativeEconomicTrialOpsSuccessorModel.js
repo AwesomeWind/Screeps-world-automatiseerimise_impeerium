@@ -11,6 +11,10 @@ import {
     nativeSuccessorPrevious,
     nativeUnadmittedReady,
     resolveArchivedEconomicState,
+    encodeNativePreReleaseAbort,
+    nativePreReleaseAbortForValidation,
+    isNativePreReleaseAbort,
+    matchPreReleaseAbortParent,
     exactNativeFields
 } from './NativeEconomicTrialOpsSuccessorProtocol.js';
 import {
@@ -101,7 +105,7 @@ function validClockDiscontinuity(outcome) {
         (detail.tickDiscontinuous || detail.wallClockBackwards);
 }
 
-function validCurrent(c) {
+function validCurrent(c, retainedArchiveId) {
     return (
         record(c) &&
         savedRequestValid(c.request) &&
@@ -110,7 +114,7 @@ function validCurrent(c) {
         integer(c.lastNowMs) &&
         integer(c.preflightAt) &&
         c.preflightAt <= c.lastTick &&
-        c.archiveRef === (c.request.unadmitted?.nativeId ?? c.request.parent.nativeId) &&
+        c.archiveRef === (retainedArchiveId ?? c.request.unadmitted?.nativeId ?? c.request.parent.nativeId) &&
         Array.isArray(c.events) &&
         c.events.length <= 32 &&
         c.events.every((e) => record(e) && integer(e.tick) && typeof e.reason === 'string' && e.reason.length <= 160) &&
@@ -152,12 +156,12 @@ function validCurrent(c) {
     );
 }
 
-function validSuccessorHeader(state) {
+function validSuccessorHeader(state, retainedArchiveId) {
     if (
         !record(state) ||
         state.schemaVersion !== 2 ||
         !integer(state.lastAcceptedStartSequence) ||
-        !validCurrent(state.current) ||
+        !validCurrent(state.current, retainedArchiveId) ||
         state.lastAcceptedStartSequence !== state.current.request.startSequence ||
         !Array.isArray(state.rejections) ||
         state.rejections.length > 16 ||
@@ -175,19 +179,23 @@ function validSuccessorHeader(state) {
     return true;
 }
 
-function validSuccessorParentLink(state, parent, olderParent) {
+function validSuccessorParentLink(state, parent, olderParent, retainedAbort) {
     if (!parent) return false;
     const {archive, native, economic} = parent;
     const {current} = state;
+    const validBinding = retainedAbort
+        ? validSuccessorHeader(retainedAbort) && validSuccessorParentLink(retainedAbort, parent, olderParent) &&
+            matchPreReleaseAbortParent(current.request, retainedAbort, economic, archive.settings.economicTrial, parent, olderParent)
+        : (!current.request.unadmitted || equal(archive.settings.nativeTrialOps, {enabled: true, request: current.request})) &&
+            equal(nativeSuccessorPrevious(state), native.current) &&
+            matchNativeSuccessorParent(current.request, native, economic, archive.settings.economicTrial,
+                () => ({oldNative: olderParent?.native, oldEconomic: olderParent?.economic}));
     return (
         current.archiveRef === archive.id &&
-        (!current.request.unadmitted || equal(archive.settings.nativeTrialOps, {enabled: true, request: current.request})) &&
-        equal(nativeSuccessorPrevious(state), native.current) &&
+        validBinding &&
         [current.releaseRequest, current.startRequest].every(
             q => q === null || q.configFingerprint === economic.current.configFingerprint
-        ) &&
-        matchNativeSuccessorParent(current.request, native, economic, archive.settings.economicTrial,
-            () => ({oldNative: olderParent?.native, oldEconomic: olderParent?.economic}))
+        )
     );
 }
 
@@ -195,8 +203,13 @@ export function validNativeSuccessorState(state) {
     try {
         const history = state?.history;
         if (!record(state) || state.schemaVersion !== 2 ||
-            !Array.isArray(history) || !history.length || history.length > 4 || !validSuccessorHeader(state))
+            !Array.isArray(history) || !history.length || history.length > 4)
             return false;
+
+        const hasRetainedAbort = Object.hasOwn(state, 'previousAbort');
+        if (!validSuccessorHeader(state, hasRetainedAbort ? history.at(-1)?.id : undefined)) return false;
+        if (hasRetainedAbort && JSON.stringify({...state, current: null}).length > 49152) return false;
+        const retainedAbort = hasRetainedAbort ? nativePreReleaseAbortForValidation(state) : undefined;
 
         const ids = new Set();
         let parent, olderParent;
@@ -217,7 +230,8 @@ export function validNativeSuccessorState(state) {
             if (
                 !validEconomicTrialState(economic) ||
                 !(native.schemaVersion === 2
-                    ? validSuccessorHeader(native) && validSuccessorParentLink(native, parent, olderParent)
+                    ? !Object.hasOwn(native, 'previousAbort') && validSuccessorHeader(native) &&
+                        validSuccessorParentLink(native, parent, olderParent)
                     : validLegacy(native)) ||
                 native.current?.request.id !== archive.id ||
                 !equal(archive.originalWindow, {
@@ -232,7 +246,7 @@ export function validNativeSuccessorState(state) {
             olderParent = parent;
             parent = {archive, native, economic};
         }
-        return validSuccessorParentLink(state, parent, olderParent);
+        return validSuccessorParentLink(state, parent, olderParent, retainedAbort);
     } catch {
         return false;
     }
@@ -273,6 +287,7 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
         input.lastRejection?.id === q.id ||
         input.lastRejection?.trialId === q.trialId ||
         input.lastAcceptedStartSequence >= q.startSequence;
+    const retainAbort = !!q.unadmitted && isNativePreReleaseAbort(input);
     const reason = !validation.valid
         ? validation.reason
         : replayed
@@ -286,13 +301,13 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
                 ? 'parent_invalid'
                 : !equal(input, facts.nativeState)
                 ? 'parent_changed'
-                : history.length >= 4
+                : history.length >= 4 && !retainAbort
                   ? 'history_capacity'
                   : input.rejections?.length >= 16
                     ? 'rejection_capacity'
                     : null;
     if (reason) return rejected(input, q, clock, reason);
-    const archive = createNativeParentArchive(input, facts.economicState, facts.archiveInputs, clock);
+    const archive = retainAbort ? history.at(-1) : createNativeParentArchive(input, facts.economicState, facts.archiveInputs, clock);
     const current = {
         request: copy(q),
         stage: 'preflight',
@@ -311,8 +326,9 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
         schemaVersion: 2,
         lastAcceptedStartSequence: q.startSequence,
         current,
-        ...(q.unadmitted ? { previousRef: archive.id } : { previous: copy(input.current) }),
-        history: [...copy(history), archive],
+        ...(retainAbort ? { previousAbort: encodeNativePreReleaseAbort(input) }
+            : q.unadmitted ? { previousRef: archive.id } : { previous: copy(input.current) }),
+        history: retainAbort ? copy(history) : [...copy(history), archive],
         rejections: copy(input.rejections || []),
         ...(input.lastRejection ? { lastRejection: copy(input.lastRejection) } : {})
     };

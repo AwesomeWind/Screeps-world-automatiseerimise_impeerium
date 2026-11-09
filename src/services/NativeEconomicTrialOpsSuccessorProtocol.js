@@ -180,6 +180,7 @@ function resolvePreviousReference(snapshot, history, ref) {
 }
 
 export function nativeSuccessorPrevious(state) {
+    if (Object.hasOwn(state, 'previousAbort')) return nativePreReleaseAbortForValidation(state).current;
     if (!Object.hasOwn(state, 'previousRef')) return state.previous;
     const previous = resolvePreviousReference(state, state.history, state.previousRef);
     if (Object.hasOwn(state, 'previous') || !previous) throw Error('Invalid native previous reference');
@@ -199,6 +200,68 @@ export function encodeNativeSnapshot(raw) {
         delete snapshot.history;
     }
     return snapshot;
+}
+
+const PRE_RELEASE_INHERITED_REQUEST_FIELDS = [
+    'schemaVersion', 'profileId', 'parent',
+    'allowParentArchive', 'allowEconomicRelease', 'allowStart', 'allowHold'
+];
+
+// The root retains the full history. Archive 04 supplies fields shared with the sealed request.
+export function encodeNativePreReleaseAbort(state) {
+    if (!isNativePreReleaseAbort(state)) throw Error('Invalid pre-release abort');
+    const snapshot = encodeNativeSnapshot(state);
+    const request = snapshot.current.request;
+    const inherited = state.history.at(-1).nativeSnapshot.current.request;
+    if (!PRE_RELEASE_INHERITED_REQUEST_FIELDS.every(key => Object.hasOwn(inherited, key) && equal(request[key], inherited[key])))
+        throw Error('Retained request differs from archived proof');
+    for (const key of PRE_RELEASE_INHERITED_REQUEST_FIELDS) delete request[key];
+    request.parentProofRef = inherited.parent.nativeId;
+    return snapshot;
+}
+
+export function restoreNativePreReleaseAbort(state) {
+    const decoded = nativePreReleaseAbortForValidation(state);
+    return {...decoded, history: copy(decoded.history)};
+}
+
+// The decoded request is detached. Validation borrows the original archive array read-only.
+export function nativePreReleaseAbortForValidation(state) {
+    const snapshot = state.previousAbort, history = state.history;
+    const archive = Array.isArray(history) ? history.at(-1) : null;
+    const inherited = archive?.nativeSnapshot?.current?.request;
+    const request = snapshot?.current?.request;
+    const fields = ['schemaVersion', 'lastAcceptedStartSequence', 'current', 'previousRef', 'historyRefs', 'rejections'];
+    if (Object.hasOwn(state, 'previous') || Object.hasOwn(state, 'previousRef') ||
+        !record(snapshot) ||
+        !exactNativeFields(snapshot, Object.hasOwn(snapshot, 'lastRejection') ? [...fields, 'lastRejection'] : fields) ||
+        !record(request) || !inherited?.parent ||
+        PRE_RELEASE_INHERITED_REQUEST_FIELDS.some(key => Object.hasOwn(request, key) || !Object.hasOwn(inherited, key)) ||
+        request.parentProofRef !== inherited.parent.nativeId || snapshot.previousRef !== archive.id)
+        throw Error('Invalid retained pre-release abort');
+
+    // Preserve the original compact previousRef. Restore only the history and omitted proof.
+    const raw = copy(snapshot);
+    const {historyRefs, ...rest} = raw;
+    if (!equal(historyRefs, history.map(a => a.id))) throw Error('Invalid retained history references');
+    delete rest.current.request.parentProofRef;
+    for (const key of PRE_RELEASE_INHERITED_REQUEST_FIELDS) rest.current.request[key] = copy(inherited[key]);
+    return {...rest, history};
+}
+
+export function isNativePreReleaseAbort(state) {
+    const c = state?.current, d = c?.outcome?.clockDiscontinuity;
+    return state?.schemaVersion === 2 && !Object.hasOwn(state, 'previousAbort') &&
+        Array.isArray(state.history) && state.history.length === 4 && c?.request?.unadmitted && c.stage === 'terminal' &&
+        c.archiveRef === state.history.at(-1)?.id && state.previousRef === c.archiveRef &&
+        !Object.hasOwn(state, 'previous') &&
+        c.releaseRequest === null && c.startRequest === null && c.admittedIdentity === null &&
+        [c.unknownEffect, c.controlClosureConfirmed, c.closedBeforeAdmission].every(value => value === undefined || value === false) &&
+        c.observations === undefined &&
+        exactNativeFields(c.intents, []) && Array.isArray(c.events) && c.events.length === 0 &&
+        c.outcome?.reason === 'clock_discontinuity' && d?.phase === 'preflight' &&
+        d.releaseActivateAtTick === null && d.previousTick === c.preflightAt &&
+        d.tick === c.lastTick && d.nowMs === c.lastNowMs;
 }
 
 function attachNativeHistory(raw, history, copyEvidence) {
@@ -330,7 +393,42 @@ export function nativeUnadmittedReady(facts) {
         'budgetSafe', 'accountingKnown', 'quiet', 'reconReleased', 'executionClosed'].every(key => facts[key] === true);
 }
 
+export function matchPreReleaseAbortParent(q, abort, economic, economicSettings, parent, olderParent) {
+    if (!q?.unadmitted || !isNativePreReleaseAbort(abort) || !parent || !olderParent) return false;
+    const c = abort.current, release = economicSettings?.request;
+    if (q.unadmitted.nativeId !== c.request.id ||
+        q.unadmitted.highWater !== abort.lastAcceptedStartSequence ||
+        q.unadmitted.highWater !== c.request.startSequence ||
+        q.trialId === c.request.trialId || !equal(q.parent, c.request.parent) ||
+        !(c.lastTick < q.acceptNotBeforeTick) || !(c.request.notAfterMs < q.issuedAtMs) ||
+        c.preflightAt !== parent.archive.atTick ||
+        !(release?.expiresAtTick < q.acceptNotBeforeTick) || !(release.expiresAtMs < q.issuedAtMs) ||
+        !equal(economicSettings, parent.archive.settings.economicTrial))
+        return false;
+
+    // The legacy release may update its generic rejection tick while remaining inert.
+    const {lastRejection: ignored, ...liveProof} = economic || {};
+    const {lastRejection: ignoredArchived, ...archivedProof} = parent.economic;
+    return equal(liveProof, archivedProof) &&
+        matchNativeSuccessorParent(c.request, parent.native, economic, economicSettings,
+            () => ({oldNative: olderParent.native, oldEconomic: olderParent.economic}));
+}
+
 export function nativeSuccessorParentMatches(q, native, economic, economicSettings) {
+    if (q?.unadmitted && isNativePreReleaseAbort(native)) {
+        try {
+            const history = native.history;
+            const parentAt = index => {
+                const archive = history[index], prefix = history.slice(0, index);
+                return {archive, native: decodeNativeSnapshot(archive.nativeSnapshot, prefix),
+                    economic: resolveArchivedEconomicState(archive, prefix)};
+            };
+            return matchPreReleaseAbortParent(q, native, economic, economicSettings,
+                parentAt(history.length - 1), parentAt(history.length - 2));
+        } catch {
+            return false;
+        }
+    }
     return matchNativeSuccessorParent(q, native, economic, economicSettings, archive => {
         const prefix = native.history.slice(0, -1);
         return {
