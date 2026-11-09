@@ -4,7 +4,9 @@ import {
     NATIVE_SUCCESSOR_PROFILE,
     validateNativeSuccessorRequest,
     createNativeParentArchive,
-    decodeNativeSnapshot,
+    nativeSnapshotForValidation,
+    archivedEconomicStateForValidation,
+    matchNativeSuccessorParent,
     nativeSuccessorParentMatches,
     nativeSuccessorPrevious,
     nativeUnadmittedReady,
@@ -150,68 +152,87 @@ function validCurrent(c) {
     );
 }
 
+function validSuccessorHeader(state) {
+    if (
+        !record(state) ||
+        state.schemaVersion !== 2 ||
+        !integer(state.lastAcceptedStartSequence) ||
+        !validCurrent(state.current) ||
+        state.lastAcceptedStartSequence !== state.current.request.startSequence ||
+        !Array.isArray(state.rejections) ||
+        state.rejections.length > 16 ||
+        !state.rejections.every(
+            r =>
+                record(r) &&
+                integer(r.tick) &&
+                (r.id === null || (typeof r.id === 'string' && r.id.length <= 32)) &&
+                (r.trialId === null || (typeof r.trialId === 'string' && r.trialId.length <= 32)) &&
+                typeof r.reason === 'string'
+        ) ||
+        JSON.stringify(state).length > 65536
+    )
+        return false;
+    return true;
+}
+
+function validSuccessorParentLink(state, parent, olderParent) {
+    if (!parent) return false;
+    const {archive, native, economic} = parent;
+    const {current} = state;
+    return (
+        current.archiveRef === archive.id &&
+        (!current.request.unadmitted || equal(archive.settings.nativeTrialOps, {enabled: true, request: current.request})) &&
+        equal(nativeSuccessorPrevious(state), native.current) &&
+        [current.releaseRequest, current.startRequest].every(
+            q => q === null || q.configFingerprint === economic.current.configFingerprint
+        ) &&
+        matchNativeSuccessorParent(current.request, native, economic, archive.settings.economicTrial,
+            () => ({oldNative: olderParent?.native, oldEconomic: olderParent?.economic}))
+    );
+}
+
 export function validNativeSuccessorState(state) {
     try {
-        if (
-            !record(state) ||
-            state.schemaVersion !== 2 ||
-            !integer(state.lastAcceptedStartSequence) ||
-            !validCurrent(state.current) ||
-            state.lastAcceptedStartSequence !== state.current.request.startSequence ||
-            !Array.isArray(state.history) ||
-            !state.history.length ||
-            state.history.length > 4 ||
-            !Array.isArray(state.rejections) ||
-            state.rejections.length > 16 ||
-            !state.rejections.every(
-                (r) =>
-                    record(r) &&
-                    integer(r.tick) &&
-                    (r.id === null || (typeof r.id === 'string' && r.id.length <= 32)) &&
-                    (r.trialId === null || (typeof r.trialId === 'string' && r.trialId.length <= 32)) &&
-                    typeof r.reason === 'string'
-            ) ||
-            JSON.stringify(state).length > 65536
-        )
+        const history = state?.history;
+        if (!record(state) || state.schemaVersion !== 2 ||
+            !Array.isArray(history) || !history.length || history.length > 4 || !validSuccessorHeader(state))
             return false;
+
         const ids = new Set();
-        for (let index = 0; index < state.history.length; index++) {
-            const a = state.history[index];
+        let parent, olderParent;
+        for (const [index, archive] of history.entries()) {
             if (
-                !record(a) ||
-                typeof a.id !== 'string' ||
-                ids.has(a.id) ||
-                !integer(a.atTick) ||
-                !validEconomicTrialState(resolveArchivedEconomicState(a, state.history.slice(0, index))) ||
-                !record(a.settings) ||
-                !record(a.originalWindow)
+                !record(archive) ||
+                typeof archive.id !== 'string' ||
+                ids.has(archive.id) ||
+                !integer(archive.atTick) ||
+                !record(archive.settings) ||
+                !record(archive.originalWindow)
             )
                 return false;
-            const parent = decodeNativeSnapshot(a.nativeSnapshot, state.history.slice(0, index));
+
+            const prefix = history.slice(0, index);
+            const economic = archivedEconomicStateForValidation(archive, prefix, parent?.economic);
+            const native = nativeSnapshotForValidation(archive.nativeSnapshot, prefix);
             if (
-                !(parent.schemaVersion === 2 ? validNativeSuccessorState(parent) : validLegacy(parent)) ||
-                parent.current?.request.id !== a.id ||
-                !equal(a.originalWindow, {
-                    issuedAtMs: parent.current.request.issuedAtMs,
-                    stopAtMs: parent.current.request.stopAtMs,
-                    notAfterMs: parent.current.request.notAfterMs
+                !validEconomicTrialState(economic) ||
+                !(native.schemaVersion === 2
+                    ? validSuccessorHeader(native) && validSuccessorParentLink(native, parent, olderParent)
+                    : validLegacy(native)) ||
+                native.current?.request.id !== archive.id ||
+                !equal(archive.originalWindow, {
+                    issuedAtMs: native.current.request.issuedAtMs,
+                    stopAtMs: native.current.request.stopAtMs,
+                    notAfterMs: native.current.request.notAfterMs
                 })
             )
                 return false;
-            ids.add(a.id);
+
+            ids.add(archive.id);
+            olderParent = parent;
+            parent = {archive, native, economic};
         }
-        const archive = state.history.at(-1),
-            parent = decodeNativeSnapshot(archive.nativeSnapshot, state.history.slice(0, -1)),
-            economic = resolveArchivedEconomicState(archive, state.history.slice(0, -1));
-        return (
-            state.current.archiveRef === archive.id &&
-            (!state.current.request.unadmitted || equal(archive.settings.nativeTrialOps, { enabled: true, request: state.current.request })) &&
-            equal(nativeSuccessorPrevious(state), parent.current) &&
-            [state.current.releaseRequest, state.current.startRequest].every(
-                (q) => q === null || q.configFingerprint === economic.current.configFingerprint
-            ) &&
-            nativeSuccessorParentMatches(state.current.request, parent, economic, archive.settings.economicTrial)
-        );
+        return validSuccessorParentLink(state, parent, olderParent);
     } catch {
         return false;
     }

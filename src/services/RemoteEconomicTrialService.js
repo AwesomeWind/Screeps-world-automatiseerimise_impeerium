@@ -335,7 +335,8 @@ export default class RemoteEconomicTrialService extends BaseService {
         let facts;
         if (raw !== undefined && !validEconomicTrialState(raw)) facts = {};
         else {
-            try { facts = collectEconomicTrialFacts(scope, clock); }
+            const periodic = !event.failure && (event.kind === 'evaluate' || event.kind === 'end_tick');
+            try { facts = collectEconomicTrialFacts(scope, clock, {periodic}); }
             catch { facts = { guardEnabled: true, fatalReason: 'facts_failed' }; }
         }
         if (event.failure) facts.fatalReason = event.failure;

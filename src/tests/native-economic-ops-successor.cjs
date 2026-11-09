@@ -1218,3 +1218,68 @@ test('unadmitted_p3_rejects_open_controls_expiry_and_archive_interruption_withou
     assert.equal(r.remote.nativeEconomicOps.history.length,3);
     assert.equal(r.policy.economicTrial.request.sequence,8);
 });
+test('native_07_validation_visits_each_prefix_once_without_copying_archive_arrays', async () => {
+    const {native} = require('./fixtures/native-successor-07-closed.json');
+    const {validNativeSuccessorState} = await import('../services/NativeEconomicTrialOpsSuccessorModel.js');
+    const {decodeNativeSnapshot, resolveArchivedEconomicState} = await import('../services/NativeEconomicTrialOpsSuccessorProtocol.js');
+    const before = JSON.stringify(native);
+    let archiveArrays = 0;
+    const validated = [];
+    const stringify = JSON.stringify;
+    JSON.stringify = (value, ...args) => {
+        if (Array.isArray(value) && value.some(entry => entry?.nativeSnapshot)) archiveArrays++;
+        if (value?.schemaVersion === 2 && Array.isArray(value.history)) validated.push(value.history.length);
+        return stringify(value, ...args);
+    };
+    try { assert.equal(validNativeSuccessorState(native), true); }
+    finally { JSON.stringify = stringify; }
+    assert.equal(archiveArrays, 0);
+    assert.deepEqual(validated, [4, 1, 2, 3]);
+
+    const afterReset = JSON.parse(before);
+    assert.equal(validNativeSuccessorState(afterReset), true);
+    assert.equal(JSON.stringify(native), before);
+    const prefix = native.history.slice(0, -1);
+    const last = native.history.at(-1);
+    const expanded = decodeNativeSnapshot(last.nativeSnapshot, prefix);
+    const economic = resolveArchivedEconomicState(last, prefix);
+    assert.equal(expanded.current.request.id, 'nops-w48-20261105-04');
+    assert.equal(economic.current.evidence.confirmedSpawnCost, 50);
+    assert.equal(economic.current.closureVerifiedAtTick, 84084311);
+    expanded.history[0].id = 'mutated readback';
+    assert.equal(JSON.stringify(native), before);
+});
+
+test('native_07_validation_rejects_damaged_parent_evidence_and_original_capacity_overflow', async () => {
+    const {native} = require('./fixtures/native-successor-07-closed.json');
+    const {validNativeSuccessorState} = await import('../services/NativeEconomicTrialOpsSuccessorModel.js');
+    for (const change of [
+        state => state.history.at(-1).nativeSnapshot.historyRefs.reverse(),
+        state => state.history.at(-1).nativeSnapshot.historyRefs.push(state.history[0].id),
+        state => { state.history.at(-1).nativeSnapshot.previous = null; },
+        state => { state.history.at(-1).economicStateRef = state.history.at(-1).id; },
+        state => { state.history.at(-2).economicState.current.evidence.confirmedSpawnCost++; },
+        state => { state.history.at(-2).economicState.current.closureVerifiedAtTick++; },
+        state => { state.history.at(-1).nativeSnapshot.unrecognized = 'x'.repeat(65536); },
+        state => state.history.push(state.history[0]),
+        state => { state.rejections = Array.from({length: 17}, () => ({tick: 0, id: null, trialId: null, reason: 'x'})); }
+    ]) {
+        const copy = structuredClone(native);
+        change(copy);
+        assert.equal(validNativeSuccessorState(copy), false, change.toString());
+    }
+});
+
+test('native_07_validation_rejects_oversize_root_before_decoding_archives', async () => {
+    const {native} = require('./fixtures/native-successor-07-closed.json');
+    const {validNativeSuccessorState} = await import('../services/NativeEconomicTrialOpsSuccessorModel.js');
+    const parse = JSON.parse;
+    let decodes = 0;
+    JSON.parse = (...args) => { decodes++; return parse(...args); };
+    try {
+        assert.equal(validNativeSuccessorState({...native, extra: 'x'.repeat(65536)}), false);
+    } finally {
+        JSON.parse = parse;
+    }
+    assert.equal(decodes, 0);
+});

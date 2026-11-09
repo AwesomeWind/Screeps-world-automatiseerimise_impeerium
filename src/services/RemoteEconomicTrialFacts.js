@@ -59,7 +59,23 @@ function expiredMovement(actors, session, operation, clock) {
     return null;
 }
 
-export function collectEconomicTrialFacts(scope, clock) {
+function closedPeriodicOwnershipIsUnused({current, settings, raw, remotePolicy, operation, scope, clock}) {
+    if (current?.managed !== true || current.status !== 'terminal' || !current.outcome ||
+        raw?.enabled !== false || raw.hold !== true || remotePolicy.enabled !== false ||
+        operation?.allowRecon !== false || operation.allowEconomicDeparture !== false ||
+        scope?.state?.allowRecon === true || scope?.state?.allowEconomicDeparture === true)
+        return false;
+    const request = settings?.request;
+    if (settings?.enabled === false) return true;
+    return settings?.enabled === true && request?.action === 'release' &&
+        request.targetTrialId === current.identity.trialId && request.remoteId === current.identity.remoteId &&
+        request.epoch === current.identity.epoch && request.sequence === current.identity.sequence + 1 &&
+        Number.isSafeInteger(request.expiresAtTick) && Number.isSafeInteger(request.expiresAtMs) &&
+        request.expiresAtTick === request.activateAtTick + 1000 && request.expiresAtMs === request.issuedAtMs + 5400000 &&
+        clock.tick > request.expiresAtTick && clock.nowMs > request.expiresAtMs;
+}
+
+export function collectEconomicTrialFacts(scope, clock, {periodic = false} = {}) {
     const empire = Memory.empire;
     const policy = empire.control.policy;
     const remotePolicy = policy.remoteMining;
@@ -129,7 +145,12 @@ export function collectEconomicTrialFacts(scope, clock) {
     const reconLocked = !!recon && (!recon.current || recon.current.managed !== false);
     const fingerprint = economicTrialConfigFingerprint(raw, remotePolicy, targetRoom);
     // Evaluated again at spawn/action checkpoints; a released parent is not the new start's owner.
-    const nativeFailure =
+    // A closed periodic pass still settles receipts and checks release independently.
+    // It does not consume the ownership-derived fatal reason.
+    const ownershipUnused = periodic && closedPeriodicOwnershipIsUnused({
+        current, settings, raw, remotePolicy, operation, scope: scope ?? global.RemoteMining?.[remoteId], clock
+    });
+    const nativeFailure = ownershipUnused ? null :
         resolveNativeEconomicOwnership({
             nativeState: empire.remoteMining?.nativeEconomicOps,
             nativeSettings: remotePolicy.nativeTrialOps,

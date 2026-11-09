@@ -201,28 +201,31 @@ export function encodeNativeSnapshot(raw) {
     return snapshot;
 }
 
-export function decodeNativeSnapshot(snapshot, history) {
-    const raw = copy(snapshot);
-    if (raw.schemaVersion === 2) {
-        if (
-            !Array.isArray(raw.historyRefs) ||
-            !equal(
-                raw.historyRefs,
-                history.map((archive) => archive.id)
-            ) ||
-            new Set(raw.historyRefs).size !== raw.historyRefs.length
-        )
-            throw new Error('Invalid native history references');
-        if (Object.hasOwn(raw, 'previousRef')) {
-            const previous = resolvePreviousReference(raw, history, raw.previousRef);
-            if (Object.hasOwn(raw, 'previous') || !previous) throw new Error('Invalid native previous reference');
-            raw.previous = copy(previous);
-            delete raw.previousRef;
-        }
-        raw.history = copy(history);
-        delete raw.historyRefs;
+function attachNativeHistory(raw, history, copyEvidence) {
+    if (raw.schemaVersion !== 2) return raw;
+    const refs = raw.historyRefs;
+    if (!Array.isArray(refs) || !equal(refs, history.map(archive => archive.id)) ||
+        new Set(refs).size !== refs.length)
+        throw new Error('Invalid native history references');
+
+    if (Object.hasOwn(raw, 'previousRef')) {
+        const previous = resolvePreviousReference(raw, history, raw.previousRef);
+        if (Object.hasOwn(raw, 'previous') || !previous) throw new Error('Invalid native previous reference');
+        raw.previous = copyEvidence(previous);
+        delete raw.previousRef;
     }
+    raw.history = copyEvidence(history);
+    delete raw.historyRefs;
     return raw;
+}
+
+export function decodeNativeSnapshot(snapshot, history) {
+    return attachNativeHistory(copy(snapshot), history, copy);
+}
+
+// Validation owns the snapshot copy and only reads the already checked prefix.
+export function nativeSnapshotForValidation(snapshot, checkedPrefix) {
+    return attachNativeHistory(copy(snapshot), checkedPrefix, value => value);
 }
 
 export function createNativeParentArchive(rawNative, economicState, settings, clock) {
@@ -254,7 +257,7 @@ function validReleaseRejection(value, atTick) {
         value.tick <= atTick && value.reason === 'release_blocked';
 }
 
-export function resolveArchivedEconomicState(archive, prefix) {
+function readArchivedEconomicState(archive, prefix, readPrevious) {
     if (!Object.hasOwn(archive, 'economicStateRef')) {
         if (Object.hasOwn(archive, 'economicLastRejection')) throw Error('Unbound economic rejection');
         return archive.economicState;
@@ -266,12 +269,20 @@ export function resolveArchivedEconomicState(archive, prefix) {
         q?.unadmitted?.nativeId !== archive.id || current?.request?.id !== archive.id ||
         (Object.hasOwn(archive, 'economicLastRejection') && !validReleaseRejection(archive.economicLastRejection, archive.atTick)))
         throw Error('Invalid archived economic reference');
-    const economic = copy(resolveArchivedEconomicState(target, prefix.slice(0, -1)));
+    const economic = readPrevious(target);
     delete economic.lastRejection;
     if (Object.hasOwn(archive, 'economicLastRejection')) economic.lastRejection = copy(archive.economicLastRejection);
     return economic;
 }
 
+export function resolveArchivedEconomicState(archive, prefix) {
+    return readArchivedEconomicState(archive, prefix,
+        target => copy(resolveArchivedEconomicState(target, prefix.slice(0, -1))));
+}
+
+export function archivedEconomicStateForValidation(archive, checkedPrefix, previousEconomic) {
+    return readArchivedEconomicState(archive, checkedPrefix, () => ({...previousEconomic}));
+}
 export function nativeParentEvidenceMatches(request, native, economic) {
     const parent = request?.parent,
         n = native?.current,
@@ -320,6 +331,17 @@ export function nativeUnadmittedReady(facts) {
 }
 
 export function nativeSuccessorParentMatches(q, native, economic, economicSettings) {
+    return matchNativeSuccessorParent(q, native, economic, economicSettings, archive => {
+        const prefix = native.history.slice(0, -1);
+        return {
+            oldNative: decodeNativeSnapshot(archive.nativeSnapshot, prefix),
+            oldEconomic: resolveArchivedEconomicState(archive, prefix)
+        };
+    });
+}
+
+// Only the ordered archive validator supplies already verified parent evidence here.
+export function matchNativeSuccessorParent(q, native, economic, economicSettings, readOlderParent) {
     if (!q?.unadmitted) return nativeParentEvidenceMatches(q, native, economic);
     const c = native?.current, release = c?.releaseRequest, archive = native?.history?.at(-1);
     const reference = q.unadmitted;
@@ -337,8 +359,7 @@ export function nativeSuccessorParentMatches(q, native, economic, economicSettin
         !(economic?.current?.tailExpiresAtTick < q.acceptNotBeforeTick))
         return false;
     try {
-        const oldNative = decodeNativeSnapshot(archive.nativeSnapshot, native.history.slice(0, -1));
-        const oldEconomic = resolveArchivedEconomicState(archive, native.history.slice(0, -1));
+        const {oldNative, oldEconomic} = readOlderParent(archive);
         const { lastRejection: ignored, nativeReleaseReceipt: receipt, ...currentProof } = economic;
         const { lastRejection: ignoredOld, nativeReleaseReceipt: oldReceipt, ...oldProof } = oldEconomic;
         if (receipt?.nativeId === c.request.id &&

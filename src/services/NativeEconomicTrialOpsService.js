@@ -1,5 +1,5 @@
 import BaseService from '../core/BaseService.js';
-import { collectNativeEconomicOpsFacts, collectNativeSuccessorFacts } from './NativeEconomicTrialOpsFacts.js';
+import { collectNativeEconomicOpsFacts, collectNativeSuccessorFacts, nativeSuccessorIsIdle } from './NativeEconomicTrialOpsFacts.js';
 import {
     advanceNativeEconomicOps,
     nativeOpsEconomicIdentity,
@@ -126,6 +126,8 @@ export default class NativeEconomicTrialOpsService extends BaseService {
         if (raw === undefined && Memory.empire.control.policy.remoteMining.nativeTrialOps?.enabled !== true) return;
         try {
             const clock = this.clock();
+            if ((event.kind === 'evaluate' || event.kind === 'end_tick') &&
+                nativeSuccessorIsIdle(Memory.empire, raw, this.successorProfile, clock)) return;
             const facts = this.collectFacts(clock);
             const result = advanceNativeEconomicOps(raw, event, facts, clock, this.activeProfile());
             if (result.error) {

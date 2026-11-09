@@ -274,3 +274,129 @@ test('native_ops_absent_container_waits_for_real_infrastructure', async () => {
     s.advance({nowMs: Memory.empire.remoteMining.nativeEconomicOps.current.request.stopAtMs});
     assert.equal(Memory.empire.control.policy.remoteMining.enabled, false);
 });
+async function closed07Runtime() {
+    const snapshot = require('./fixtures/native-successor-07-closed.json');
+    await setup({roomNames: {base: 'W49N41', target: 'W48N41'}});
+    const empire = Memory.empire;
+    const id = 'W49N41:W48N41';
+    const {native, economic, config, policy, operation, budget, recon} = structuredClone(snapshot);
+    Object.assign(empire.remoteMining, {nativeEconomicOps: native, economicTrials: economic, reconTrials: recon});
+    empire.control.policy.remoteMining = policy;
+    empire.remoteRooms.W48N41 = config;
+    empire.remoteMining.operations[id] = operation;
+    empire.remoteMining.budgets.W49N41 = budget;
+    Game.time = snapshot.tick;
+    global.EmpireServicesVersion = snapshot.version;
+    global.RoomPhase.W49N41.recovery.evaluatedAt = Game.time;
+    const {default: Native} = await import('../services/NativeEconomicTrialOpsService.js');
+    const {default: Economic} = await import('../services/RemoteEconomicTrialService.js');
+    const clock = {now: () => snapshot.nowMs};
+    const services = () => ({
+        native: new Native('NativeEconomicTrialOps', clock),
+        economic: new Economic('RemoteEconomicTrial', clock)
+    });
+    return {snapshot, services, id};
+}
+
+function countNativeSerializations(run) {
+    let count = 0;
+    const stringify = JSON.stringify;
+    JSON.stringify = (value, ...args) => {
+        if (value?.schemaVersion === 2 && Array.isArray(value.history)) count++;
+        return stringify(value, ...args);
+    };
+    try { run(); } finally { JSON.stringify = stringify; }
+    return count;
+}
+
+test('native_closed_07_periodic_phases_skip_archive_work_after_reset', async () => {
+    const {snapshot, services} = await closed07Runtime();
+    for (let phase = 0; phase < 2; phase++) {
+        const {native} = services();
+        const before = Memory.empire.remoteMining.nativeEconomicOps;
+        let facts = 0;
+        const collect = native.collectFacts.bind(native);
+        native.collectFacts = (...args) => { facts++; return collect(...args); };
+        assert.equal(countNativeSerializations(() => { native.analyze(); native.cleanup(); }), 0);
+        assert.equal(facts, 0);
+        assert.equal(Memory.empire.remoteMining.nativeEconomicOps, before);
+        assert.deepEqual(before, snapshot.native);
+        assert.deepEqual(Memory.empire.remoteMining.economicTrials, snapshot.economic);
+        global.Memory = JSON.parse(JSON.stringify(Memory));
+        delete global.RemoteMining;
+        Game.time++;
+    }
+});
+
+test('native_closed_07_keeps_slow_path_for_open_scope_uncertainty_or_new_request', async () => {
+    const {services, id} = await closed07Runtime();
+    const cases = [
+        e => { e.control.policy.remoteMining.nativeTrialOps.enabled = true; },
+        e => { e.control.policy.remoteMining.nativeTrialOps.request.id = 'different'; },
+        e => {
+            e.control.policy.remoteMining.nativeTrialOps.request.startSequence = 7;
+            e.remoteMining.nativeEconomicOps.current.request.startSequence = 7;
+        },
+        e => { e.remoteMining.economicTrials.current.evidence.infrastructureUnknownUpperBound = 1; },
+        () => { Game.creeps.oldScout = {memory: {remoteId: 'W49N41:W48N41'}}; },
+        e => { e.remoteMining.nativeEconomicOps.current.stage = 'stopping'; },
+        e => { e.remoteMining.nativeEconomicOps.current.unknownEffect = true; },
+        e => { e.remoteMining.nativeEconomicOps.current.intents.prepare_start = {status: 'planned'}; },
+        e => { e.remoteMining.economicTrials.current.tailExpiresAtTick = Game.time; },
+        e => { e.remoteMining.economicTrials.current.managed = false; },
+        e => { e.remoteMining.budgets.W49N41.grants.pending = {}; },
+        e => { e.remoteMining.operations[id].allowEconomicDeparture = true; },
+        () => { global.RemoteMining = {[id]: {state: {evaluatedAt: Game.time, allowRecon: true}}}; },
+        e => { e.control.policy.remoteMining.economicTrial.request.activateAtTick = Game.time; }
+    ];
+    const before = structuredClone(Memory);
+    for (const change of cases) {
+        global.Memory = structuredClone(before);
+        delete global.RemoteMining;
+        change(Memory.empire);
+        const {native} = services();
+        let facts = 0;
+        native.collectFacts = () => { facts++; throw Error('end slow path probe'); };
+        native.requestOwnedStop = () => false;
+        native.cleanup();
+        assert.equal(facts, 1, change.toString());
+    }
+});
+
+test('native_closed_07_damaged_archive_never_passes_explicit_validation', async () => {
+    const {services} = await closed07Runtime();
+    const {native} = services();
+    Memory.empire.remoteMining.nativeEconomicOps.history.at(-1).nativeSnapshot.historyRefs.reverse();
+    native.cleanup();
+    assert.equal(native.summarize().status, 'state_invalid');
+    assert.equal(Memory.empire.remoteMining.economicTrials.current.managed, true);
+});
+test('economic_closed_07_periodic_phases_preserve_lock_and_expired_release_rejection_without_archive_work', async () => {
+    const {snapshot, services} = await closed07Runtime();
+    const {economic} = services();
+    const results = [];
+    const count = countNativeSerializations(() => {
+        results.push(economic.advance({kind: 'evaluate'}), economic.advance({kind: 'end_tick'}));
+    });
+    for (const result of results) {
+        assert.deepEqual(result.effects, []);
+        assert.equal(result.permit.managed, true);
+        assert.equal(result.permit.allowed, false);
+        assert.deepEqual(result.state, {
+            ...snapshot.economic, lastRejection: {tick: Game.time, reason: 'release_blocked'}
+        });
+    }
+    assert.deepEqual(Memory.empire.remoteMining.nativeEconomicOps, snapshot.native);
+    assert.deepEqual(Memory.empire.control.policy.remoteMining, snapshot.policy);
+    assert.equal(count, 0);
+});
+
+test('economic_closed_07_periodic_ownership_stays_checked_for_current_release_and_explicit_stop', async () => {
+    const {services} = await closed07Runtime();
+    const {economic} = services();
+    assert.ok(countNativeSerializations(() => economic.stop('manual_hold')) > 0);
+    const request = Memory.empire.control.policy.remoteMining.economicTrial.request;
+    Game.time = request.activateAtTick;
+    assert.ok(countNativeSerializations(() => economic.advance({kind: 'evaluate'})) > 0);
+    assert.equal(Memory.empire.remoteMining.economicTrials.current.managed, true);
+});
