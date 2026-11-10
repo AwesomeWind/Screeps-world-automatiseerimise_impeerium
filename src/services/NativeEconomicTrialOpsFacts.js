@@ -20,7 +20,7 @@ function budgetSpent(buckets, tick) {
     return buckets.filter((b) => b.start + 50 > tick - 1000).reduce((sum, b) => sum + b.amount, 0);
 }
 
-function packedTerminalIsIdle(empire, state, profile, clock) {
+function closedTerminalHasNoNativeActions(empire, state, profile, clock) {
     const c = state.current, remote = empire.remoteMining, p = empire.control?.policy?.remoteMining;
     const economic = remote?.economicTrials, session = economic?.current;
     const config = empire.remoteRooms?.[profile.targetRoom], operation = remote?.operations?.[profile.remoteId];
@@ -47,9 +47,69 @@ function packedTerminalIsIdle(empire, state, profile, clock) {
                     p.economicTrial.request.expiresAtTick < clock.tick && p.economicTrial.request.expiresAtMs < clock.nowMs));
 }
 
+function terminalScopeIsQuiet(remote, profile, parent, operation) {
+    const budget = remote.budgets?.[profile.baseRoom];
+    if (!record(budget?.grants) || Object.keys(budget.grants).length ||
+        (budget.infrastructure !== undefined &&
+            (!record(budget.infrastructure?.pending) || Object.keys(budget.infrastructure.pending).length)) ||
+        parent.outbox.some(item => item.stage !== 'applied' || item.evidenceApplied !== true) ||
+        parent.failedHandoff ||
+        (parent.infrastructureAttempt &&
+            (parent.infrastructureAttempt.stage !== 'applied' || parent.infrastructureAttempt.evidenceApplied !== true)) ||
+        Object.values(parent.slots).some(slot => slot.admissionStage === 'binding' ||
+            ['not_started', 'call_started'].includes(slot.callState) || slot.ledgerStage === 'applying' ||
+            (slot.unknownUpperBound ?? 0) !== 0) ||
+        ['unknownEvents', 'unknownEnergyUpperBound', 'logisticsUnknownEnergyUpperBound', 'infrastructureUnknownUpperBound'].some(
+            key => (parent.evidence?.[key] ?? 0) !== 0
+        ) || !record(operation.ledger) ||
+        ['spawnEnergyUnknownUpperBound', 'infrastructureEnergyUnknownUpperBound', 'confirmationUnknown'].some(
+            key => (operation.ledger[key] ?? 0) !== 0
+        ))
+        return false;
+
+    const belongsToScope = memory => memory?.remoteId === profile.remoteId || memory?.targetRoom === profile.targetRoom;
+    return !Object.values(Game.creeps).some(creep => belongsToScope(creep.memory)) &&
+        !currentCreepPopulation().some(entry => entry.state !== 'invalid' && belongsToScope(entry.memory));
+}
+
+export function closedAdmittedNativeIsIdle(empire, state, profile, clock) {
+    const c = state?.current, request = c?.request;
+    if (state?.schemaVersion !== 2 || !state.previousAbort || !c?.admittedIdentity ||
+        !closedTerminalHasNoNativeActions(empire, state, profile, clock))
+        return false;
+
+    const remote = empire.remoteMining, economic = remote.economicTrials;
+    const session = economic.current, operation = remote.operations[profile.remoteId];
+    const p = empire.control.policy, settings = p.remoteMining.economicTrial;
+    const start = c.startRequest;
+    const originalClock = {tick: request.acceptNotBeforeTick, nowMs: request.issuedAtMs, codeVersion: request.codeVersion};
+    if (!validateNativeSuccessorRequest(request, profile, originalClock).valid ||
+        state.lastAcceptedStartSequence !== request.startSequence ||
+        !session.managed || economic.lastSequence !== request.startSequence ||
+        session.identity.remoteId !== profile.remoteId || session.identity.sequence !== request.startSequence ||
+        operation.remoteId !== profile.remoteId || operation.epoch !== session.identity.epoch ||
+        p.homeEvidence?.enabled !== false || p.remoteMining.evidenceWindow?.enabled !== false ||
+        !integer(session.closureVerifiedAtTick) || session.closureVerifiedAtTick > c.lastTick ||
+        c.outcome.decidedAtTick !== session.closeAppliedAtTick ||
+        !integer(session.tailExpiresAtTick) || session.tailExpiresAtTick >= clock.tick ||
+        start?.action !== 'start' || typeof settings?.enabled !== 'boolean' ||
+        !economicIdentityMatches(session.identity, {
+            trialId: start.id, sequence: start.sequence, remoteId: start.remoteId, epoch: start.epoch, codeVersion: start.codeVersion
+        }) ||
+        start.configFingerprint !== session.configFingerprint || start.activateAtTick !== session.startedAtTick ||
+        start.expiresAtTick !== session.expiresAtTick || start.expiresAtMs !== session.expiresAtMs ||
+        start.issuedAtMs !== session.issuedAtMs || start.expiresAtTick >= clock.tick ||
+        start.expiresAtMs >= clock.nowMs || request.notAfterMs >= clock.nowMs)
+        return false;
+
+    return terminalScopeIsQuiet(remote, profile, session, operation);
+}
+
 /** Recognize a disabled terminal run with no remaining periodic work. */
 export function nativeSuccessorIsIdle(empire, state, profile, clock) {
-    if (state?.packedParent) return packedTerminalIsIdle(empire, state, profile, clock);
+    if (state?.packedParent) return closedTerminalHasNoNativeActions(empire, state, profile, clock);
+    if (state?.previousAbort && state.current?.admittedIdentity)
+        return closedAdmittedNativeIsIdle(empire, state, profile, clock);
     const current = state?.current;
     const request = current?.request;
     const policy = empire.control?.policy?.remoteMining;
@@ -105,28 +165,7 @@ export function nativeSuccessorIsIdle(empire, state, profile, clock) {
             return false;
     }
 
-    const budget = remote.budgets?.[profile.baseRoom];
-    if (!record(budget?.grants) || Object.keys(budget.grants).length ||
-        (budget.infrastructure !== undefined &&
-            (!record(budget.infrastructure?.pending) || Object.keys(budget.infrastructure.pending).length)) ||
-        parent.outbox.some(item => item.stage !== 'applied' || item.evidenceApplied !== true) ||
-        parent.failedHandoff ||
-        (parent.infrastructureAttempt &&
-            (parent.infrastructureAttempt.stage !== 'applied' || parent.infrastructureAttempt.evidenceApplied !== true)) ||
-        Object.values(parent.slots).some(slot => slot.admissionStage === 'binding' ||
-            ['not_started', 'call_started'].includes(slot.callState) || slot.ledgerStage === 'applying' ||
-            (slot.unknownUpperBound ?? 0) !== 0) ||
-        ['unknownEvents', 'unknownEnergyUpperBound', 'logisticsUnknownEnergyUpperBound', 'infrastructureUnknownUpperBound'].some(
-            key => (parent.evidence?.[key] ?? 0) !== 0
-        ) || !record(operation.ledger) ||
-        ['spawnEnergyUnknownUpperBound', 'infrastructureEnergyUnknownUpperBound', 'confirmationUnknown'].some(
-            key => (operation.ledger[key] ?? 0) !== 0
-        ))
-        return false;
-
-    const belongsToScope = memory => memory?.remoteId === profile.remoteId || memory?.targetRoom === profile.targetRoom;
-    return !Object.values(Game.creeps).some(creep => belongsToScope(creep.memory)) &&
-        !currentCreepPopulation().some(entry => entry.state !== 'invalid' && belongsToScope(entry.memory));
+    return terminalScopeIsQuiet(remote, profile, parent, operation);
 }
 
 export function collectNativeSuccessorFacts(profile, clock) {

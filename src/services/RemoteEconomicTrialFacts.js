@@ -1,3 +1,5 @@
+import { closedAdmittedNativeIsIdle } from './NativeEconomicTrialOpsFacts.js';
+import { NATIVE_SUCCESSOR_PROFILE } from './NativeEconomicTrialOpsSuccessorProtocol.js';
 import { nativeOpsEqual as equal } from './NativeEconomicTrialOpsProfile.js';
 import { currentCreepPopulation } from '../core/CreepPopulation.js';
 import { normalizeRemoteConfig } from './RemoteMiningState.js';
@@ -60,13 +62,15 @@ function expiredMovement(actors, session, operation, clock) {
     return null;
 }
 
-function closedPeriodicOwnershipIsUnused({current, settings, raw, remotePolicy, operation, scope, clock, nativeState}) {
+function closedPeriodicOwnershipIsUnused({empire, current, settings, raw, remotePolicy, operation, scope, clock, nativeState}) {
     if (current?.managed !== true || current.status !== 'terminal' || !current.outcome ||
         raw?.enabled !== false || raw.hold !== true || remotePolicy.enabled !== false ||
         operation?.allowRecon !== false || operation.allowEconomicDeparture !== false ||
         scope?.state?.allowRecon === true || scope?.state?.allowEconomicDeparture === true)
         return false;
     const request = settings?.request;
+    if (nativeState?.previousAbort && nativeState.current?.admittedIdentity)
+        return closedAdmittedNativeIsIdle(empire, nativeState, NATIVE_SUCCESSOR_PROFILE, clock);
     if (settings?.enabled === false) return true;
     const native = nativeState?.current;
     if (nativeState?.packedParent && native?.stage === 'terminal' && native.controlClosureConfirmed === true &&
@@ -154,7 +158,7 @@ export function collectEconomicTrialFacts(scope, clock, {periodic = false} = {})
     // A closed periodic pass still settles receipts and checks release independently.
     // It does not consume the ownership-derived fatal reason.
     const ownershipUnused = periodic && closedPeriodicOwnershipIsUnused({
-        current, settings, raw, remotePolicy, operation, scope: scope ?? global.RemoteMining?.[remoteId], clock,
+        empire, current, settings, raw, remotePolicy, operation, scope: scope ?? global.RemoteMining?.[remoteId], clock,
         nativeState: empire.remoteMining?.nativeEconomicOps
     });
     const nativeFailure = ownershipUnused ? null :
