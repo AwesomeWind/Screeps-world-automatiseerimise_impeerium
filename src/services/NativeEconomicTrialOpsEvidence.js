@@ -1,14 +1,16 @@
 import { validNativeEconomicOpsState, nativeOpsEconomicIdentity } from './NativeEconomicTrialOpsModel.js';
 import { summarizeEconomicTrial, economicIdentityMatches, nativeReleaseReceiptMatches } from './RemoteEconomicTrialModel.js';
-import { nativeSuccessorPrevious, resolveArchivedEconomicState } from './NativeEconomicTrialOpsSuccessorProtocol.js';
+import { nativeSuccessorPrevious, resolveArchivedEconomicState, retainedNativeParent } from './NativeEconomicTrialOpsSuccessorProtocol.js';
 import { nativeOpsCopy as copy } from './NativeEconomicTrialOpsProfile.js';
 
 export function summarizeNativeEconomicOps(state, economicState, clock) {
     if (state === undefined) return null;
     if (!validNativeEconomicOpsState(state)) return { capturedAt: clock.tick, status: 'state_invalid' };
     const economic = summarizeEconomicTrial(economicState, clock);
-    const history = state.schemaVersion === 2 ? state.history : [];
+    const packed = state.packedParent ? retainedNativeParent(state) : null;
+    const history = state.schemaVersion === 2 ? (packed?.native.history ?? state.history) : [];
     const archives = history.map((a, index) => resolveArchivedEconomicState(a, history.slice(0, index)));
+    if (packed) archives.push(packed.economic);
     const economicHistory = archives.map((a) => summarizeEconomicTrial(a, clock));
     const receipts = [economicState, ...archives].map((value) => value?.nativeReleaseReceipt);
     const previous = nativeSuccessorPrevious(state);
@@ -20,6 +22,7 @@ export function summarizeNativeEconomicOps(state, economicState, clock) {
             .find((value) => economicIdentityMatches(value, identity));
         const parentIndex = history.findIndex((a) => a.id === c.archiveRef);
         const parent = history[parentIndex], parentEconomic = archives[parentIndex];
+        const packedParent = packed && c === state.current ? packed : null;
         const retained = c === state.current && Object.hasOwn(state, 'previousAbort') ? previous.request : null;
         return {
             id: c.request.id,
@@ -33,7 +36,17 @@ export function summarizeNativeEconomicOps(state, economicState, clock) {
             admittedIdentity: copy(c.admittedIdentity),
             controlClosureConfirmed: c.controlClosureConfirmed === true,
             unknownEffect: c.unknownEffect === true,
-            archive: parent
+            archive: packedParent ? {
+                    atTick: packedParent.verifiedAt.tick,
+                    source: 'native-retained-parent',
+                    oldIdentity: copy(packedParent.economic.current.identity),
+                    oldCosts: copy(packedParent.economic.current.evidence),
+                    originalWindow: {
+                        issuedAtMs: previous.request.issuedAtMs,
+                        stopAtMs: previous.request.stopAtMs,
+                        notAfterMs: previous.request.notAfterMs
+                    }
+                } : parent
                 ? {
                       atTick: retained ? c.preflightAt : parent.atTick,
                       source: retained ? 'native-pre-release-abort' : 'native-successor-handoff',
@@ -62,6 +75,7 @@ export function summarizeNativeEconomicOps(state, economicState, clock) {
         lastRejection: copy(state.lastRejection) || null,
         current: compact(state.current),
         previous: compact(previous),
+        ...(packed ? {retainedAbort: compact(nativeSuccessorPrevious(packed.native))} : {}),
         ...(state.schemaVersion === 2
             ? { history: history.map((a) => compact(a.nativeSnapshot.current)), rejections: copy(state.rejections) }
             : {})

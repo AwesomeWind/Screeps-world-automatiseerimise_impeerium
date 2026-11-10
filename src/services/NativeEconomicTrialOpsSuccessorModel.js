@@ -1,3 +1,4 @@
+import { packNativeEvidence, NATIVE_ARCHIVE_LIMIT, NATIVE_STATE_LIMIT } from './NativeEconomicTrialOpsArchiveCodec.js';
 import { validNativeEconomicOpsState as validLegacy } from './NativeEconomicTrialOpsLegacyModel.js';
 import { validEconomicTrialState, economicIdentityMatches } from './RemoteEconomicTrialModel.js';
 import {
@@ -11,6 +12,9 @@ import {
     nativeSuccessorPrevious,
     nativeUnadmittedReady,
     resolveArchivedEconomicState,
+    archivedNativeEconomicParent,
+    retainedNativeParent,
+    nativeRetainedParentMatches,
     encodeNativePreReleaseAbort,
     nativePreReleaseAbortForValidation,
     isNativePreReleaseAbort,
@@ -173,7 +177,7 @@ function validSuccessorHeader(state, retainedArchiveId) {
                 (r.trialId === null || (typeof r.trialId === 'string' && r.trialId.length <= 32)) &&
                 typeof r.reason === 'string'
         ) ||
-        JSON.stringify(state).length > 65536
+        JSON.stringify(state).length > NATIVE_STATE_LIMIT
     )
         return false;
     return true;
@@ -199,15 +203,45 @@ function validSuccessorParentLink(state, parent, olderParent, retainedAbort) {
     );
 }
 
+const checkedPackedParents = new WeakSet();
+
+function validPackedSuccessor(state) {
+    if (!state.current?.request?.retainedParent || !validSuccessorHeader(state) ||
+        ['history', 'previous', 'previousRef', 'previousAbort'].some(key => Object.hasOwn(state, key)) ||
+        JSON.stringify({...state, current: null}).length > NATIVE_ARCHIVE_LIMIT)
+        return false;
+    const proof = retainedNativeParent(state);
+    if (!checkedPackedParents.has(proof)) {
+        if (!exactNativeFields(proof, ['native', 'economic', 'nativeSettings', 'economicSettings', 'verifiedAt']) ||
+            !record(proof.native) || Object.hasOwn(proof.native, 'packedParent') ||
+            !validNativeSuccessorState(proof.native) || !validEconomicTrialState(proof.economic) ||
+            !equal(proof.nativeSettings, {enabled: false, request: proof.native.current.request}) ||
+            !exactNativeFields(proof.verifiedAt, ['tick', 'nowMs']) ||
+            !integer(proof.verifiedAt.tick) || !integer(proof.verifiedAt.nowMs))
+            return false;
+        checkedPackedParents.add(proof);
+    }
+    if (proof.verifiedAt.tick !== state.current.preflightAt) return false;
+    const q = state.current.request;
+    return proof.verifiedAt.tick >= q.acceptNotBeforeTick && proof.verifiedAt.tick <= q.acceptNotAfterTick &&
+        proof.verifiedAt.nowMs >= q.issuedAtMs && proof.verifiedAt.nowMs - q.issuedAtMs <= 30000 &&
+        proof.verifiedAt.nowMs < q.stopAtMs &&
+        nativeRetainedParentMatches(q, proof.native, proof.economic, proof.economicSettings) &&
+        [state.current.releaseRequest, state.current.startRequest].every(
+            request => request === null || request.configFingerprint === proof.economic.current.configFingerprint
+        );
+}
+
 export function validNativeSuccessorState(state) {
     try {
+        if (record(state) && Object.hasOwn(state, 'packedParent')) return validPackedSuccessor(state);
         const history = state?.history;
         if (!record(state) || state.schemaVersion !== 2 ||
             !Array.isArray(history) || !history.length || history.length > 4)
             return false;
 
         const hasRetainedAbort = Object.hasOwn(state, 'previousAbort');
-        if (!validSuccessorHeader(state, hasRetainedAbort ? history.at(-1)?.id : undefined)) return false;
+        if (state.current?.request?.retainedParent || !validSuccessorHeader(state, hasRetainedAbort ? history.at(-1)?.id : undefined)) return false;
         if (hasRetainedAbort && JSON.stringify({...state, current: null}).length > 49152) return false;
         const retainedAbort = hasRetainedAbort ? nativePreReleaseAbortForValidation(state) : undefined;
 
@@ -273,12 +307,13 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
     }
     if (event.kind !== 'evaluate' || facts.settings?.enabled !== true || q?.schemaVersion !== 2)
         return { state: input, effects: [] };
+    if (Object.hasOwn(input, 'packedParent')) return rejected(input, q, clock, 'history_capacity');
     const validation = validateNativeSuccessorRequest(q, { ...profile, id: NATIVE_SUCCESSOR_PROFILE.id }, clock);
     const history = input.schemaVersion === 2 ? input.history : [];
     // A compact previousRef is already represented by an earlier archive current.
     const used = [
         input.current,
-        input.previous,
+        input.previousAbort ? nativeSuccessorPrevious(input) : input.previous,
         ...history.flatMap((a) => [a.nativeSnapshot.current, a.nativeSnapshot.previous])
     ].filter(Boolean);
     const replayed =
@@ -296,18 +331,19 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
             ? 'parent_not_terminal'
             : !facts.parentProof.valid
               ? facts.parentProof.reason
-              : q.unadmitted && (!nativeUnadmittedReady(facts) ||
+              : (q.unadmitted || q.retainedParent) && (!nativeUnadmittedReady(facts) ||
                     !nativeSuccessorParentMatches(q, input, facts.economicState, facts.economicSettings))
                 ? 'parent_invalid'
                 : !equal(input, facts.nativeState)
                 ? 'parent_changed'
-                : history.length >= 4 && !retainAbort
+                : history.length >= 4 && !retainAbort && !q.retainedParent
                   ? 'history_capacity'
                   : input.rejections?.length >= 16
                     ? 'rejection_capacity'
                     : null;
     if (reason) return rejected(input, q, clock, reason);
-    const archive = retainAbort ? history.at(-1) : createNativeParentArchive(input, facts.economicState, facts.archiveInputs, clock);
+    const archive = q.retainedParent ? {id: input.current.request.id} :
+        retainAbort ? history.at(-1) : createNativeParentArchive(input, facts.economicState, facts.archiveInputs, clock);
     const current = {
         request: copy(q),
         stage: 'preflight',
@@ -326,18 +362,30 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
         schemaVersion: 2,
         lastAcceptedStartSequence: q.startSequence,
         current,
-        ...(retainAbort ? { previousAbort: encodeNativePreReleaseAbort(input) }
+        ...(q.retainedParent ? {} : retainAbort ? { previousAbort: encodeNativePreReleaseAbort(input) }
             : q.unadmitted ? { previousRef: archive.id } : { previous: copy(input.current) }),
-        history: retainAbort ? copy(history) : [...copy(history), archive],
+        ...(!q.retainedParent ? {history: retainAbort ? copy(history) : [...copy(history), archive]} : {}),
         rejections: copy(input.rejections || []),
         ...(input.lastRejection ? { lastRejection: copy(input.lastRejection) } : {})
     };
-    if (JSON.stringify({ ...state, current: null }).length > 49152 || !validNativeSuccessorState(state))
+    if (q.retainedParent) {
+        try {
+            state.packedParent = packNativeEvidence({native: input, economic: facts.economicState,
+                nativeSettings: {enabled: false, request: input.current.request}, economicSettings: facts.economicSettings,
+                verifiedAt: {tick: clock.tick, nowMs: clock.nowMs}});
+        } catch {
+            return rejected(input, q, clock, 'history_capacity');
+        }
+    }
+    if (JSON.stringify({ ...state, current: null }).length > NATIVE_ARCHIVE_LIMIT || !validNativeSuccessorState(state))
         return rejected(input, q, clock, 'history_capacity');
     return { state, effects: [] };
 }
 
 export function successorParent(state) {
+    if (state?.packedParent) {
+        try {return retainedNativeParent(state).economic.current;} catch {return undefined;}
+    }
     if (!Array.isArray(state?.history)) return undefined;
     const index = state.history.findIndex((a) => a?.id === state.current?.archiveRef);
     try {
@@ -363,8 +411,8 @@ function advanceCurrent(input, event, facts, clock, profile) {
         c = state.current,
         effects = [],
         q = c.request;
-    const parent = successorParent(state),
-        archive = state.history.at(-1);
+    const archive = archivedNativeEconomicParent(state),
+        parent = archive.economic.current;
     const own = () =>
         validEconomicTrialState(facts.economicState) &&
         economicIdentityMatches(facts.economicState.current?.identity, successorIdentity(q));
@@ -524,7 +572,7 @@ function advanceCurrent(input, event, facts, clock, profile) {
         clock.codeVersion !== q.codeVersion ||
         facts.operationEpoch !== q.parent.identity.epoch ||
         !facts.protectedSafe ||
-        (q.unadmitted && facts.observersClosed !== true) ||
+        ((q.unadmitted || q.retainedParent) && facts.observersClosed !== true) ||
         !facts.configSafe ||
         !facts.clockFresh
     )
@@ -535,8 +583,8 @@ function advanceCurrent(input, event, facts, clock, profile) {
     else if (c.stage === 'preflight') {
         if (
             !safeToPrepare ||
-            !sameArchivedParent(facts.economicState, resolveArchivedEconomicState(archive, state.history.slice(0, -1)), q.unadmitted, clock.tick) ||
-            !equal(facts.economicSettings, archive.settings.economicTrial)
+            !sameArchivedParent(facts.economicState, archive.economic, q.unadmitted, clock.tick) ||
+            !equal(facts.economicSettings, archive.economicSettings)
         )
             stop('archive_not_verified');
         else {

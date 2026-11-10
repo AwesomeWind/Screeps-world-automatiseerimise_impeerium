@@ -1,3 +1,4 @@
+import { unpackNativeEvidence } from './NativeEconomicTrialOpsArchiveCodec.js';
 import {
     NATIVE_OPS_PROFILE,
     nativeOpsCopy as copy,
@@ -39,9 +40,10 @@ export function validateNativeSuccessorRequest(q, profile, clock) {
         s = p?.settlement,
         unadmitted = q?.unadmitted;
     const recovery = record(q) && Object.hasOwn(q, 'unadmitted');
+    const retained = q?.retainedParent === true;
     const sequence = recovery ? Math.max(i?.sequence, unadmitted?.highWater) : i?.sequence;
     if (
-        !exactNativeFields(q, recovery ? [...fields, 'unadmitted'] : fields) ||
+        !exactNativeFields(q, recovery ? [...fields, 'unadmitted'] : retained ? [...fields, 'retainedParent'] : fields) ||
         (recovery && (!exactNativeFields(unadmitted, ['nativeId', 'highWater']) ||
             !identifier(unadmitted.nativeId) || unadmitted.nativeId === p?.nativeId ||
             unadmitted.nativeId === q.id || !integer(unadmitted.highWater) ||
@@ -113,7 +115,7 @@ export function makeNativeSuccessorSubmission(request, profile = NATIVE_SUCCESSO
         codeVersion: q?.codeVersion
     });
     if (!validation.valid) throw new Error(validation.reason);
-    if (q.unadmitted) return makeUnadmittedCommand('submit', q);
+    if (q.unadmitted || q.retainedParent) return makeUnadmittedCommand('submit', q);
     const expression =
         'Memory.empire.control.policy.remoteMining.nativeTrialOps=' + JSON.stringify({ enabled: true, request: q });
     if (JSON.stringify(expression).length > 1024) throw new Error('Native successor serialized request exceeds 1024');
@@ -122,7 +124,7 @@ export function makeNativeSuccessorSubmission(request, profile = NATIVE_SUCCESSO
 
 function packUnadmitted(q) {
     const p = q.parent, i = p.identity, s = p.settlement;
-    return [q.id, q.trialId, q.codeVersion, q.unadmitted.nativeId, q.unadmitted.highWater,
+    return [q.id, q.trialId, q.codeVersion, q.unadmitted?.nativeId ?? null, q.unadmitted?.highWater ?? null,
         q.releaseSequence, q.startSequence, q.issuedAtMs, q.stopAtMs, q.notAfterMs,
         q.acceptNotBeforeTick, q.acceptNotAfterTick,
         [p.nativeId, i.trialId, i.sequence, i.remoteId, i.epoch, i.codeVersion, p.closureVerifiedAtTick,
@@ -142,7 +144,7 @@ export function decodeNativeUnadmittedCommand(payload, profile = NATIVE_SUCCESSO
             closureVerifiedAtTick, settlement: { spawnEnergy, infrastructureEnergy, returnedEnergy, unknownEvents, unknownUpperBound } },
         trialId, releaseSequence, startSequence, issuedAtMs, stopAtMs, notAfterMs, acceptNotBeforeTick, acceptNotAfterTick,
         allowParentArchive: true, allowEconomicRelease: true, allowStart: true, allowHold: true,
-        unadmitted: { nativeId, highWater }
+        ...(nativeId === null && highWater === null ? {retainedParent: true} : {unadmitted: {nativeId, highWater}})
     };
     const check = validateNativeSuccessorRequest(request, profile, { tick: acceptNotBeforeTick, nowMs: issuedAtMs, codeVersion });
     if (!check.valid) throw Error(check.reason);
@@ -156,7 +158,7 @@ function makeUnadmittedCommand(action, q) {
 }
 
 export function makeNativeUnadmittedExit(q, profile = NATIVE_SUCCESSOR_PROFILE) {
-    if (!q?.unadmitted || !validateNativeSuccessorRequest(q, profile, {
+    if (!(q?.unadmitted || q?.retainedParent) || !validateNativeSuccessorRequest(q, profile, {
         tick: q.acceptNotBeforeTick, nowMs: q.issuedAtMs, codeVersion: q.codeVersion
     }).valid) throw Error('Invalid unadmitted exit');
     return makeUnadmittedCommand('exit', q);
@@ -180,6 +182,7 @@ function resolvePreviousReference(snapshot, history, ref) {
 }
 
 export function nativeSuccessorPrevious(state) {
+    if (Object.hasOwn(state, 'packedParent')) return retainedNativeParent(state).native.current;
     if (Object.hasOwn(state, 'previousAbort')) return nativePreReleaseAbortForValidation(state).current;
     if (!Object.hasOwn(state, 'previousRef')) return state.previous;
     const previous = resolvePreviousReference(state, state.history, state.previousRef);
@@ -414,7 +417,49 @@ export function matchPreReleaseAbortParent(q, abort, economic, economicSettings,
             () => ({oldNative: olderParent.native, oldEconomic: olderParent.economic}));
 }
 
+let lastPackedParent, lastDecodedParent;
+export function retainedNativeParent(state) {
+    const serialized = JSON.stringify(state.packedParent);
+    if (serialized === lastPackedParent && lastDecodedParent !== undefined) return lastDecodedParent;
+    const decoded = unpackNativeEvidence(state.packedParent);
+    const freeze = value => {
+        if (value && typeof value === 'object') {
+            Object.values(value).forEach(freeze);
+            Object.freeze(value);
+        }
+    };
+    freeze(decoded);
+    lastPackedParent = serialized;
+    lastDecodedParent = decoded;
+    return decoded;
+}
+
+export function archivedNativeEconomicParent(state) {
+    if (Object.hasOwn(state, 'packedParent')) {
+        const {economic, economicSettings, verifiedAt} = retainedNativeParent(state);
+        return {economic, economicSettings, atTick: verifiedAt.tick};
+    }
+    const archive = state.history.at(-1);
+    return {economic: resolveArchivedEconomicState(archive, state.history.slice(0, -1)),
+        economicSettings: archive.settings.economicTrial, atTick: archive.atTick};
+}
+
+export function nativeRetainedParentMatches(q, native, economic, economicSettings) {
+    const old = native?.current?.request;
+    const parent = economic?.current;
+    const start = native?.current?.startRequest;
+    return q?.retainedParent === true && !Object.hasOwn(native || {}, 'packedParent') &&
+        native?.history?.length === 4 && Object.hasOwn(native, 'previousAbort') &&
+        nativeParentEvidenceMatches(q, native, economic) &&
+        exactNativeFields(economicSettings, ['enabled', 'request']) &&
+        typeof economicSettings.enabled === 'boolean' && equal(economicSettings.request, start) &&
+        integer(parent.tailExpiresAtTick) && parent.tailExpiresAtTick < q.acceptNotBeforeTick &&
+        start.expiresAtTick < q.acceptNotBeforeTick && start.expiresAtMs < q.issuedAtMs &&
+        old.notAfterMs < q.issuedAtMs;
+}
+
 export function nativeSuccessorParentMatches(q, native, economic, economicSettings) {
+    if (q?.retainedParent) return nativeRetainedParentMatches(q, native, economic, economicSettings);
     if (q?.unadmitted && isNativePreReleaseAbort(native)) {
         try {
             const history = native.history;

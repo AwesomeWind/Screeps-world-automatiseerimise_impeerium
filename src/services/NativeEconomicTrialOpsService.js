@@ -15,7 +15,7 @@ import {
 import { summarizeNativeEconomicOps } from './NativeEconomicTrialOpsEvidence.js';
 import {
     NATIVE_SUCCESSOR_PROFILE, validateNativeSuccessorRequest, decodeNativeUnadmittedCommand,
-    nativeSuccessorParentMatches, nativeUnadmittedReady
+    nativeSuccessorParentMatches, nativeUnadmittedReady, archivedNativeEconomicParent
 } from './NativeEconomicTrialOpsSuccessorProtocol.js';
 import { successorParent } from './NativeEconomicTrialOpsSuccessorModel.js';
 
@@ -47,7 +47,7 @@ export default class NativeEconomicTrialOpsService extends BaseService {
                         return { status: 'rejected', lastRejection: copy(summary.lastRejection) };
                     if (summary.status === 'rejected' && (!id || id === summary.lastRejection?.id)) return summary;
                     return copy(
-                        [summary.current, summary.previous, ...(summary.history || [])].find(
+                        [summary.current, summary.previous, summary.retainedAbort, ...(summary.history || [])].find(
                             (value) => value && (!id || value.id === id)
                         ) || null
                     );
@@ -140,13 +140,14 @@ export default class NativeEconomicTrialOpsService extends BaseService {
                 this.requestOwnedStop(result.error);
                 return;
             }
-            if (requested?.unadmitted && raw?.current?.request.id === requested.unadmitted.nativeId &&
+            const predecessorId = requested?.unadmitted?.nativeId ?? (requested?.retainedParent ? requested.parent.nativeId : null);
+            if (predecessorId && raw?.current?.request.id === predecessorId &&
                 equal(result.state?.current?.request, requested)) {
                 const policy = Memory.empire.control.policy.remoteMining;
                 if (!equal(policy.nativeTrialOps, { enabled: true, request: requested })) return;
                 // A partially persisted archive must never leave the old submission armed for replay.
                 policy.nativeTrialOps.enabled = false;
-                const retainedProof = result.state.previousAbort ? JSON.stringify(result.state) : null;
+                const retainedProof = (result.state.previousAbort || result.state.packedParent) ? JSON.stringify(result.state) : null;
                 this.persist(result.state);
                 if (retainedProof !== null &&
                     JSON.stringify(Memory.empire.remoteMining.nativeEconomicOps) !== retainedProof) {
@@ -167,7 +168,7 @@ export default class NativeEconomicTrialOpsService extends BaseService {
         } catch {
             this.lastError = 'ops_service_failure';
             const settings = Memory.empire.control.policy.remoteMining.nativeTrialOps;
-            if (requested?.unadmitted && equal(settings?.request, requested)) settings.enabled = false;
+            if ((requested?.unadmitted || requested?.retainedParent) && equal(settings?.request, requested)) settings.enabled = false;
             this.requestOwnedStop(this.lastError);
         }
     }
@@ -272,7 +273,7 @@ export default class NativeEconomicTrialOpsService extends BaseService {
             clock.nowMs < c.lastNowMs ||
             facts.operationEpoch !== c.request.parent.identity.epoch ||
             !facts.protectedSafe ||
-            (c.request.unadmitted && facts.observersClosed !== true) ||
+            ((c.request.unadmitted || c.request.retainedParent) && facts.observersClosed !== true) ||
             !facts.clockFresh ||
             !facts.configSafe ||
             !facts.accountingKnown ||
@@ -295,7 +296,7 @@ export default class NativeEconomicTrialOpsService extends BaseService {
             if (
                 !equal(effect.request, c.releaseRequest) ||
                 !equal(facts.economicState.current, parent) ||
-                Math.max(state.history.at(-1).atTick, c.preflightAt) >= clock.tick
+                Math.max(archivedNativeEconomicParent(state).atTick, c.preflightAt) >= clock.tick
             )
                 return false;
             policy.economicTrial = { enabled: true, request: copy(effect.request) };

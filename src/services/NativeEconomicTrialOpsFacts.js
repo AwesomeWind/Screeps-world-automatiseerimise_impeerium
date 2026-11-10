@@ -20,8 +20,36 @@ function budgetSpent(buckets, tick) {
     return buckets.filter((b) => b.start + 50 > tick - 1000).reduce((sum, b) => sum + b.amount, 0);
 }
 
-/** Recognize a disabled, unadmitted terminal run with no remaining periodic work. */
+function packedTerminalIsIdle(empire, state, profile, clock) {
+    const c = state.current, remote = empire.remoteMining, p = empire.control?.policy?.remoteMining;
+    const economic = remote?.economicTrials, session = economic?.current;
+    const config = empire.remoteRooms?.[profile.targetRoom], operation = remote?.operations?.[profile.remoteId];
+    const scope = global.RemoteMining?.[profile.remoteId];
+    if (c?.stage !== 'terminal' || !c.outcome || c.unknownEffect || !record(c.intents) ||
+        Object.values(c.intents).some(intent => ['planned', 'unknown'].includes(intent?.status)) ||
+        p?.nativeTrialOps?.enabled !== false || !equal(p.nativeTrialOps.request, c.request) ||
+        !integer(c.lastTick) || c.lastTick > clock.tick || !integer(c.lastNowMs) || c.lastNowMs > clock.nowMs ||
+        p.enabled !== false || config?.enabled !== false || config.hold !== true ||
+        operation?.allowRecon !== false || operation.allowEconomicDeparture !== false ||
+        scope?.state?.allowRecon === true || scope?.state?.allowEconomicDeparture === true ||
+        !validEconomicTrialState(economic) || session?.status !== 'terminal' || !session.outcome ||
+        !integer(session.closeAppliedAtTick) || session.closureVerifiedAtTick <= session.closeAppliedAtTick)
+        return false;
+
+    // With no staged start or unfinished owned closure, periodic Native work cannot authorize an action.
+    return c.admittedIdentity
+        ? c.controlClosureConfirmed === true && economicIdentityMatches(c.admittedIdentity, session.identity) &&
+            equal(p.economicTrial?.request, c.startRequest)
+        : c.startRequest === null && economicIdentityMatches(c.request?.parent?.identity, session.identity) &&
+            (p.economicTrial?.enabled === false ||
+                (p.economicTrial?.request?.action === 'start' &&
+                    p.economicTrial.request.id === session.identity.trialId &&
+                    p.economicTrial.request.expiresAtTick < clock.tick && p.economicTrial.request.expiresAtMs < clock.nowMs));
+}
+
+/** Recognize a disabled terminal run with no remaining periodic work. */
 export function nativeSuccessorIsIdle(empire, state, profile, clock) {
+    if (state?.packedParent) return packedTerminalIsIdle(empire, state, profile, clock);
     const current = state?.current;
     const request = current?.request;
     const policy = empire.control?.policy?.remoteMining;
@@ -137,7 +165,7 @@ export function collectNativeSuccessorFacts(profile, clock) {
         facts.operationEpoch === q?.parent?.identity?.epoch;
     const reasons = facts.reasons.filter((reason) => reason !== 'preparation_changed');
     if (bindingPending && !reasons.includes('pending_scope')) reasons.push('pending_scope');
-    if (q?.unadmitted && !observersClosed) reasons.push('observer_open');
+    if ((q?.unadmitted || q?.retainedParent) && !observersClosed) reasons.push('observer_open');
     const valid = parentValid && reasons.length === 0;
     return {
         ...facts,
