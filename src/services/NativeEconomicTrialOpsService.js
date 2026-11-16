@@ -47,7 +47,7 @@ export default class NativeEconomicTrialOpsService extends BaseService {
                         return { status: 'rejected', lastRejection: copy(summary.lastRejection) };
                     if (summary.status === 'rejected' && (!id || id === summary.lastRejection?.id)) return summary;
                     return copy(
-                        [summary.current, summary.previous, summary.retainedAbort, ...(summary.history || [])].find(
+                        [summary.current, summary.previous, summary.retainedPrior, summary.retainedAbort, ...(summary.history || [])].find(
                             (value) => value && (!id || value.id === id)
                         ) || null
                     );

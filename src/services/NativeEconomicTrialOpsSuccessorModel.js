@@ -14,6 +14,7 @@ import {
     resolveArchivedEconomicState,
     archivedNativeEconomicParent,
     retainedNativeParent,
+    makeRetainedNativeSegment,
     nativeRetainedParentMatches,
     encodeNativePreReleaseAbort,
     nativePreReleaseAbortForValidation,
@@ -213,7 +214,8 @@ function validPackedSuccessor(state) {
     const proof = retainedNativeParent(state);
     if (!checkedPackedParents.has(proof)) {
         if (!exactNativeFields(proof, ['native', 'economic', 'nativeSettings', 'economicSettings', 'verifiedAt']) ||
-            !record(proof.native) || Object.hasOwn(proof.native, 'packedParent') ||
+            (!record(proof.native) || Object.hasOwn(proof.native, 'retainedNext') ||
+                Object.hasOwn(proof.native, 'packedParent') !== Object.hasOwn(state, 'retainedNext')) ||
             !validNativeSuccessorState(proof.native) || !validEconomicTrialState(proof.economic) ||
             !equal(proof.nativeSettings, {enabled: false, request: proof.native.current.request}) ||
             !exactNativeFields(proof.verifiedAt, ['tick', 'nowMs']) ||
@@ -235,6 +237,7 @@ function validPackedSuccessor(state) {
 export function validNativeSuccessorState(state) {
     try {
         if (record(state) && Object.hasOwn(state, 'packedParent')) return validPackedSuccessor(state);
+        if (record(state) && Object.hasOwn(state, 'retainedNext')) return false;
         const history = state?.history;
         if (!record(state) || state.schemaVersion !== 2 ||
             !Array.isArray(history) || !history.length || history.length > 4)
@@ -307,13 +310,18 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
     }
     if (event.kind !== 'evaluate' || facts.settings?.enabled !== true || q?.schemaVersion !== 2)
         return { state: input, effects: [] };
-    if (Object.hasOwn(input, 'packedParent')) return rejected(input, q, clock, 'history_capacity');
+    const segmented = Object.hasOwn(input, 'packedParent');
+    if (segmented && (!q.retainedParent || Object.hasOwn(input, 'retainedNext') ||
+        input.current.controlClosureConfirmed !== true))
+        return rejected(input, q, clock, 'history_capacity');
     const validation = validateNativeSuccessorRequest(q, { ...profile, id: NATIVE_SUCCESSOR_PROFILE.id }, clock);
-    const history = input.schemaVersion === 2 ? input.history : [];
+    const archiveRoot = segmented ? retainedNativeParent(input).native : input;
+    const history = input.schemaVersion === 2 ? archiveRoot.history : [];
     // A compact previousRef is already represented by an earlier archive current.
     const used = [
         input.current,
-        input.previousAbort ? nativeSuccessorPrevious(input) : input.previous,
+        segmented ? archiveRoot.current : null,
+        archiveRoot.previousAbort ? nativeSuccessorPrevious(archiveRoot) : archiveRoot.previous,
         ...history.flatMap((a) => [a.nativeSnapshot.current, a.nativeSnapshot.previous])
     ].filter(Boolean);
     const replayed =
@@ -368,7 +376,10 @@ export function advanceNativeSuccessor(input, event, facts, clock, profile) {
         rejections: copy(input.rejections || []),
         ...(input.lastRejection ? { lastRejection: copy(input.lastRejection) } : {})
     };
-    if (q.retainedParent) {
+    if (segmented) {
+        state.packedParent = copy(input.packedParent);
+        state.retainedNext = makeRetainedNativeSegment(input, facts.economicState, facts.economicSettings, clock);
+    } else if (q.retainedParent) {
         try {
             state.packedParent = packNativeEvidence({native: input, economic: facts.economicState,
                 nativeSettings: {enabled: false, request: input.current.request}, economicSettings: facts.economicSettings,

@@ -114,7 +114,9 @@ export function resolveNativeSuccessorRelease({ nativeState, nativeSettings, eco
     if (!integer(clock.nowMs) || clock.nowMs < current.lastNowMs || clock.nowMs >= owner.stopAtMs)
         return { ...result, reason: 'native_release_clock_invalid' };
     const archived = archivedNativeEconomicParent(nativeState).economic;
-    if (economicState?.lastSequence !== archived.lastSequence || !equal(economicState?.current, archived.current))
+    if (economicState?.lastSequence !== archived.lastSequence || !equal(economicState?.current, archived.current) ||
+        (nativeState.retainedNext && (!equal(economicState.previous, archived.previous) ||
+            !equal(economicState.nativeReleaseReceipt, archived.nativeReleaseReceipt))))
         return { ...result, reason: 'native_release_parent_changed' };
     return { ...result, allowed: true, reason: null };
 }

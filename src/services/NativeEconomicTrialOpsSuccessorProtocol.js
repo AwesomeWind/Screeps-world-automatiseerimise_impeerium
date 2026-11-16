@@ -417,21 +417,53 @@ export function matchPreReleaseAbortParent(q, abort, economic, economicSettings,
             () => ({oldNative: olderParent.native, oldEconomic: olderParent.economic}));
 }
 
+function freezeEvidence(value) {
+    if (value && typeof value === 'object') {
+        Object.values(value).forEach(freezeEvidence);
+        Object.freeze(value);
+    }
+}
+
 let lastPackedParent, lastDecodedParent;
-export function retainedNativeParent(state) {
+export function retainedBaseNativeParent(state) {
     const serialized = JSON.stringify(state.packedParent);
     if (serialized === lastPackedParent && lastDecodedParent !== undefined) return lastDecodedParent;
     const decoded = unpackNativeEvidence(state.packedParent);
-    const freeze = value => {
-        if (value && typeof value === 'object') {
-            Object.values(value).forEach(freeze);
-            Object.freeze(value);
-        }
-    };
-    freeze(decoded);
+    freezeEvidence(decoded);
     lastPackedParent = serialized;
     lastDecodedParent = decoded;
     return decoded;
+}
+
+let lastSegment, lastSegmentBase, lastSegmentProof;
+export function retainedNativeParent(state) {
+    const base = retainedBaseNativeParent(state);
+    if (!Object.hasOwn(state, 'retainedNext')) return base;
+    const serialized = JSON.stringify(state.retainedNext);
+    if (serialized === lastSegment && base === lastSegmentBase && lastSegmentProof) return lastSegmentProof;
+    const segment = JSON.parse(serialized);
+    if (!exactNativeFields(segment, ['native', 'economic', 'economicEnabled', 'verifiedAt']) ||
+        !record(segment.native) || !record(segment.economic) ||
+        ['packedParent', 'retainedNext'].some(key => Object.hasOwn(segment.native, key)) ||
+        Object.hasOwn(segment.economic, 'previous') || typeof segment.economicEnabled !== 'boolean')
+        throw Error('invalid_retained_segment');
+    const native = {...segment.native, packedParent: copy(state.packedParent)};
+    const economic = {...segment.economic, previous: {...base.economic.current, managed: false}};
+    const proof = {native, economic, nativeSettings: {enabled: false, request: native.current.request},
+        economicSettings: {enabled: segment.economicEnabled, request: native.current.startRequest},
+        verifiedAt: segment.verifiedAt};
+    freezeEvidence(proof);
+    lastSegment = serialized;
+    lastSegmentBase = base;
+    lastSegmentProof = proof;
+    return proof;
+}
+
+export function makeRetainedNativeSegment(native, economic, economicSettings, clock) {
+    const {packedParent, ...nativeHeader} = native;
+    const {previous, ...economicHead} = economic;
+    return {native: copy(nativeHeader), economic: copy(economicHead), economicEnabled: economicSettings.enabled,
+        verifiedAt: {tick: clock.tick, nowMs: clock.nowMs}};
 }
 
 export function archivedNativeEconomicParent(state) {
@@ -444,12 +476,22 @@ export function archivedNativeEconomicParent(state) {
         economicSettings: archive.settings.economicTrial, atTick: archive.atTick};
 }
 
+function retainedParentHistoryMatches(native, economic) {
+    if (!record(native) || Object.hasOwn(native, 'retainedNext')) return false;
+    if (!Object.hasOwn(native, 'packedParent'))
+        return native.history?.length === 4 && Object.hasOwn(native, 'previousAbort');
+    const base = retainedBaseNativeParent(native);
+    const receipt = economic?.nativeReleaseReceipt;
+    return !!base.economic?.current && equal(economic?.previous, {...base.economic.current, managed: false}) &&
+        nativeReleaseReceiptMatches(receipt, native.current.releaseRequest, native.current.request.id) &&
+        receipt.status === 'applied' && receipt.nativeEvaluatedAt === receipt.tick;
+}
+
 export function nativeRetainedParentMatches(q, native, economic, economicSettings) {
     const old = native?.current?.request;
     const parent = economic?.current;
     const start = native?.current?.startRequest;
-    return q?.retainedParent === true && !Object.hasOwn(native || {}, 'packedParent') &&
-        native?.history?.length === 4 && Object.hasOwn(native, 'previousAbort') &&
+    return q?.retainedParent === true && retainedParentHistoryMatches(native, economic) &&
         nativeParentEvidenceMatches(q, native, economic) &&
         exactNativeFields(economicSettings, ['enabled', 'request']) &&
         typeof economicSettings.enabled === 'boolean' && equal(economicSettings.request, start) &&

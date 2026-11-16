@@ -1543,19 +1543,19 @@ test('packed parent codec rejects cycles, unknown references, and expansion over
     ]) assert.throws(() => unpackNativeEvidence(candidate));
 });
 
-async function packed09Replay() {
-    const fixture = structuredClone(require('./fixtures/native-successor-09-closed.json'));
+async function packed09Replay(fixtureName = 'native-successor-09-closed.json') {
+    const fixture = structuredClone(require('./fixtures/' + fixtureName));
     const protocol = await import('../services/NativeEconomicTrialOpsSuccessorProtocol.js');
     const model = await import('../services/NativeEconomicTrialOpsSuccessorModel.js');
     const {native, economic, nativeSettings, economicSettings} = fixture;
     const prior = native.current.request, c = economic.current, e = c.evidence;
-    const clock = {tick: c.expiresAtTick + 1, nowMs: Math.max(prior.notAfterMs, c.expiresAtMs) + 1, codeVersion: 'offline-10'};
+    const clock = {tick: c.expiresAtTick + 1, nowMs: Math.max(prior.notAfterMs, c.expiresAtMs) + 1, codeVersion: 'offline-' + (economic.lastSequence + 2)};
     const {unadmitted, ...previous} = prior;
-    const q = {...previous,id:'nops-offline-10',trialId:'econ-offline-10',codeVersion:clock.codeVersion,
+    const q = {...previous,id:'nops-offline-' + (economic.lastSequence + 2),trialId:'econ-offline-' + (economic.lastSequence + 2),codeVersion:clock.codeVersion,
         parent:{nativeId:prior.id,identity:c.identity,closureVerifiedAtTick:c.closureVerifiedAtTick,
             settlement:{spawnEnergy:e.confirmedSpawnCost,infrastructureEnergy:e.confirmedInfrastructureCost,
                 returnedEnergy:e.returnedEnergy,unknownEvents:e.unknownEvents,unknownUpperBound:e.unknownEnergyUpperBound}},
-        retainedParent:true,releaseSequence:14,startSequence:15,issuedAtMs:clock.nowMs,stopAtMs:clock.nowMs+5280000,
+        retainedParent:true,releaseSequence:economic.lastSequence+1,startSequence:economic.lastSequence+2,issuedAtMs:clock.nowMs,stopAtMs:clock.nowMs+5280000,
         notAfterMs:clock.nowMs+5400000,acceptNotBeforeTick:clock.tick,acceptNotAfterTick:clock.tick+10};
     const settings={enabled:true,request:q};
     const facts={settings,economicState:economic,economicSettings,nativeState:native,parentProof:{valid:true},
@@ -1685,4 +1685,142 @@ test('full 09 handoff does not replay an unknown release after the original writ
     assert.equal(r.remote.economicTrials.current.managed,true);
     assert.equal(r.remote.economicTrials.nativeReleaseReceipt.status,'refused');
     assert.equal(r.call('submit'),false);
+});
+
+async function packed10Replay() {
+    return packed09Replay('native-successor-10-closed.json');
+}
+
+test('segmented handoff retains the exact 10 state and releases 16 before start 17', async t => {
+    const r = await unadmittedRuntime(packed10Replay);
+    const baseline = structuredClone(r.native);
+    const economic = structuredClone(r.economic);
+    assert.equal(r.call('submit'),true);
+    assert.equal(r.call('submit'),false);
+    r.service.analyze();
+    const archived = r.remote.nativeEconomicOps;
+    assert.equal(archived.current.stage,'preflight');
+    assert.deepEqual(archived.packedParent,baseline.packedParent);
+    const projection = JSON.stringify({...archived,current:null}).length;
+    assert.ok(projection <= 49152);
+    t.diagnostic('segmented 10 retained projection: '+projection+'/49152');
+    assert.ok(JSON.stringify(archived).length <= 65536);
+    r.reset();
+    const proof = r.protocol.retainedNativeParent(r.remote.nativeEconomicOps);
+    assert.deepEqual(proof.native,baseline);
+    assert.deepEqual(proof.economic,economic);
+    const prior = r.protocol.retainedNativeParent(proof.native);
+    assert.equal(prior.native.history.length,4);
+    assert.equal(r.protocol.restoreNativePreReleaseAbort(prior.native).current.request.id,'nops-w48-20261106-07');
+    assert.equal(prior.economic.current.identity.sequence,13);
+    assert.equal(r.service.summarize().history.length,4);
+    assert.equal(global.RemoteTrialOps.status(prior.native.current.request.id).id,prior.native.current.request.id);
+    assert.equal(r.remote.economicTrials.current.managed,true);
+    r.tick();r.service.analyze();
+    const release = r.policy.economicTrial.request;
+    assert.equal(release.sequence,16);
+    assert.equal(release.activateAtTick,r.clock.tick+1);
+    r.tick();r.service.analyze();r.evaluateEconomic();
+    assert.equal(r.remote.economicTrials.nativeReleaseReceipt.status,'applied');
+    assert.equal(r.remote.economicTrials.nativeReleaseReceipt.tick,release.activateAtTick);
+    r.tick();r.service.analyze();
+    assert.equal(r.policy.economicTrial.request.sequence,17);
+    r.tick();r.service.analyze();r.evaluateEconomic();r.service.cleanup();
+    assert.equal(r.remote.economicTrials.current.identity.sequence,17);
+    assert.equal(r.remote.economicTrials.current.safeStreak,0);
+    assert.equal(r.call('exit'),true);
+    assert.equal(r.call('exit'),false);
+});
+
+test('segmented handoff keeps 10 locked on stale or corrupt evidence and never overwrites its segment', async () => {
+    const r = await packed10Replay();
+    const run = (state, overrides = {}) => r.model.advanceNativeSuccessor(
+        state, {kind:'evaluate'}, {...r.facts,...overrides}, r.clock, r.protocol.NATIVE_SUCCESSOR_PROFILE
+    );
+    for (const mutate of [
+        e => {e.previous.evidence.confirmedSpawnCost++;},
+        e => {e.nativeReleaseReceipt.status = 'refused';},
+        e => {e.current.evidence.unknownEvents = 1;},
+        e => {e.current.tailExpiresAtTick = r.clock.tick;}
+    ]) {
+        const economicState = structuredClone(r.economic);
+        mutate(economicState);
+        const rejected = run(r.native, {economicState});
+        assert.equal(rejected.error, 'parent_invalid');
+        assert.deepEqual(rejected.effects, []);
+        assert.equal(rejected.state.current.request.id, r.native.current.request.id);
+    }
+    const accepted = run(r.native).state;
+    for (const corrupt of [
+        s => {s.retainedNext.economic.previous = null;},
+        s => {s.retainedNext.native.packedParent = s.packedParent;},
+        s => {s.retainedNext.verifiedAt.tick++;},
+        s => {s.packedParent.data = {$ref:999999};},
+        s => {s.retainedNext.economic.extra = 'x'.repeat(49152);}
+    ]) {
+        const bad = structuredClone(accepted);
+        corrupt(bad);
+        assert.equal(r.model.validNativeSuccessorState(bad),false);
+        assert.deepEqual(run(bad).effects,[]);
+    }
+    accepted.current.stage = 'terminal';
+    const nextRequest = {...r.q,id:'nops-other',trialId:'econ-other'};
+    const rejected = run(accepted, {settings:{enabled:true,request:nextRequest}});
+    assert.equal(rejected.error,'history_capacity');
+    assert.deepEqual(rejected.state.retainedNext,accepted.retainedNext);
+    assert.deepEqual(rejected.effects,[]);
+});
+
+test('segmented handoff fails closed on archive readback loss or unknown release', async () => {
+    const lost = await unadmittedRuntime(packed10Replay);
+    assert.equal(lost.call('submit'),true);
+    lost.service.persist = () => {};
+    lost.service.analyze();
+    assert.equal(lost.policy.nativeTrialOps.enabled,false);
+    assert.equal(lost.remote.economicTrials.lastSequence,15);
+    assert.equal(lost.call('submit'),false);
+
+    const r = await unadmittedRuntime(packed10Replay);
+    assert.equal(r.call('submit'),true);
+    r.service.analyze();r.tick();
+    const write = r.service.applyEffect.bind(r.service);
+    r.service.applyEffect = effect => {
+        assert.equal(effect.type,'replace_release_request');
+        assert.equal(write(effect),true);
+        throw Error('unknown release');
+    };
+    r.service.analyze();
+    assert.equal(r.remote.nativeEconomicOps.current.unknownEffect,true);
+    r.reset();
+    r.service.applyEffect = () => assert.fail('unknown release must not replay');
+    r.tick();r.service.analyze();r.evaluateEconomic();
+    assert.equal(r.remote.economicTrials.lastSequence,15);
+    assert.equal(r.remote.economicTrials.current.managed,true);
+    assert.equal(r.remote.economicTrials.nativeReleaseReceipt.status,'refused');
+    assert.equal(r.call('submit'),false);
+});
+
+test('segmented release cannot unlock 10 when Native misses the activation tick', async () => {
+    const r = await unadmittedRuntime(packed10Replay);
+    assert.equal(r.call('submit'),true);
+    r.service.analyze();r.tick();r.service.analyze();
+    r.tick();r.evaluateEconomic();
+    assert.equal(r.remote.economicTrials.nativeReleaseReceipt.reason,'native_release_tick_unconfirmed');
+    r.reset();
+    r.tick();r.service.analyze();r.evaluateEconomic();
+    assert.equal(r.remote.economicTrials.lastSequence,15);
+    assert.equal(r.remote.economicTrials.current.managed,true);
+    assert.equal(r.remote.nativeEconomicOps.current.startRequest,null);
+});
+
+test('segmented release rechecks the retained parent and historical receipt at activation', async () => {
+    const r = await unadmittedRuntime(packed10Replay);
+    assert.equal(r.call('submit'),true);
+    r.service.analyze();r.tick();r.service.analyze();
+    r.tick();r.service.analyze();
+    r.remote.economicTrials.nativeReleaseReceipt.nativeEvaluatedAt--;
+    r.evaluateEconomic();
+    assert.equal(r.remote.economicTrials.nativeReleaseReceipt.reason,'native_release_parent_changed');
+    assert.equal(r.remote.economicTrials.lastSequence,15);
+    assert.equal(r.remote.economicTrials.current.managed,true);
 });

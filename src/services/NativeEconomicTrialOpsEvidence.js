@@ -1,6 +1,6 @@
 import { validNativeEconomicOpsState, nativeOpsEconomicIdentity } from './NativeEconomicTrialOpsModel.js';
 import { summarizeEconomicTrial, economicIdentityMatches, nativeReleaseReceiptMatches } from './RemoteEconomicTrialModel.js';
-import { nativeSuccessorPrevious, resolveArchivedEconomicState, retainedNativeParent } from './NativeEconomicTrialOpsSuccessorProtocol.js';
+import { nativeSuccessorPrevious, resolveArchivedEconomicState, retainedNativeParent, retainedBaseNativeParent } from './NativeEconomicTrialOpsSuccessorProtocol.js';
 import { nativeOpsCopy as copy } from './NativeEconomicTrialOpsProfile.js';
 
 export function summarizeNativeEconomicOps(state, economicState, clock) {
@@ -8,9 +8,11 @@ export function summarizeNativeEconomicOps(state, economicState, clock) {
     if (!validNativeEconomicOpsState(state)) return { capturedAt: clock.tick, status: 'state_invalid' };
     const economic = summarizeEconomicTrial(economicState, clock);
     const packed = state.packedParent ? retainedNativeParent(state) : null;
-    const history = state.schemaVersion === 2 ? (packed?.native.history ?? state.history) : [];
+    const base = state.retainedNext ? retainedBaseNativeParent(state) : packed;
+    const history = state.schemaVersion === 2 ? (base?.native.history ?? state.history) : [];
     const archives = history.map((a, index) => resolveArchivedEconomicState(a, history.slice(0, index)));
-    if (packed) archives.push(packed.economic);
+    if (base) archives.push(base.economic);
+    if (packed && packed !== base) archives.push(packed.economic);
     const economicHistory = archives.map((a) => summarizeEconomicTrial(a, clock));
     const receipts = [economicState, ...archives].map((value) => value?.nativeReleaseReceipt);
     const previous = nativeSuccessorPrevious(state);
@@ -75,7 +77,8 @@ export function summarizeNativeEconomicOps(state, economicState, clock) {
         lastRejection: copy(state.lastRejection) || null,
         current: compact(state.current),
         previous: compact(previous),
-        ...(packed ? {retainedAbort: compact(nativeSuccessorPrevious(packed.native))} : {}),
+        ...(base ? {retainedAbort: compact(nativeSuccessorPrevious(base.native))} : {}),
+        ...(base && base !== packed ? {retainedPrior: compact(base.native.current)} : {}),
         ...(state.schemaVersion === 2
             ? { history: history.map((a) => compact(a.nativeSnapshot.current)), rejections: copy(state.rejections) }
             : {})
