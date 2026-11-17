@@ -3,10 +3,12 @@ import { currentCreepPopulation, activeBodyPartCount } from '../core/CreepPopula
 import { recoveryRestricted, controllerEmergency, essentialConstruction } from './RoomRecoveryPolicy.js';
 import EventBus from '../core/EventBus.js';
 import BodyBuilder from '../core/BodyBuilder.js';
-import { resolveCapabilityMode, validateCapabilityControlPolicy } from '../config/EmpirePolicy.js';
+import { DEFAULT_EMPIRE_POLICY, resolveCapabilityMode, validateCapabilityControlPolicy } from '../config/EmpirePolicy.js';
 import { recordEmpireEvent } from '../core/EmpireEventLog.js';
 import { arbitrateUpgradeWork, advanceUpgradeWorkControl } from '../governance/SpawnCapabilityArbiter.js';
 import { evaluateCapabilityReadiness } from '../governance/CapabilityRolloutReadiness.js';
+import { planLocalSpawn } from '../governance/LocalSpawnPlanner.js';
+import { isLocalSpawnPilotRoom, isLocalReplacementRole } from './LocalSpawnLifecycle.js';
 import { getSourceOutputPolicy } from '../planning/CityAssetPolicy.js';
 import { getControllerContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
 import { inspectEconomicTrialSpawnCandidate } from './RemoteEconomicTrialService.js';
@@ -37,6 +39,7 @@ class SpawnBureauService extends BaseService {
             global.SpawnBureau[roomName] = state;
 
             this.addEconomicIntents(room, state);
+            if (isLocalSpawnPilotRoom(room)) this.applyLocalReplacementPilot(room, state);
             this.addDemandIntents(room, state);
 
             state.legacyIntents = state.intents.map((intent) => ({
@@ -56,11 +59,89 @@ class SpawnBureauService extends BaseService {
                     role: intent.role,
                     body: intent.body,
                     memory: intent.memory,
-                    ...remoteRequestFields(intent)
+                    ...remoteRequestFields(intent),
+                    ...(intent.localReplacementPilot ? {localReplacementPilot: true} : {})
                 }, intent.economicTrialCandidate !== undefined ? 0 :
                     intent.deadline !== undefined ? Math.max(0, intent.deadline - Game.time) : (intent.expireIn || 1));
             }
         }
+    }
+
+    applyLocalReplacementPilot(room, state) {
+        try {
+            const shadow = this.replayLocalSpawnDecisions(room);
+            const proposals = shadow.intents.map(({energyLimit, cost, ...intent}) => intent);
+            if (JSON.stringify(proposals) !== JSON.stringify(state.intents) ||
+                JSON.stringify(shadow.blockedDemands) !== JSON.stringify(state.blockedDemands)) {
+                state.localReplacementPilot = 'legacy_mismatch';
+                return;
+            }
+            state.intents = state.intents.map((intent, index) => isLocalReplacementRole(intent.role)
+                ? {...proposals[index], localReplacementPilot: true} : intent);
+            state.localReplacementPilot = 'active';
+        } catch {
+            state.localReplacementPilot = 'legacy_replay_error';
+        }
+    }
+
+    // Used for replay without publishing spawn requests.
+    replayLocalSpawnDecisions(room) {
+        const roomName = room.name;
+        const policy = Memory.empire?.control?.policy;
+        const configuredRecovery = policy?.economyRecovery?.enabled;
+        const configuredEmergency = policy?.capabilityControl?.controllerEmergencyTicks;
+        const limited = recoveryRestricted(roomName, configuredRecovery === undefined
+            ? DEFAULT_EMPIRE_POLICY.economyRecovery.enabled : configuredRecovery);
+        const emergency = controllerEmergency(room, configuredEmergency === undefined
+            ? DEFAULT_EMPIRE_POLICY.capabilityControl.controllerEmergencyTicks : configuredEmergency);
+        const population = currentCreepPopulation().filter(entry => entry.roomName === roomName);
+        const roles = {};
+        for (const entry of population) {
+            if (entry.coversQuota) roles[entry.memory.role] = (roles[entry.memory.role] || 0) + 1;
+        }
+
+        const cache = global.RoomCache?.[roomName];
+        const sources = [];
+        for (const id of cache?.sources || []) {
+            const source = Game.getObjectById(id);
+            if (!source) continue;
+            const miners = population.filter(entry => entry.memory.role === 'miner' && entry.memory.sourceId === id);
+            const key = 'miner:' + roomName + ':' + id;
+            let workParts = 0;
+            for (const entry of miners) {
+                if (entry.coversQuota) workParts += entry.activeParts[WORK] || 0;
+            }
+            sources.push({
+                id,
+                spawningWithoutBody: miners.some(entry => entry.state === 'spawning' && !entry.bodyKnown),
+                openPositions: this.getOpenMiningPositions(room, source).length,
+                coveredQuota: population.filter(entry => entry.coversQuota &&
+                    this.quotaKeyForMemory(entry.memory, roomName) === key).length,
+                workParts,
+                bodyProfile: this.minerBodyProfile(roomName, id)
+            });
+        }
+
+        const sites = room.find ? room.find(FIND_CONSTRUCTION_SITES) : [];
+        const facts = {
+            roomName,
+            phase: this.roomPhase(room).phase,
+            hasStorage: !!room.storage,
+            energyAvailable: room.energyAvailable,
+            energyCapacityAvailable: room.energyCapacityAvailable,
+            minimumMinerEnergy: BODYPART_COST[WORK] + BODYPART_COST[MOVE],
+            roles,
+            sources,
+            recoveryRestricted: limited,
+            controller: {emergency, desired: this.desiredUpgraders(room), bodyProfile: this.upgraderBodyProfile(room)},
+            construction: {
+                hasSites: sites.length > 0,
+                essential: limited && sites.some(site => essentialConstruction(room, site)),
+                bodyProfile: this.builderBodyProfile(room)
+            },
+            maintenance: this.maintenanceDemand(room)
+        };
+        return planLocalSpawn(facts, (role, profile) => BodyBuilder.build(role, room, profile));
     }
 
     addEconomicIntents(room, state) {
@@ -601,7 +682,7 @@ class SpawnBureauService extends BaseService {
         let workParts = 0;
         for (const entry of currentCreepPopulation()) {
             if (entry.coversQuota && entry.roomName === roomName && entry.memory.role === 'miner' && entry.memory.sourceId === sourceId) {
-                workParts += activeBodyPartCount(entry.body, WORK);
+                workParts += entry.activeParts[WORK] || 0;
             }
         }
         if (state) {

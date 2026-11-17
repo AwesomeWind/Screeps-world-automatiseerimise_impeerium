@@ -47,7 +47,8 @@ export const DEFAULT_EMPIRE_POLICY = {
         reserveCritical: 5000
     },
     spawnIntake: {
-        maxReceiptsPerRoom: 200
+        maxReceiptsPerRoom: 200,
+        localReplacementPilotRoom: null
     },
     remoteMining: {
         enabled: false,

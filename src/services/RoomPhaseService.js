@@ -20,9 +20,9 @@ class RoomPhaseService extends BaseService {
         }
     }
 
-    buildPhase(room) {
+    buildPhase(room, population = currentCreepPopulation()) {
         const roomName = room.name;
-        const roles = this.roleCounts(roomName);
+        const roles = this.roleCounts(roomName, population);
         const maintenancePlan = Memory.rooms &&
             Memory.rooms[roomName] &&
             Memory.rooms[roomName].maintenancePlan;
@@ -49,16 +49,16 @@ class RoomPhaseService extends BaseService {
             logisticsMode: this.logisticsModeFor(phase, roles),
             constructionPressure: constructionSites,
             maintenancePressure: maintenanceTargets.length,
-            recovery: this.buildRecovery(room, spawnEnergy, storageEnergy, energyPosture)
+            recovery: this.buildRecovery(room, spawnEnergy, storageEnergy, energyPosture, population)
         };
     }
 
-    buildRecovery(room, spawnEnergy, storageEnergy, energyPosture) {
+    buildRecovery(room, spawnEnergy, storageEnergy, energyPosture, population = currentCreepPopulation()) {
         const policy = ensureEmpireControl().policy.economyRecovery;
         const coreUsable = { miner: 0, hauler: 0 };
         const coreUpcoming = { miner: 0, hauler: 0 };
         let carriedEnergy = 0;
-        for (const entry of currentCreepPopulation()) {
+        for (const entry of population) {
             if (entry.roomName !== room.name) continue;
             if (entry.memory.role === 'hauler' && ['active', 'retiring'].includes(entry.state) && entry.activeParts.carry > 0) {
                 const creep = Game.creeps[entry.name];
@@ -68,8 +68,8 @@ class RoomPhaseService extends BaseService {
                 }
             }
             if (!entry.coversQuota || coreUsable[entry.memory.role] === undefined) continue;
-            if (entry.state === 'active' && entry.bodyKnown) coreUsable[entry.memory.role]++;
-            if (['spawning', 'accepted'].includes(entry.state)) coreUpcoming[entry.memory.role]++;
+            if (entry.usableForRole) coreUsable[entry.memory.role]++;
+            if (entry.spawnInProgress) coreUpcoming[entry.memory.role]++;
         }
         const hasSpawn = Object.values(Game.spawns || {}).some(spawn => spawn.room && spawn.room.name === room.name &&
             (typeof spawn.isActive !== 'function' || spawn.isActive()));
@@ -188,7 +188,7 @@ class RoomPhaseService extends BaseService {
         Memory.rooms[roomName].energyPosture = energyPosture;
     }
 
-    roleCounts(roomName) {
+    roleCounts(roomName, population = currentCreepPopulation()) {
         const counts = {
             miner: 0,
             hauler: 0,
@@ -197,7 +197,7 @@ class RoomPhaseService extends BaseService {
             repairer: 0
         };
 
-        for (const entry of currentCreepPopulation()) {
+        for (const entry of population) {
             if (!entry.coversQuota || entry.roomName !== roomName) continue;
             if (counts[entry.memory.role] !== undefined) counts[entry.memory.role]++;
         }

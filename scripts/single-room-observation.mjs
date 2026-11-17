@@ -3,16 +3,17 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { projectPilotProof, pilotControlDifferences } from './single-room-pilot-review.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = new Map();
 for (let i = 2; i < process.argv.length; i++) {
     const key = process.argv[i];
     if (key === '--help') {
-        console.log('node single-room-observation.mjs [--shard shard3] [--room W49N41] [--output relative.jsonl] [--target-ticks 10000 --expected-main-sha SHA256]');
+        console.log('node single-room-observation.mjs [--shard shard3] [--room W49N41] [--output relative.jsonl] [--target-ticks 10000 --expected-main-sha SHA256] [--expected-pilot-room W49N41 --expected-map-sha SHA256]');
         process.exit(0);
     }
-    if (!['--shard', '--room', '--output', '--target-ticks', '--expected-main-sha'].includes(key) || !process.argv[i + 1]) throw new Error('Invalid observation argument');
+    if (!['--shard', '--room', '--output', '--target-ticks', '--expected-main-sha', '--expected-pilot-room', '--expected-map-sha'].includes(key) || !process.argv[i + 1]) throw new Error('Invalid observation argument');
     args.set(key, process.argv[++i]);
 }
 
@@ -26,6 +27,12 @@ async function main() {
     const roomName = args.get('--room') || 'W49N41';
     const branch = config.branch || 'default';
     const targetTicks = Number(args.get('--target-ticks') || 0);
+    const pilotRoom = args.get('--expected-pilot-room');
+    const expectedMapSha256 = args.get('--expected-map-sha');
+    if (pilotRoom && (pilotRoom !== roomName || targetTicks !== 10000 ||
+        !/^[a-f0-9]{64}$/.test(expectedMapSha256 || ''))) {
+        throw new Error('Pilot review requires the same room, a 10000-tick window and an explicit map SHA-256');
+    }
     if (![0, 10000].includes(targetTicks)) throw new Error('The bounded acceptance collector supports 10000 ticks or one snapshot');
     const expectedHash = args.get('--expected-main-sha') || (fs.existsSync(path.join(root, 'dist/main.js')) ? hash(fs.readFileSync(path.join(root, 'dist/main.js'))) : null);
     if (targetTicks && !args.has('--expected-main-sha')) throw new Error('A window requires the explicitly verified deployment SHA-256');
@@ -46,6 +53,8 @@ async function main() {
     const code = await get(`/api/user/code?branch=${encodeURIComponent(branch)}`);
     if (typeof code.modules?.main !== 'string') throw new Error('The selected branch has no main module');
     const deployedHash = hash(code.modules.main);
+    const deployedMapSha256 = typeof code.modules['main.js.map'] === 'string' ? hash(code.modules['main.js.map']) : null;
+    if (pilotRoom && deployedMapSha256 !== expectedMapSha256) throw new Error('Expected deployment map does not match the game branch');
     const deployedVersion = code.modules.main.match(/\bconst SERVICE_VERSION\s*=\s*['"]([^'"]+)['"]/);
     if (targetTicks && deployedHash !== expectedHash) throw new Error('Expected deployment fingerprint does not match the game branch');
     const fd = fs.openSync(output, 'wx');
@@ -56,7 +65,8 @@ async function main() {
     let lastTick = null;
     let stopReason = 'single_snapshot';
     try {
-        for (let reads = 0; reads < 4000 && count < 251; reads++) {
+        const snapshotLimit = pilotRoom ? 4000 : 251;
+        for (let reads = 0; reads < 4000 && count < snapshotLimit; reads++) {
             const [data, time] = await Promise.all([
                 get(`/api/user/memory?shard=${encodeURIComponent(shard)}`),
                 get(`/api/game/time?shard=${encodeURIComponent(shard)}`)
@@ -67,10 +77,15 @@ async function main() {
             const tick = time.time;
             if (!Number.isSafeInteger(tick)) throw new Error('The game clock is unavailable');
             const codeVersion = control.telemetry?.codeVersion || null;
+            if (pilotRoom && lastTick !== null && tick < lastTick) { stopReason = 'world_clock_regressed'; break; }
             if (startTick === null) { startTick = tick; version = codeVersion; }
             if (targetTicks && (!version || codeVersion !== version || !deployedVersion || codeVersion !== deployedVersion[1])) { stopReason = 'version_missing_or_changed'; break; }
+            const proof = pilotRoom ? projectPilotProof(memory, roomName) : null;
+            const pilotFaults = proof ? pilotControlDifferences({controls: proof.controls,
+                governorShadow: control.policy?.roomGovernor?.shadow,
+                schedulerEnforce: control.policy?.scheduler?.enforce}, roomName) : [];
             const reached = tick - startTick >= targetTicks;
-            if (lastSavedTick === null || tick - lastSavedTick >= 50 || reached) {
+            if (lastSavedTick === null || tick - lastSavedTick >= (pilotRoom ? 1 : 50) || reached || pilotFaults.length) {
                 const room = control.metrics?.rooms?.[roomName] || null;
                 const upgradeControl = control.rooms?.[roomName]?.capabilityControl?.upgradeWork;
                 const sample = {
@@ -90,6 +105,7 @@ async function main() {
                     } : null,
                     room, roomHistory: boundedHistory(control.metrics?.histories?.[roomName]?.samples),
                     metricsAge: room && Number.isFinite(room.capturedAt) ? tick - room.capturedAt : null,
+                    ...(proof ? {pilotProof: proof, deployedMapSha256} : {}),
                     acceptancePassed: false
                 };
                 fs.writeSync(fd, JSON.stringify(sample) + '\n');
@@ -98,7 +114,20 @@ async function main() {
             }
             lastTick = tick;
             if (!targetTicks) break;
-            if (reached) { stopReason = 'window_reached_review_required'; break; }
+            if (pilotFaults.length) { stopReason = 'pilot_controls_missing_or_changed'; break; }
+            if (reached) {
+                if (pilotRoom) {
+                    const endCode = await get('/api/user/code?branch=' + encodeURIComponent(branch));
+                    const modules = endCode.modules || {};
+                    if (typeof modules.main !== 'string' || hash(modules.main) !== deployedHash ||
+                        typeof modules['main.js.map'] !== 'string' || hash(modules['main.js.map']) !== expectedMapSha256) {
+                        stopReason = 'end_deployment_fingerprint_mismatch';
+                        break;
+                    }
+                }
+                stopReason = 'window_reached_review_required';
+                break;
+            }
             stopReason = 'read_or_snapshot_limit';
             await new Promise(resolve => setTimeout(resolve, 30000));
         }

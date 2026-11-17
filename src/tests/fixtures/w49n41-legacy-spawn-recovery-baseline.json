@@ -1,0 +1,2474 @@
+{
+  "kind": "simulated_legacy_baseline",
+  "room": "W49N41",
+  "cases": [
+    {
+      "label": "healthy_core",
+      "input": {
+        "tick": 2000,
+        "energy": 550,
+        "storage": 10000,
+        "controllerTicks": 12000,
+        "busy": null,
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Miner",
+            "role": "miner",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 5,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      },
+      "output": {
+        "recovery": {
+          "mode": "normal",
+          "reasons": [],
+          "evaluatedAt": 2000,
+          "coreUsable": {
+            "miner": 1,
+            "hauler": 3
+          },
+          "coreUpcoming": {
+            "miner": 0,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "capabilities": {
+          "stable": {
+            "harvestWork": 5,
+            "logisticsCarry": 3,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 2,
+            "defenseScore": 0
+          },
+          "retiring": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "spawning": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          }
+        },
+        "intents": [],
+        "intake": null,
+        "receiptsAtIntake": {},
+        "calls": [],
+        "accepted": {},
+        "receipts": {},
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Miner",
+            "role": "miner",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 5,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "label": "missing_miner",
+      "input": {
+        "tick": 2000,
+        "energy": 550,
+        "storage": 10000,
+        "controllerTicks": 12000,
+        "busy": null,
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      },
+      "output": {
+        "recovery": {
+          "mode": "miner_gap",
+          "reasons": [
+            "miner_gap"
+          ],
+          "evaluatedAt": 2000,
+          "coreUsable": {
+            "miner": 0,
+            "hauler": 3
+          },
+          "coreUpcoming": {
+            "miner": 0,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "capabilities": {
+          "stable": {
+            "harvestWork": 0,
+            "logisticsCarry": 3,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 2,
+            "defenseScore": 0
+          },
+          "retiring": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "spawning": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          }
+        },
+        "intents": [
+          {
+            "role": "miner",
+            "priority": 120,
+            "quotaKey": "miner:W49N41:source",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "reason": "miner_recovery"
+          }
+        ],
+        "intake": {
+          "tick": 2000,
+          "accepted": 1,
+          "blocked": 0,
+          "replays": 0,
+          "reasons": {
+            "accepted": 1
+          },
+          "lastReason": "accepted"
+        },
+        "receiptsAtIntake": {},
+        "calls": [
+          {
+            "name": "miner_2000_Spawn1_0",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "result": 0
+          }
+        ],
+        "accepted": {
+          "miner_2000_Spawn1_0": {
+            "schemaVersion": 2,
+            "acceptedAt": 2000,
+            "spawnName": "Spawn1",
+            "spawnRoom": "W49N41",
+            "memory": {
+              "quotaKey": "miner:W49N41:source",
+              "role": "miner",
+              "homeRoom": "W49N41",
+              "sourceId": "source"
+            },
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "expireAt": 2019,
+            "requestId": "REQ_SPAWN_2000_0",
+            "requestExpiresAt": 2001
+          }
+        },
+        "receipts": {
+          "REQ_SPAWN_2000_0": {
+            "name": "miner_2000_Spawn1_0",
+            "expireAt": 2001,
+            "roomName": "W49N41"
+          }
+        },
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2000_Spawn1_0",
+            "role": "miner",
+            "state": "accepted",
+            "source": "accepted",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "label": "busy_spawn_missing_haulers",
+      "input": {
+        "tick": 2000,
+        "energy": 550,
+        "storage": 10000,
+        "controllerTicks": 12000,
+        "busy": "BusyWorker",
+        "population": [
+          {
+            "name": "BusyWorker",
+            "role": null,
+            "state": "spawning",
+            "source": "spawn",
+            "bodyKnown": false,
+            "coversQuota": false,
+            "activeParts": {}
+          },
+          {
+            "name": "Miner",
+            "role": "miner",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 5,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      },
+      "output": {
+        "recovery": {
+          "mode": "hauler_gap",
+          "reasons": [
+            "hauler_gap"
+          ],
+          "evaluatedAt": 2000,
+          "coreUsable": {
+            "miner": 1,
+            "hauler": 0
+          },
+          "coreUpcoming": {
+            "miner": 0,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "capabilities": {
+          "stable": {
+            "harvestWork": 5,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 2,
+            "defenseScore": 0
+          },
+          "retiring": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "spawning": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          }
+        },
+        "intents": [
+          {
+            "role": "hauler",
+            "priority": 90,
+            "quotaKey": "hauler:W49N41:core",
+            "body": [
+              "carry",
+              "carry",
+              "move",
+              "move"
+            ],
+            "reason": "emergency_energy_logistics"
+          }
+        ],
+        "intake": {
+          "tick": 2000,
+          "accepted": 0,
+          "blocked": 1,
+          "replays": 0,
+          "reasons": {
+            "no_idle_spawn": 1
+          },
+          "lastReason": "no_idle_spawn"
+        },
+        "receiptsAtIntake": {},
+        "calls": [],
+        "accepted": {},
+        "receipts": {},
+        "population": [
+          {
+            "name": "BusyWorker",
+            "role": null,
+            "state": "spawning",
+            "source": "spawn",
+            "bodyKnown": false,
+            "coversQuota": false,
+            "activeParts": {}
+          },
+          {
+            "name": "Miner",
+            "role": "miner",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 5,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "label": "controller_threshold_equal",
+      "input": {
+        "tick": 2000,
+        "energy": 550,
+        "storage": 10000,
+        "controllerTicks": 5000,
+        "busy": null,
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      },
+      "output": {
+        "recovery": {
+          "mode": "miner_gap",
+          "reasons": [
+            "miner_gap"
+          ],
+          "evaluatedAt": 2000,
+          "coreUsable": {
+            "miner": 0,
+            "hauler": 3
+          },
+          "coreUpcoming": {
+            "miner": 0,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "capabilities": {
+          "stable": {
+            "harvestWork": 0,
+            "logisticsCarry": 3,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "retiring": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "spawning": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          }
+        },
+        "intents": [
+          {
+            "role": "miner",
+            "priority": 120,
+            "quotaKey": "miner:W49N41:source",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "reason": "miner_recovery"
+          }
+        ],
+        "intake": {
+          "tick": 2000,
+          "accepted": 1,
+          "blocked": 0,
+          "replays": 0,
+          "reasons": {
+            "accepted": 1
+          },
+          "lastReason": "accepted"
+        },
+        "receiptsAtIntake": {},
+        "calls": [
+          {
+            "name": "miner_2000_Spawn1_0",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "result": 0
+          }
+        ],
+        "accepted": {
+          "miner_2000_Spawn1_0": {
+            "schemaVersion": 2,
+            "acceptedAt": 2000,
+            "spawnName": "Spawn1",
+            "spawnRoom": "W49N41",
+            "memory": {
+              "quotaKey": "miner:W49N41:source",
+              "role": "miner",
+              "homeRoom": "W49N41",
+              "sourceId": "source"
+            },
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "expireAt": 2019,
+            "requestId": "REQ_SPAWN_2000_0",
+            "requestExpiresAt": 2001
+          }
+        },
+        "receipts": {
+          "REQ_SPAWN_2000_0": {
+            "name": "miner_2000_Spawn1_0",
+            "expireAt": 2001,
+            "roomName": "W49N41"
+          }
+        },
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2000_Spawn1_0",
+            "role": "miner",
+            "state": "accepted",
+            "source": "accepted",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "label": "controller_below_threshold",
+      "input": {
+        "tick": 2000,
+        "energy": 550,
+        "storage": 10000,
+        "controllerTicks": 4999,
+        "busy": null,
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      },
+      "output": {
+        "recovery": {
+          "mode": "miner_gap",
+          "reasons": [
+            "miner_gap"
+          ],
+          "evaluatedAt": 2000,
+          "coreUsable": {
+            "miner": 0,
+            "hauler": 3
+          },
+          "coreUpcoming": {
+            "miner": 0,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "capabilities": {
+          "stable": {
+            "harvestWork": 0,
+            "logisticsCarry": 3,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "retiring": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "spawning": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          }
+        },
+        "intents": [
+          {
+            "role": "miner",
+            "priority": 120,
+            "quotaKey": "miner:W49N41:source",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "reason": "miner_recovery"
+          },
+          {
+            "role": "upgrader",
+            "priority": 60,
+            "quotaKey": "upgrader:W49N41:controller",
+            "body": [
+              "work",
+              "work",
+              "work",
+              "work",
+              "carry",
+              "move",
+              "move"
+            ],
+            "reason": "controller_progress"
+          }
+        ],
+        "intake": {
+          "tick": 2000,
+          "accepted": 1,
+          "blocked": 1,
+          "replays": 0,
+          "reasons": {
+            "accepted": 1,
+            "no_idle_spawn": 1
+          },
+          "lastReason": "no_idle_spawn"
+        },
+        "receiptsAtIntake": {},
+        "calls": [
+          {
+            "name": "miner_2000_Spawn1_0",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "result": 0
+          }
+        ],
+        "accepted": {
+          "miner_2000_Spawn1_0": {
+            "schemaVersion": 2,
+            "acceptedAt": 2000,
+            "spawnName": "Spawn1",
+            "spawnRoom": "W49N41",
+            "memory": {
+              "quotaKey": "miner:W49N41:source",
+              "role": "miner",
+              "homeRoom": "W49N41",
+              "sourceId": "source"
+            },
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "expireAt": 2019,
+            "requestId": "REQ_SPAWN_2000_0",
+            "requestExpiresAt": 2001
+          }
+        },
+        "receipts": {
+          "REQ_SPAWN_2000_0": {
+            "name": "miner_2000_Spawn1_0",
+            "expireAt": 2001,
+            "roomName": "W49N41"
+          }
+        },
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2000_Spawn1_0",
+            "role": "miner",
+            "state": "accepted",
+            "source": "accepted",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "label": "accepted_before_visibility",
+      "input": {
+        "tick": 2000,
+        "energy": 550,
+        "storage": 10000,
+        "controllerTicks": 12000,
+        "busy": null,
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      },
+      "output": {
+        "recovery": {
+          "mode": "miner_gap",
+          "reasons": [
+            "miner_gap"
+          ],
+          "evaluatedAt": 2000,
+          "coreUsable": {
+            "miner": 0,
+            "hauler": 3
+          },
+          "coreUpcoming": {
+            "miner": 0,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "capabilities": {
+          "stable": {
+            "harvestWork": 0,
+            "logisticsCarry": 3,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 2,
+            "defenseScore": 0
+          },
+          "retiring": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "spawning": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          }
+        },
+        "intents": [
+          {
+            "role": "miner",
+            "priority": 120,
+            "quotaKey": "miner:W49N41:source",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "reason": "miner_recovery"
+          }
+        ],
+        "intake": {
+          "tick": 2000,
+          "accepted": 1,
+          "blocked": 0,
+          "replays": 0,
+          "reasons": {
+            "accepted": 1
+          },
+          "lastReason": "accepted"
+        },
+        "receiptsAtIntake": {},
+        "calls": [
+          {
+            "name": "miner_2000_Spawn1_0",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "result": 0
+          }
+        ],
+        "accepted": {
+          "miner_2000_Spawn1_0": {
+            "schemaVersion": 2,
+            "acceptedAt": 2000,
+            "spawnName": "Spawn1",
+            "spawnRoom": "W49N41",
+            "memory": {
+              "quotaKey": "miner:W49N41:source",
+              "role": "miner",
+              "homeRoom": "W49N41",
+              "sourceId": "source"
+            },
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "expireAt": 2019,
+            "requestId": "REQ_SPAWN_2000_0",
+            "requestExpiresAt": 2001
+          }
+        },
+        "receipts": {
+          "REQ_SPAWN_2000_0": {
+            "name": "miner_2000_Spawn1_0",
+            "expireAt": 2001,
+            "roomName": "W49N41"
+          }
+        },
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2000_Spawn1_0",
+            "role": "miner",
+            "state": "accepted",
+            "source": "accepted",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "label": "pending_spawn_after_reset",
+      "input": {
+        "tick": 2001,
+        "energy": 550,
+        "storage": 10000,
+        "controllerTicks": 12000,
+        "busy": "miner_2000_Spawn1_0",
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2000_Spawn1_0",
+            "role": "miner",
+            "state": "spawning",
+            "source": "spawn",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ],
+        "reset": "Memory JSON round trip and rebuilt Spawn/EventBus"
+      },
+      "output": {
+        "recovery": {
+          "mode": "miner_gap",
+          "reasons": [
+            "miner_gap"
+          ],
+          "evaluatedAt": 2001,
+          "coreUsable": {
+            "miner": 0,
+            "hauler": 3
+          },
+          "coreUpcoming": {
+            "miner": 1,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "capabilities": {
+          "stable": {
+            "harvestWork": 0,
+            "logisticsCarry": 3,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 2,
+            "defenseScore": 0
+          },
+          "retiring": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "spawning": {
+            "harvestWork": 2,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          }
+        },
+        "intents": [
+          {
+            "role": "miner",
+            "priority": 80,
+            "quotaKey": "miner:W49N41:source",
+            "body": [
+              "work",
+              "work",
+              "work",
+              "work",
+              "work",
+              "move"
+            ],
+            "reason": "source_uncovered"
+          }
+        ],
+        "intake": {
+          "tick": 2001,
+          "accepted": 0,
+          "blocked": 1,
+          "replays": 0,
+          "reasons": {
+            "no_idle_spawn": 1
+          },
+          "lastReason": "no_idle_spawn"
+        },
+        "receiptsAtIntake": {
+          "REQ_SPAWN_2000_0": {
+            "expireAt": 2001,
+            "name": "miner_2000_Spawn1_0",
+            "roomName": "W49N41"
+          }
+        },
+        "calls": [],
+        "accepted": {
+          "miner_2000_Spawn1_0": {
+            "schemaVersion": 2,
+            "acceptedAt": 2000,
+            "spawnName": "Spawn1",
+            "spawnRoom": "W49N41",
+            "memory": {
+              "quotaKey": "miner:W49N41:source",
+              "role": "miner",
+              "homeRoom": "W49N41",
+              "sourceId": "source"
+            },
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "expireAt": 2019,
+            "requestId": "REQ_SPAWN_2000_0",
+            "requestExpiresAt": 2001
+          }
+        },
+        "receipts": {
+          "REQ_SPAWN_2000_0": {
+            "expireAt": 2001,
+            "name": "miner_2000_Spawn1_0",
+            "roomName": "W49N41"
+          }
+        },
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2000_Spawn1_0",
+            "role": "miner",
+            "state": "spawning",
+            "source": "spawn",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "label": "born_and_core_usable",
+      "input": {
+        "tick": 2002,
+        "energy": 550,
+        "storage": 10000,
+        "controllerTicks": 12000,
+        "busy": null,
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2000_Spawn1_0",
+            "role": "miner",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ],
+        "transition": "simulated engine exposes born creep"
+      },
+      "output": {
+        "recovery": {
+          "mode": "normal",
+          "reasons": [],
+          "evaluatedAt": 2002,
+          "coreUsable": {
+            "miner": 1,
+            "hauler": 3
+          },
+          "coreUpcoming": {
+            "miner": 0,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "capabilities": {
+          "stable": {
+            "harvestWork": 2,
+            "logisticsCarry": 3,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 2,
+            "defenseScore": 0
+          },
+          "retiring": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "spawning": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          }
+        },
+        "intents": [
+          {
+            "role": "miner",
+            "priority": 80,
+            "quotaKey": "miner:W49N41:source",
+            "body": [
+              "work",
+              "work",
+              "work",
+              "work",
+              "work",
+              "move"
+            ],
+            "reason": "source_uncovered"
+          }
+        ],
+        "intake": {
+          "tick": 2002,
+          "accepted": 1,
+          "blocked": 0,
+          "replays": 1,
+          "reasons": {
+            "accepted": 1,
+            "request_replay": 1
+          },
+          "lastReason": "request_replay"
+        },
+        "receiptsAtIntake": {},
+        "calls": [
+          {
+            "name": "miner_2002_Spawn1_0",
+            "body": [
+              "work",
+              "work",
+              "work",
+              "work",
+              "work",
+              "move"
+            ],
+            "result": 0
+          }
+        ],
+        "accepted": {
+          "miner_2002_Spawn1_0": {
+            "schemaVersion": 2,
+            "acceptedAt": 2002,
+            "spawnName": "Spawn1",
+            "spawnRoom": "W49N41",
+            "memory": {
+              "quotaKey": "miner:W49N41:source",
+              "role": "miner",
+              "homeRoom": "W49N41",
+              "sourceId": "source"
+            },
+            "body": [
+              "work",
+              "work",
+              "work",
+              "work",
+              "work",
+              "move"
+            ],
+            "expireAt": 2030,
+            "requestId": "REQ_SPAWN_2001_0",
+            "requestExpiresAt": 2002
+          }
+        },
+        "receipts": {
+          "REQ_SPAWN_2001_0": {
+            "name": "miner_2002_Spawn1_0",
+            "expireAt": 2002,
+            "roomName": "W49N41"
+          }
+        },
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2000_Spawn1_0",
+            "role": "miner",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2002_Spawn1_0",
+            "role": "miner",
+            "state": "accepted",
+            "source": "accepted",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 5,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "label": "accepted_without_spawn_visibility",
+      "input": {
+        "tick": 2000,
+        "energy": 550,
+        "storage": 10000,
+        "controllerTicks": 12000,
+        "busy": null,
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      },
+      "output": {
+        "recovery": {
+          "mode": "miner_gap",
+          "reasons": [
+            "miner_gap"
+          ],
+          "evaluatedAt": 2000,
+          "coreUsable": {
+            "miner": 0,
+            "hauler": 3
+          },
+          "coreUpcoming": {
+            "miner": 0,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "capabilities": {
+          "stable": {
+            "harvestWork": 0,
+            "logisticsCarry": 3,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 2,
+            "defenseScore": 0
+          },
+          "retiring": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "spawning": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          }
+        },
+        "intents": [
+          {
+            "role": "miner",
+            "priority": 120,
+            "quotaKey": "miner:W49N41:source",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "reason": "miner_recovery"
+          }
+        ],
+        "intake": {
+          "tick": 2000,
+          "accepted": 1,
+          "blocked": 0,
+          "replays": 0,
+          "reasons": {
+            "accepted": 1
+          },
+          "lastReason": "accepted"
+        },
+        "receiptsAtIntake": {},
+        "calls": [
+          {
+            "name": "miner_2000_Spawn1_0",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "result": 0
+          }
+        ],
+        "accepted": {
+          "miner_2000_Spawn1_0": {
+            "schemaVersion": 2,
+            "acceptedAt": 2000,
+            "spawnName": "Spawn1",
+            "spawnRoom": "W49N41",
+            "memory": {
+              "quotaKey": "miner:W49N41:source",
+              "role": "miner",
+              "homeRoom": "W49N41",
+              "sourceId": "source"
+            },
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "expireAt": 2019,
+            "requestId": "REQ_SPAWN_2000_0",
+            "requestExpiresAt": 2001
+          }
+        },
+        "receipts": {
+          "REQ_SPAWN_2000_0": {
+            "name": "miner_2000_Spawn1_0",
+            "expireAt": 2001,
+            "roomName": "W49N41"
+          }
+        },
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2000_Spawn1_0",
+            "role": "miner",
+            "state": "accepted",
+            "source": "accepted",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "label": "accepted_backup_without_visibility_on_later_tick",
+      "input": {
+        "tick": 2001,
+        "energy": 550,
+        "storage": 10000,
+        "controllerTicks": 12000,
+        "busy": null,
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2000_Spawn1_0",
+            "role": "miner",
+            "state": "invalid",
+            "source": "unknown",
+            "bodyKnown": true,
+            "coversQuota": false,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ],
+        "reset": "Memory JSON round trip with no live creep or Spawn.spawning",
+        "originalAcceptedName": "miner_2000_Spawn1_0"
+      },
+      "output": {
+        "recovery": {
+          "mode": "miner_gap",
+          "reasons": [
+            "miner_gap"
+          ],
+          "evaluatedAt": 2001,
+          "coreUsable": {
+            "miner": 0,
+            "hauler": 3
+          },
+          "coreUpcoming": {
+            "miner": 0,
+            "hauler": 0
+          },
+          "blockedBy": []
+        },
+        "capabilities": {
+          "stable": {
+            "harvestWork": 0,
+            "logisticsCarry": 3,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 2,
+            "defenseScore": 0
+          },
+          "retiring": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          },
+          "spawning": {
+            "harvestWork": 0,
+            "logisticsCarry": 0,
+            "buildWork": 0,
+            "repairWork": 0,
+            "upgradeWork": 0,
+            "defenseScore": 0
+          }
+        },
+        "intents": [
+          {
+            "role": "miner",
+            "priority": 120,
+            "quotaKey": "miner:W49N41:source",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "reason": "miner_recovery"
+          }
+        ],
+        "intake": {
+          "tick": 2001,
+          "accepted": 1,
+          "blocked": 0,
+          "replays": 0,
+          "reasons": {
+            "accepted": 1
+          },
+          "lastReason": "accepted"
+        },
+        "receiptsAtIntake": {
+          "REQ_SPAWN_2000_0": {
+            "expireAt": 2001,
+            "name": "miner_2000_Spawn1_0",
+            "roomName": "W49N41"
+          }
+        },
+        "calls": [
+          {
+            "name": "miner_2001_Spawn1_0",
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "result": 0
+          }
+        ],
+        "accepted": {
+          "miner_2000_Spawn1_0": {
+            "schemaVersion": 2,
+            "acceptedAt": 2000,
+            "spawnName": "Spawn1",
+            "spawnRoom": "W49N41",
+            "memory": {
+              "quotaKey": "miner:W49N41:source",
+              "role": "miner",
+              "homeRoom": "W49N41",
+              "sourceId": "source"
+            },
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "expireAt": 2019,
+            "requestId": "REQ_SPAWN_2000_0",
+            "requestExpiresAt": 2001
+          },
+          "miner_2001_Spawn1_0": {
+            "schemaVersion": 2,
+            "acceptedAt": 2001,
+            "spawnName": "Spawn1",
+            "spawnRoom": "W49N41",
+            "memory": {
+              "quotaKey": "miner:W49N41:source",
+              "role": "miner",
+              "homeRoom": "W49N41",
+              "sourceId": "source"
+            },
+            "body": [
+              "work",
+              "work",
+              "move"
+            ],
+            "expireAt": 2020,
+            "requestId": "REQ_SPAWN_2001_0",
+            "requestExpiresAt": 2002
+          }
+        },
+        "receipts": {
+          "REQ_SPAWN_2000_0": {
+            "expireAt": 2001,
+            "name": "miner_2000_Spawn1_0",
+            "roomName": "W49N41"
+          },
+          "REQ_SPAWN_2001_0": {
+            "name": "miner_2001_Spawn1_0",
+            "expireAt": 2002,
+            "roomName": "W49N41"
+          }
+        },
+        "population": [
+          {
+            "name": "Hauler1",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler2",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Hauler3",
+            "role": "hauler",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2000_Spawn1_0",
+            "role": "miner",
+            "state": "invalid",
+            "source": "unknown",
+            "bodyKnown": true,
+            "coversQuota": false,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          },
+          {
+            "name": "miner_2001_Spawn1_0",
+            "role": "miner",
+            "state": "accepted",
+            "source": "accepted",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 2,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader1",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          },
+          {
+            "name": "Upgrader2",
+            "role": "upgrader",
+            "state": "active",
+            "source": "live",
+            "bodyKnown": true,
+            "coversQuota": true,
+            "activeParts": {
+              "work": 1,
+              "carry": 1,
+              "move": 1
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

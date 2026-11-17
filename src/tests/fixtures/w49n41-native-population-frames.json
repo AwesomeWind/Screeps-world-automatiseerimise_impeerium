@@ -1,0 +1,56 @@
+[
+  {
+    "tick": 84105972,
+    "version": "1793956506790",
+    "energy": 3500,
+    "downgrade": 199999,
+    "recovery": {
+      "tick": 84105972,
+      "mode": "normal",
+      "usable": {
+        "miner": 2,
+        "hauler": 2
+      },
+      "upcoming": {
+        "miner": 0,
+        "hauler": 1
+      }
+    },
+    "spawns": [
+      {
+        "name": "Spawn1",
+        "active": true,
+        "busy": true,
+        "role": "hauler",
+        "remaining": 7
+      }
+    ]
+  },
+  {
+    "tick": 84106027,
+    "version": "1793956506790",
+    "energy": 3500,
+    "downgrade": 199979,
+    "recovery": {
+      "tick": 84106027,
+      "mode": "normal",
+      "usable": {
+        "miner": 2,
+        "hauler": 3
+      },
+      "upcoming": {
+        "miner": 0,
+        "hauler": 0
+      }
+    },
+    "spawns": [
+      {
+        "name": "Spawn1",
+        "active": true,
+        "busy": false,
+        "role": null,
+        "remaining": null
+      }
+    ]
+  }
+]

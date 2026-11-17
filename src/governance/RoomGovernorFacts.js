@@ -1,4 +1,4 @@
-import { currentCreepPopulation, activeBodyPartCount as activePartCount } from '../core/CreepPopulation.js';
+import { currentCreepPopulation } from '../core/CreepPopulation.js';
 
 function emptyCapabilities() {
     return {
@@ -11,21 +11,21 @@ function emptyCapabilities() {
     };
 }
 
-function defenseScore(body) {
-    return activePartCount(body, HEAL) * 100 +
-        activePartCount(body, RANGED_ATTACK) * 60 +
-        activePartCount(body, ATTACK) * 40 +
-        activePartCount(body, TOUGH) * 5;
+function defenseScore(parts) {
+    return (parts[HEAL] || 0) * 100 +
+        (parts[RANGED_ATTACK] || 0) * 60 +
+        (parts[ATTACK] || 0) * 40 +
+        (parts[TOUGH] || 0) * 5;
 }
 
-function addRoleCapability(target, memory, body) {
-    if (!memory || !memory.role) return;
-    if (memory.role === 'miner') target.harvestWork += activePartCount(body, WORK);
-    else if (memory.role === 'hauler') target.logisticsCarry += activePartCount(body, CARRY);
-    else if (memory.role === 'builder') target.buildWork += activePartCount(body, WORK);
-    else if (memory.role === 'repairer') target.repairWork += activePartCount(body, WORK);
-    else if (memory.role === 'upgrader') target.upgradeWork += activePartCount(body, WORK);
-    else if (memory.role === 'defender') target.defenseScore += defenseScore(body);
+function addRoleCapability(target, { memory, activeParts }) {
+    const role = memory.role;
+    if (role === 'miner') target.harvestWork += activeParts[WORK] || 0;
+    else if (role === 'hauler') target.logisticsCarry += activeParts[CARRY] || 0;
+    else if (role === 'builder') target.buildWork += activeParts[WORK] || 0;
+    else if (role === 'repairer') target.repairWork += activeParts[WORK] || 0;
+    else if (role === 'upgrader') target.upgradeWork += activeParts[WORK] || 0;
+    else if (role === 'defender') target.defenseScore += defenseScore(activeParts);
 }
 
 function ensureRoomIndex(index, roomName) {
@@ -39,8 +39,8 @@ function indexCreepCapabilities(replacementLeadTicks) {
     const spawning = {};
     for (const entry of currentCreepPopulation(replacementLeadTicks)) {
         if (!entry.roomName || entry.state === 'invalid') continue;
-        const index = ['spawning', 'accepted'].includes(entry.state) ? spawning : (entry.state === 'retiring' ? retiring : stable);
-        addRoleCapability(ensureRoomIndex(index, entry.roomName), entry.memory, entry.body);
+        const index = entry.spawnInProgress ? spawning : (entry.state === 'retiring' ? retiring : stable);
+        addRoleCapability(ensureRoomIndex(index, entry.roomName), entry);
     }
     return { stable, retiring, spawning };
 }

@@ -58,10 +58,15 @@ export function collectCreepPopulation({
         if (!bodyKnown) reasons.push('body_unknown');
         const requiredPart = ROLE_PARTS[memory.role];
         const functional = !requiredPart || !bodyKnown || (activeParts[requiredPart] || 0) > 0;
+        const spawnInProgress = state === 'accepted' || state === 'spawning';
+        // Quota can be held while body evidence is missing. Usable labor requires a known body.
+        const coversQuota = !!memory.role && (state === 'active' || spawnInProgress) && functional;
         entries.push({
             name, memory, body, bodyKnown, state, activeParts, source,
             roomName: memory.homeRoom || memory.targetRoom || (creep && creep.room && creep.room.name) || null,
-            coversQuota: !!memory.role && ['active', 'spawning', 'accepted'].includes(state) && functional,
+            coversQuota,
+            spawnInProgress,
+            usableForRole: coversQuota && state === 'active' && bodyKnown,
             retireRequested: memory.retire === true,
             reasons
         });

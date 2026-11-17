@@ -3,16 +3,14 @@ import { ensureEmpireControl } from '../config/EmpirePolicy.js';
 import { isSourceContainerAsset, isControllerContainerAsset } from '../planning/CityPlanLegacyAdapter.js';
 import { getPlannedRole } from '../planning/CityPlanHelpers.js';
 
-export function controllerEmergency(room) {
+export function controllerEmergency(room, threshold = ensureEmpireControl().policy.capabilityControl.controllerEmergencyTicks) {
     const ticks = room && room.controller && room.controller.ticksToDowngrade;
-    const threshold = ensureEmpireControl().policy.capabilityControl.controllerEmergencyTicks;
     return Number.isFinite(ticks) && ticks >= 0 && Number.isFinite(threshold) && ticks < threshold;
 }
 
-export function recoveryRestricted(roomName) {
-    const policy = ensureEmpireControl().policy.economyRecovery;
+export function recoveryRestricted(roomName, enabled = ensureEmpireControl().policy.economyRecovery.enabled) {
     const phase = global.RoomPhase && global.RoomPhase[roomName];
-    return policy.enabled === true && !!(phase && phase.recovery && phase.recovery.mode !== 'normal');
+    return enabled === true && !!(phase && phase.recovery && phase.recovery.mode !== 'normal');
 }
 
 export function essentialConstruction(room, target) {

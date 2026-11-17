@@ -1,6 +1,8 @@
 import BaseService from '../core/BaseService.js';
 import EventBus from '../core/EventBus.js';
 import { ensureEmpireControl } from '../config/EmpirePolicy.js';
+import { isLocalSpawnPilotRoom, validLocalSpawnRequest, hasLocalSpawnInFlight, admitLocalSpawn,
+    runLocalSpawn, reconcileLocalSpawnReceipts } from './LocalSpawnLifecycle.js';
 import { validateSpawnGrant, recordSpawnResult } from './RemoteMiningLedger.js';
 import { getReconTrialPermit, recordReconTrialSpawn } from './RemoteReconTrialService.js';
 import { getEconomicTrialPermit, recordEconomicTrialSpawn, settleEconomicTrialSpawn, inspectEconomicTrialSpawnCandidate,
@@ -54,6 +56,7 @@ class SpawnService extends BaseService {
             }
         }
         this.restoreMissingCreepMemory();
+        reconcileLocalSpawnReceipts();
 
         for (const spawnName in Game.spawns) {
             const spawn = Game.spawns[spawnName];
@@ -87,6 +90,12 @@ class SpawnService extends BaseService {
             this.recordIntake(roomName, 'invalid_request');
             return true;
         }
+        const localPilot = data.localReplacementPilot === true;
+        if (localPilot && (remoteContext.required || isEconomicCandidate ||
+            !isLocalSpawnPilotRoom(Game.rooms[roomName]) || !validLocalSpawnRequest(event))) {
+            this.recordIntake(roomName, 'invalid_local_spawn_pilot');
+            return true;
+        }
         const requestId = data.requestId || event.id;
         const quotaKey = data.memory && data.memory.quotaKey;
         const economicQuota = ['miner', 'hauler', 'upgrader', 'builder', 'repairer', 'scout', 'reserver', 'remoteMiner', 'remoteHauler'].includes(data.role || (data.memory && data.memory.role)) && quotaKey;
@@ -95,6 +104,10 @@ class SpawnService extends BaseService {
             (scopedQuota && this.pendingQuotas.has(scopedQuota)) ||
             (data.name && (this.pendingNames.has(data.name) || Game.creeps[data.name]))) {
             this.recordIntake(roomName, 'request_replay');
+            return true;
+        }
+        if (!remoteContext.required && !isEconomicCandidate && hasLocalSpawnInFlight(roomName, quotaKey)) {
+            this.recordIntake(roomName, 'local_spawn_in_flight');
             return true;
         }
         const configuredLimit = ensureEmpireControl().policy.spawnIntake.maxReceiptsPerRoom;
@@ -125,6 +138,19 @@ class SpawnService extends BaseService {
         if (isEconomicCandidate) {
             return this.handleEconomicCandidate(event, data, spawn, spawns, name, cost, scopedQuota);
         }
+        let localReceipt;
+        if (localPilot) {
+            try {
+                localReceipt = admitLocalSpawn(event, name, spawnName, cost);
+            } catch {
+                localReceipt = null;
+            }
+            if (!localReceipt) {
+                spawns.push(spawn);
+                this.recordIntake(roomName, 'local_spawn_receipt_unavailable');
+                return true;
+            }
+        }
         const trialContext = remoteContext.trialManaged ? reconTrialContext(data, name, spawnName) : null;
         const economicContext = remoteContext.economicManaged ? economicTrialContext(data, name, spawnName) : null;
         if (economicContext && !recordEconomicTrialSpawn(economicContext, { type: 'intake' }).allowed) {
@@ -141,7 +167,8 @@ class SpawnService extends BaseService {
         if (requestId) this.pendingRequestKeys.add(requestId);
         if (scopedQuota) this.pendingQuotas.add(scopedQuota);
         this.pendingNames.add(name);
-        this.pendingTasks.push({ spawn, data, name, cost, requestId, event, trialContext, economicContext });
+        const taskData = localReceipt ? {...data, body: [...data.body], memory: {...data.memory}} : data;
+        this.pendingTasks.push({ spawn, data: taskData, name, cost, requestId, event, trialContext, economicContext, localReceipt });
         if (remoteContext.grant) {
             remoteContext.grant.executing = true;
             remoteContext.grant.executingAt = Game.time;
@@ -198,7 +225,9 @@ class SpawnService extends BaseService {
     run() {
         for (const task of this.pendingTasks) {
             if (task.allocationReleased) continue;
-            const memory = task.data.memory || { role: task.data.role };
+            const memory = task.localReceipt
+                ? {...task.data.memory, localSpawnRequestId: task.requestId}
+                : task.data.memory || { role: task.data.role };
             const remoteContext = this.remoteSpawnContext(task.data, 'run');
             if (remoteContext.required && !remoteContext.allowed) {
                 this.energyBalance[task.data.roomName] += task.cost;
@@ -220,10 +249,27 @@ class SpawnService extends BaseService {
                 recordEconomicTrialSpawn(task.economicContext, { type: 'not_called' });
                 continue;
             }
-            const result = task.spawn.spawnCreep(task.data.body, task.name, {
+            const call = () => task.spawn.spawnCreep(task.data.body, task.name, {
                 memory,
                 directions: task.data.directions
             });
+            let result;
+            if (task.localReceipt) {
+                let outcome;
+                try {
+                    outcome = runLocalSpawn(task.localReceipt, call);
+                } catch {
+                    outcome = {state: 'unknown'};
+                }
+                if (outcome.state === 'unknown' || outcome.state === 'not_called') {
+                    if (outcome.state === 'not_called') this.energyBalance[task.data.roomName] += task.cost;
+                    this.recordIntake(task.data.roomName, 'local_spawn_' + outcome.state);
+                    continue;
+                }
+                result = outcome.result;
+            } else {
+                result = call();
+            }
             if (task.economicContext) settleEconomicTrialSpawn(task.economicContext, result, remoteContext.budget, remoteContext.operation);
             else if (remoteContext.required) recordSpawnResult(remoteContext.budget, remoteContext.operation.ledger, {
                 requestId: task.requestId, name: task.name, result, body: task.data.body, acceptedAt: Game.time
@@ -238,7 +284,7 @@ class SpawnService extends BaseService {
                     Memory.creeps[task.name] = memory;
                     Memory.empire.spawningCreeps[task.name] = this.createSpawnMemoryRecord(memory, task.data.body, task.spawn);
                     if (task.requestId) {
-                        const deadline = task.event && task.event.expireAt !== undefined ? task.event.expireAt : Game.time + 1;
+                        const deadline = task.localReceipt?.expireAt ?? task.event?.expireAt ?? Game.time + 1;
                         Object.assign(Memory.empire.spawningCreeps[task.name], { requestId: task.requestId, requestExpiresAt: deadline });
                         this.requestReceipts[task.requestId] = { name: task.name, expireAt: deadline, roomName: task.data.roomName };
                     }
@@ -247,7 +293,7 @@ class SpawnService extends BaseService {
                 const roomName = task.data.roomName;
                 this.recordIntake(roomName, 'spawn_failed');
                 if (task.cost !== undefined) this.energyBalance[roomName] += task.cost;
-                if (task.event && task.event.expireAt >= Game.time && result !== ERR_NAME_EXISTS) {
+                if (!task.localReceipt && task.event && task.event.expireAt >= Game.time && result !== ERR_NAME_EXISTS) {
                     const eventId = EventBus.publish('REQ_SPAWN', task.event.priority, {
                         ...task.data, requestId: task.requestId
                     }, task.event.expireAt - Game.time);
