@@ -73,6 +73,17 @@ const RuntimeTelemetry = {
             if (last && last.tick === Game.time && last.codeVersion === state.codeVersion) last.totalCpu = state.totalCpu;
         }
         if (hasErrors) return;
+        this.persistSummary(control, state, tick);
+
+        const pending = state.pendingHomePreflight;
+        if (pending && control.metrics.rooms?.[pending.roomName] === pending.row &&
+            pending.row.capturedAt === tick && pending.row.codeVersion === state.codeVersion &&
+            pending.snapshot.capturedAt === tick && !(pending.row.homePreflight?.capturedAt >= tick)) {
+            pending.row.homePreflight = pending.snapshot;
+        }
+    },
+
+    persistSummary(control, state, tick) {
         const interval = Math.max(1, control.policy.telemetry.persistInterval || 10);
         const saved = control.telemetry;
         const sameVersion = saved.codeVersion === state.codeVersion;

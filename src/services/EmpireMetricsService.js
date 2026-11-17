@@ -1,5 +1,6 @@
 import BaseService from '../core/BaseService.js';
 import { ensureEmpireControl } from '../config/EmpirePolicy.js';
+import { stageHomePreflight } from './HomePreflightMetrics.js';
 import { beginObservationTick, prepareObservationSample, pauseObservation } from '../core/MetricObservationWindow.js';
 
 function compactUpgradeWorkControl(roomName, governor, bureau, roomControl) {
@@ -126,7 +127,10 @@ class EmpireMetricsService extends BaseService {
                 ? (room.storage.store.getUsedCapacity(energyResource) || 0)
                 : 0;
 
-            control.metrics.rooms[roomName] = {
+            const previousHomePreflight = control.metrics.rooms[roomName]?.homePreflight;
+            // Keep the room fields paired with the committed proof on a repeated tick.
+            if (previousHomePreflight?.capturedAt === Game.time) continue;
+            const snapshot = {
                 capturedAt: Game.time,
                 codeVersion: global.EmpireTelemetry ? global.EmpireTelemetry.codeVersion : (global.EmpireServicesVersion || null),
                 recovery: compactRecovery(phase.recovery),
@@ -169,6 +173,9 @@ class EmpireMetricsService extends BaseService {
                     : null,
                 upgradeWorkControl: compactUpgradeWorkControl(roomName, governor, bureau, roomControl)
             };
+            if (previousHomePreflight !== undefined) snapshot.homePreflight = previousHomePreflight;
+            control.metrics.rooms[roomName] = snapshot;
+            stageHomePreflight(control, room, snapshot);
             const historyInterval = Math.max(1, control.policy.telemetry.metricsHistoryInterval || 50);
             if (Game.time % historyInterval === 0) this.recordHistory(control, roomName);
         }
