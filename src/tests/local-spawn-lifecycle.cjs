@@ -1,10 +1,12 @@
 const assert = require('node:assert/strict');
 const {before, test} = require('node:test');
 const {installGlobals, store} = require('./helpers/remote-mining-fixture.cjs');
+const {actorId, spawnId} = require('./helpers/local-spawn-supply-data.cjs');
 
 const roomName = 'W49N41';
 const quotaKey = 'hauler:W49N41:core';
 let EventBus, SpawnService, Bureau, RoomPhase, ResourceMarket, ActionParser;
+let LocalSpawnSupplyEvidence, assignTask;
 
 before(async () => {
     installGlobals();
@@ -14,6 +16,8 @@ before(async () => {
     ({default: RoomPhase} = await import('../services/RoomPhaseService.js'));
     ({default: ResourceMarket} = await import('../services/ResourceMarketService.js'));
     ({default: ActionParser} = await import('../core/ActionParser.js'));
+    ({default: LocalSpawnSupplyEvidence} = await import('../services/LocalSpawnSupplyEvidenceService.js'));
+    ({assignTask} = await import('../core/TaskMetadata.js'));
 });
 
 function world({pilot = true} = {}) {
@@ -197,7 +201,8 @@ test('newborn replacement uses the real market and action path to restore Spawn 
     const [{name, body, memory}] = calls;
 
     Game.time += body.length * CREEP_SPAWN_TIME;
-    spawn.id = 'spawn';
+    spawn.id = spawnId;
+    spawn.my = true;
     spawn.structureType = STRUCTURE_SPAWN;
     spawn.pos = new RoomPosition(12, 10, roomName);
     spawn.store = store(100, 300);
@@ -211,8 +216,12 @@ test('newborn replacement uses the real market and action path to restore Spawn 
     };
     Game.getObjectById = id => id === spawn.id ? spawn : (id === room.storage.id ? room.storage : null);
     let nextTick;
+    const events = [];
+    global.EVENT_TRANSFER = 12;
+    room.getEventLog = () => events;
     const creep = {
-        name, room, memory, body: body.map(type => ({type, hits: 100})), ticksToLive: 1500,
+        id: actorId, my: true, spawning: false, name, room, memory,
+        body: body.map(type => ({type, hits: 100})), ticksToLive: 1500,
         pos: new RoomPosition(11, 10, roomName), store: store(0, 100),
         withdraw(target, resource, amount) {
             assert.equal(target.id, 'storage');
@@ -221,13 +230,15 @@ test('newborn replacement uses the real market and action path to restore Spawn 
             return OK;
         },
         transfer(target, resource, amount) {
-            assert.equal(target.id, 'spawn');
+            assert.equal(target.id, spawnId);
             assert.equal(resource, RESOURCE_ENERGY);
             const applied = amount ?? this.store.energy;
             nextTick = () => {
                 target.store.energy += applied;
                 room.energyAvailable += applied;
                 this.store.energy -= applied;
+                events.push({event: EVENT_TRANSFER, objectId: this.id,
+                    data: {targetId: target.id, amount: applied, resourceType: resource}});
             };
             return OK;
         }
@@ -257,6 +268,21 @@ test('newborn replacement uses the real market and action path to restore Spawn 
     nextTick();
     assert.equal(spawn.store.energy, 200);
     assert.equal(creep.store.energy, 0);
+
+    // Engine effects are simulated. Evidence reads the real task/reservation fields.
+    Game.shard = {name: 'shard3'};
+    Game.cpu = {bucket: 10000, tickLimit: 500, getUsed: () => 10};
+    global.EmpireServicesVersion = 'simulation';
+    const observer = new LocalSpawnSupplyEvidence('LocalSpawnSupplyEvidence');
+    observer.init();
+    const priorClear = creep.memory.lastTaskClear;
+    assignTask(creep, {type: 'WITHDRAW', targetId: 'storage'});
+    assert.equal(creep.memory.lastTaskClear, undefined);
+    observer.cleanup();
+    const [record] = Memory.empire.observations.localSpawnSupply.records;
+    assert.equal(record.birth.requestId, request.id);
+    assert.equal(record.frame.tick, priorClear.tick + 1);
+    assert.deepEqual(record.frame.transfers, [[actorId, spawnId, 100, RESOURCE_ENERGY]]);
 });
 
 test('default-off or another owned room preserves the original path without creating pilot history', () => {

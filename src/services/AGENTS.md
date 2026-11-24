@@ -1,5 +1,7 @@
 # services 模块说明
 
+- `LocalSpawnSupplyEvidence` 仅观察已启用的 shard3/W49N41 单房补员试点。init 在 Spawn 回执刷新后复制上个 tick 的转移与库存事实，cleanup 在核心工作后核对本 tick 的原生日志，写入独立观察 store。只留存同一出生请求的首份严格双端证据，最多 16 条／16,384 字符；CPU、写入异常、跨 tick 或撤权保守缺证。观察服务不发任务、不改预算、预留或启停。HTTP 审阅继续要求同轮版本、指纹、范围和真实 10,000 tick。
+
 - HomeEvidenceWindow Store v2的admission与可空window分离；根pending保存reserve/reject/admit/capture/seal/diagnostic候选。Persistence只做一次pending和一次final并精确读回，unknown不重写；查询优先报告pending，不把候选accepted/window当作已接纳。v1旧记录继续严格只读。
 - 首因及首次实际观察clock固定；CPU不足且明确未调用写入时，可以在原身份/原期限内仅封存原诊断，不重读gate、选择对象或admit。CPU样本可含commitKind区分同tick的不同提交；未采到的样本null，不为补afterFinal递归写入。原预算5/2与bucket5000仍适用于全部诊断工作。
 
